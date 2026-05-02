@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import yaml
 
+from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.smoke import INPUT_SPEC, OUTPUT_SPEC, _extract_mask_logits, _import_candidate_model
 from ml_autoresearch.synthetic import SyntheticContrailDataset
@@ -27,12 +28,62 @@ class TrainingError(RuntimeError):
 def train_synthetic_fixture_run(run_dir: str | Path) -> dict[str, float]:
     """Train one epoch on deterministic generated Contrail Mask fixture data."""
 
+    train_loader_factory = lambda batch_size: DataLoader(  # noqa: E731 - local concise factory.
+        SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED), batch_size=batch_size, shuffle=False
+    )
+    val_loader_factory = lambda batch_size: DataLoader(  # noqa: E731
+        SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000), batch_size=batch_size, shuffle=False
+    )
+    return _train_one_epoch_run(
+        run_dir,
+        start_line="Starting deterministic synthetic contrail fixture training.",
+        success_line="Synthetic training completed.",
+        failure_prefix="Synthetic training failed",
+        train_loader_factory=train_loader_factory,
+        val_loader_factory=val_loader_factory,
+        train_sample_count=TRAIN_SAMPLES,
+    )
+
+
+def train_gvccs_run(run_dir: str | Path, data_root: str | Path, *, max_samples: int | None = None) -> dict[str, float]:
+    """Train one epoch on local GVCCS RGB image and binary Contrail Mask pairs."""
+
+    samples = discover_gvccs_samples(data_root, split="train", max_samples=max_samples)
+    split = deterministic_train_val_split(samples)
+
+    train_loader_factory = lambda batch_size: DataLoader(  # noqa: E731
+        GVCCSDataset(split.train), batch_size=batch_size, shuffle=False
+    )
+    val_loader_factory = lambda batch_size: DataLoader(  # noqa: E731
+        GVCCSDataset(split.val), batch_size=batch_size, shuffle=False
+    )
+    return _train_one_epoch_run(
+        run_dir,
+        start_line=f"Starting GVCCS training from {Path(data_root)} with {len(split.train)} train and {len(split.val)} val samples.",
+        success_line="GVCCS training completed.",
+        failure_prefix="GVCCS training failed",
+        train_loader_factory=train_loader_factory,
+        val_loader_factory=val_loader_factory,
+        train_sample_count=len(split.train),
+    )
+
+
+def _train_one_epoch_run(
+    run_dir: str | Path,
+    *,
+    start_line: str,
+    success_line: str,
+    failure_prefix: str,
+    train_loader_factory,
+    val_loader_factory,
+    train_sample_count: int,
+) -> dict[str, float]:
     path = Path(run_dir)
     log_path = path / "logs" / "training.log"
     metrics_path = path / "metrics.jsonl"
     final_metrics_path = path / "final_metrics.json"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["Starting deterministic synthetic contrail fixture training."]
+    lines = [start_line]
 
     try:
         torch.manual_seed(SYNTHETIC_FIXTURE_SEED)
@@ -48,16 +99,8 @@ def train_synthetic_fixture_run(run_dir: str | Path) -> dict[str, float]:
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=float(training["learning_rate"]))
         batch_size = int(training["batch_size"])
-        train_loader = DataLoader(
-            SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED),
-            batch_size=batch_size,
-            shuffle=False,
-        )
-        val_loader = DataLoader(
-            SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000),
-            batch_size=batch_size,
-            shuffle=False,
-        )
+        train_loader = train_loader_factory(batch_size)
+        val_loader = val_loader_factory(batch_size)
 
         metrics_path.write_text("")
         model.train()
@@ -72,15 +115,15 @@ def train_synthetic_fixture_run(run_dir: str | Path) -> dict[str, float]:
             _append_jsonl(metrics_path, {"split": "train", "epoch": 1, "batch": batch_index, "loss": float(loss.item())})
 
         final = _evaluate(model, val_loader)
-        final["train/loss"] = train_loss_total / TRAIN_SAMPLES
+        final["train/loss"] = train_loss_total / train_sample_count
         final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
         _append_jsonl(metrics_path, {"split": "val", "epoch": 1, **final})
-        lines.append("Synthetic training completed.")
+        lines.append(success_line)
         log_path.write_text("\n".join(lines) + "\n")
         return final
     except Exception as exc:  # noqa: BLE001 - persist clear Harness failure details.
         reason = str(exc)
-        lines.append(f"Synthetic training failed: {reason}")
+        lines.append(f"{failure_prefix}: {reason}")
         lines.append(traceback.format_exc())
         log_path.write_text("\n".join(lines) + "\n")
         if isinstance(exc, TrainingError):
@@ -115,7 +158,7 @@ def _evaluate(model: torch.nn.Module, val_loader: DataLoader) -> dict[str, float
         "val/iou": metrics["iou"],
         "val/precision": metrics["precision"],
         "val/recall": metrics["recall"],
-        "val/loss": total_loss / VAL_SAMPLES,
+        "val/loss": total_loss / len(val_loader.dataset),
     }
 
 

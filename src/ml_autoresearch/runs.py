@@ -15,7 +15,7 @@ import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.smoke import SmokeTestError, smoke_test_run
-from ml_autoresearch.training import TrainingError, train_synthetic_fixture_run
+from ml_autoresearch.training import TrainingError, train_gvccs_run, train_synthetic_fixture_run
 
 
 class RunStatus(StrEnum):
@@ -41,6 +41,18 @@ class RunSubmission:
 def run_candidate_with_synthetic_fixture(candidate_dir: str | Path, runs_root: str | Path) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
 
+    return _run_candidate_training(candidate_dir, runs_root, lambda run_dir: train_synthetic_fixture_run(run_dir))
+
+
+def run_candidate_with_gvccs_data(
+    candidate_dir: str | Path, runs_root: str | Path, data_root: str | Path, *, max_samples: int | None = None
+) -> RunSubmission:
+    """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
+
+    return _run_candidate_training(candidate_dir, runs_root, lambda run_dir: train_gvccs_run(run_dir, data_root, max_samples=max_samples))
+
+
+def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, trainer) -> RunSubmission:
     run = submit_candidate(candidate_dir, runs_root)
     if run.status != RunStatus.ACCEPTED:
         return run
@@ -60,7 +72,7 @@ def run_candidate_with_synthetic_fixture(candidate_dir: str | Path, runs_root: s
         training_failure_reason=None,
     )
     try:
-        train_synthetic_fixture_run(run.run_dir)
+        trainer(run.run_dir)
     except TrainingError as exc:
         reason = str(exc)
         _write_metadata(

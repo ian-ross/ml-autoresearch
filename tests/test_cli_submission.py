@@ -86,3 +86,26 @@ def test_run_candidate_cli_synthetic_fixture_trains_and_prints_json(tmp_path: Pa
     assert payload["status"] == "completed"
     assert (runs_root / payload["run_id"] / "final_metrics.json").exists()
     assert (runs_root / payload["run_id"] / "logs" / "training.log").exists()
+
+
+def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    completed = run_cli(
+        "run-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--data-root",
+        "tests/fixtures/gvccs_like",
+        "--max-samples",
+        "4",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "completed"
+    assert (runs_root / payload["run_id"] / "final_metrics.json").exists()
+    assert "GVCCS" in (runs_root / payload["run_id"] / "logs" / "training.log").read_text()

@@ -1,0 +1,121 @@
+{
+  "images": [
+    {
+      "file_name": "image_20260502000000.png",
+      "id": 0,
+      "width": 192,
+      "height": 192,
+      "time": "2026-05-02T00:00:00"
+    },
+    {
+      "file_name": "image_20260502000100.png",
+      "id": 1,
+      "width": 192,
+      "height": 192,
+      "time": "2026-05-02T00:01:00"
+    },
+    {
+      "file_name": "image_20260502000200.png",
+      "id": 2,
+      "width": 192,
+      "height": 192,
+      "time": "2026-05-02T00:02:00"
+    },
+    {
+      "file_name": "image_20260502000300.png",
+      "id": 3,
+      "width": 192,
+      "height": 192,
+      "time": "2026-05-02T00:03:00"
+    }
+  ],
+  "annotations": [
+    {
+      "id": 1,
+      "image_id": 0,
+      "segmentation": [
+        [
+          30,
+          45,
+          160,
+          80,
+          158,
+          88,
+          28,
+          53
+        ]
+      ],
+      "category_id": 1,
+      "iscrowd": 0,
+      "area": 900,
+      "bbox": [
+        28,
+        45,
+        132,
+        43
+      ]
+    },
+    {
+      "id": 2,
+      "image_id": 1,
+      "segmentation": [
+        [
+          30,
+          65,
+          160,
+          95,
+          158,
+          103,
+          28,
+          73
+        ]
+      ],
+      "category_id": 1,
+      "iscrowd": 0,
+      "area": 900,
+      "bbox": [
+        28,
+        60,
+        132,
+        43
+      ]
+    },
+    {
+      "id": 3,
+      "image_id": 3,
+      "segmentation": [
+        [
+          30,
+          105,
+          160,
+          125,
+          158,
+          133,
+          28,
+          113
+        ]
+      ],
+      "category_id": 1,
+      "iscrowd": 0,
+      "area": 900,
+      "bbox": [
+        28,
+        90,
+        132,
+        43
+      ]
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "contrail",
+      "isthing": 1,
+      "color": [
+        236,
+        240,
+        241
+      ]
+    }
+  ]
+}

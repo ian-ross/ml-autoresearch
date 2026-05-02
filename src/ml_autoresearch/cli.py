@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 
-from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture, submit_candidate
+from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data, run_candidate_with_synthetic_fixture, submit_candidate
 
 app = typer.Typer(help="ML Autoresearch local Harness commands.")
 
@@ -51,12 +51,19 @@ def run_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
     runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
     synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated contrail data.")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root", help="Local GVCCS Dataset root.")] = None,
+    max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of discovered GVCCS samples used.")] = None,
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
 
-    if not synthetic_fixture:
-        raise typer.BadParameter("only --synthetic-fixture is currently supported")
-    run = run_candidate_with_synthetic_fixture(candidate, runs_root)
+    if synthetic_fixture and data_root is not None:
+        raise typer.BadParameter("choose either --synthetic-fixture or --data-root, not both")
+    if synthetic_fixture:
+        run = run_candidate_with_synthetic_fixture(candidate, runs_root)
+    elif data_root is not None:
+        run = run_candidate_with_gvccs_data(candidate, runs_root, data_root, max_samples=max_samples)
+    else:
+        raise typer.BadParameter("provide --data-root /path/to/gvccs or --synthetic-fixture")
     _echo_run(run)
     if run.status != RunStatus.COMPLETED:
         raise typer.Exit(1)

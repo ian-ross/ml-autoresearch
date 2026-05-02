@@ -10,6 +10,7 @@ readme = "docs/top-level-plan.md"
 requires-python = ">=3.11"
 dependencies = [
   "numpy>=2,<3",
+  "pillow>=10,<12",
   "pydantic>=2,<3",
   "PyYAML>=6,<7",
   "torch>=2,<3",
