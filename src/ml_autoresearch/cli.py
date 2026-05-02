@@ -8,7 +8,15 @@ from typing import Annotated
 
 import typer
 
-from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data, run_candidate_with_synthetic_fixture, submit_candidate
+from ml_autoresearch.runs import (
+    RunStatus,
+    get_best_runs,
+    get_run_summary,
+    list_runs,
+    run_candidate_with_gvccs_data,
+    run_candidate_with_synthetic_fixture,
+    submit_candidate,
+)
 
 app = typer.Typer(help="ML Autoresearch local Harness commands.")
 
@@ -18,18 +26,18 @@ def root() -> None:
     """ML Autoresearch local Harness commands."""
 
 
+def _echo_json(payload: object) -> None:
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
 def _echo_run(run) -> None:
-    typer.echo(
-        json.dumps(
-            {
-                "run_id": run.run_id,
-                "run_dir": str(run.run_dir),
-                "status": run.status.value,
-                "rejection_reason": run.rejection_reason,
-            },
-            indent=2,
-            sort_keys=True,
-        )
+    _echo_json(
+        {
+            "run_id": run.run_id,
+            "run_dir": str(run.run_dir),
+            "status": run.status.value,
+            "rejection_reason": run.rejection_reason,
+        }
     )
 
 
@@ -67,6 +75,79 @@ def run_candidate_command(
     _echo_run(run)
     if run.status != RunStatus.COMPLETED:
         raise typer.Exit(1)
+
+
+def _echo_table(rows: list[dict[str, object]]) -> None:
+    if not rows:
+        typer.echo("No local Runs found.")
+        return
+    typer.echo("run_id\tstatus\tval/dice\treason")
+    for row in rows:
+        metrics = row.get("metrics")
+        dice = metrics.get("val/dice") if isinstance(metrics, dict) else ""
+        typer.echo(f"{row.get('run_id', '')}\t{row.get('status', '')}\t{dice}\t{row.get('reason', row.get('error', ''))}")
+
+
+@app.command("list-runs")
+def list_runs_command(
+    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
+) -> None:
+    """List local Runs from the local runs/ artifact tree."""
+
+    rows = list_runs(runs_root)
+    if json_output:
+        _echo_json(rows)
+    else:
+        _echo_table(rows)
+
+
+def _run_summary_command(runs_root: Path, run_id: str, json_output: bool) -> None:
+    summary = get_run_summary(runs_root, run_id)
+    if json_output:
+        _echo_json(summary)
+    else:
+        _echo_table([summary])
+    if summary.get("status") in {"missing", "corrupt", "missing_metadata"}:
+        raise typer.Exit(1)
+
+
+@app.command("run-summary")
+def run_summary_command(
+    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
+    run_id: Annotated[str, typer.Option(help="Run identifier to inspect.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
+) -> None:
+    """Inspect one local Run summary without MLflow."""
+
+    _run_summary_command(runs_root, run_id, json_output)
+
+
+@app.command("get-run-summary")
+def get_run_summary_command(
+    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
+    run_id: Annotated[str, typer.Option(help="Run identifier to inspect.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
+) -> None:
+    """Alias for run-summary."""
+
+    _run_summary_command(runs_root, run_id, json_output)
+
+
+@app.command("get-best-runs")
+def get_best_runs_command(
+    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
+    metric: Annotated[str, typer.Option(help="Metric key used for ranking local Runs.")] = "val/dice",
+    limit: Annotated[int | None, typer.Option(help="Maximum number of ranked Runs to print.")] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
+) -> None:
+    """Identify best completed local Runs by val/dice by default."""
+
+    rows = get_best_runs(runs_root, metric=metric, limit=limit)
+    if json_output:
+        _echo_json(rows)
+    else:
+        _echo_table(rows)
 
 
 def main() -> None:

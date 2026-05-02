@@ -116,6 +116,89 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 
+def list_runs(runs_root: str | Path) -> list[dict[str, object]]:
+    """Read summaries for all local Run artifact directories under ``runs_root``.
+
+    This observes only files already present under the local ``runs/`` tree and
+    never requires MLflow. Corrupt or incomplete Run directories are returned as
+    explicit summary records so humans and agents can see what was skipped.
+    """
+
+    root = Path(runs_root)
+    if not root.exists():
+        return []
+    summaries = [_read_run_summary_dir(run_dir) for run_dir in root.iterdir() if run_dir.is_dir()]
+    return sorted(summaries, key=lambda item: str(item.get("run_id") or ""))
+
+
+def get_run_summary(runs_root: str | Path, run_id: str) -> dict[str, object]:
+    """Read one local Run summary from ``runs_root/run_id``."""
+
+    run_dir = Path(runs_root) / run_id
+    if not run_dir.exists():
+        return {"run_id": run_id, "run_dir": str(run_dir), "status": "missing", "error": "run directory does not exist"}
+    if not run_dir.is_dir():
+        return {"run_id": run_id, "run_dir": str(run_dir), "status": "corrupt", "error": "run path is not a directory"}
+    return _read_run_summary_dir(run_dir)
+
+
+def get_best_runs(runs_root: str | Path, *, metric: str = "val/dice", limit: int | None = None) -> list[dict[str, object]]:
+    """Return completed local Runs ranked descending by a metric, ``val/dice`` by default."""
+
+    ranked: list[dict[str, object]] = []
+    for summary in list_runs(runs_root):
+        metrics = summary.get("metrics")
+        value = metrics.get(metric) if isinstance(metrics, dict) else None
+        if summary.get("status") == RunStatus.COMPLETED.value and isinstance(value, int | float):
+            ranked_summary = dict(summary)
+            ranked_summary["rank_metric_name"] = metric
+            ranked_summary["rank_metric"] = float(value)
+            ranked.append(ranked_summary)
+    ranked.sort(key=lambda item: float(item["rank_metric"]), reverse=True)
+    if limit is not None:
+        return ranked[:limit]
+    return ranked
+
+
+def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
+    metadata_path = run_dir / "run_metadata.json"
+    if not metadata_path.exists():
+        return {"run_id": run_dir.name, "run_dir": str(run_dir), "status": "missing_metadata", "error": "run_metadata.json is missing"}
+    try:
+        metadata = json.loads(metadata_path.read_text())
+    except Exception as exc:  # noqa: BLE001 - observation must report corrupt artifacts clearly.
+        return {"run_id": run_dir.name, "run_dir": str(run_dir), "status": "corrupt", "error": f"cannot read run_metadata.json: {exc}"}
+
+    run_id = str(metadata.get("run_id") or run_dir.name)
+    status = str(metadata.get("status") or "unknown")
+    summary: dict[str, object] = {
+        "run_id": run_id,
+        "run_dir": str(run_dir),
+        "status": status,
+        "created_at": metadata.get("created_at"),
+        "updated_at": metadata.get("updated_at"),
+        "candidate_source": metadata.get("candidate_source"),
+    }
+    reason = metadata.get("rejection_reason") or metadata.get("smoke_failure_reason") or metadata.get("training_failure_reason")
+    if reason is not None:
+        summary["reason"] = reason
+    if "artifacts" in metadata:
+        summary["artifacts"] = metadata["artifacts"]
+
+    final_metrics_path = run_dir / "final_metrics.json"
+    if final_metrics_path.exists():
+        try:
+            metrics = json.loads(final_metrics_path.read_text())
+            summary["metrics"] = metrics
+            if isinstance(metrics, dict) and "artifacts" in metrics and "artifacts" not in summary:
+                summary["artifacts"] = metrics["artifacts"]
+        except Exception as exc:  # noqa: BLE001
+            summary["metrics_error"] = f"cannot read final_metrics.json: {exc}"
+    elif status == RunStatus.COMPLETED.value:
+        summary["metrics_error"] = "final_metrics.json is missing"
+    return summary
+
+
 def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSubmission:
     """Submit a local Candidate Experiment directory and create a Run record.
 
