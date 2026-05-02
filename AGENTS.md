@@ -11,3 +11,7 @@ Use the default five-label triage vocabulary: `needs-triage`, `needs-info`, `rea
 ### Domain docs
 
 This is a single-context repo: root `CONTEXT.md` plus root `docs/adr/` when present. See `docs/agents/domain.md`.
+
+### Development approach
+
+Always use test-driven development when it makes sense.
