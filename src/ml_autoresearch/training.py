@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import yaml
 
+from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.smoke import INPUT_SPEC, OUTPUT_SPEC, _extract_mask_logits, _import_candidate_model
@@ -25,7 +26,7 @@ class TrainingError(RuntimeError):
     """Raised when Harness-owned training fails."""
 
 
-def train_synthetic_fixture_run(run_dir: str | Path) -> dict[str, float]:
+def train_synthetic_fixture_run(run_dir: str | Path, *, max_prediction_samples: int = 2) -> dict[str, object]:
     """Train one epoch on deterministic generated Contrail Mask fixture data."""
 
     train_loader_factory = lambda batch_size: DataLoader(  # noqa: E731 - local concise factory.
@@ -42,10 +43,17 @@ def train_synthetic_fixture_run(run_dir: str | Path) -> dict[str, float]:
         train_loader_factory=train_loader_factory,
         val_loader_factory=val_loader_factory,
         train_sample_count=TRAIN_SAMPLES,
+        max_prediction_samples=max_prediction_samples,
     )
 
 
-def train_gvccs_run(run_dir: str | Path, data_root: str | Path, *, max_samples: int | None = None) -> dict[str, float]:
+def train_gvccs_run(
+    run_dir: str | Path,
+    data_root: str | Path,
+    *,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+) -> dict[str, object]:
     """Train one epoch on local GVCCS RGB image and binary Contrail Mask pairs."""
 
     samples = discover_gvccs_samples(data_root, split="train", max_samples=max_samples)
@@ -65,6 +73,7 @@ def train_gvccs_run(run_dir: str | Path, data_root: str | Path, *, max_samples: 
         train_loader_factory=train_loader_factory,
         val_loader_factory=val_loader_factory,
         train_sample_count=len(split.train),
+        max_prediction_samples=max_prediction_samples,
     )
 
 
@@ -77,7 +86,8 @@ def _train_one_epoch_run(
     train_loader_factory,
     val_loader_factory,
     train_sample_count: int,
-) -> dict[str, float]:
+    max_prediction_samples: int,
+) -> dict[str, object]:
     path = Path(run_dir)
     log_path = path / "logs" / "training.log"
     metrics_path = path / "metrics.jsonl"
@@ -116,6 +126,13 @@ def _train_one_epoch_run(
 
         final = _evaluate(model, val_loader)
         final["train/loss"] = train_loss_total / train_sample_count
+        final["artifacts"] = write_prediction_sample_artifacts(
+            run_dir=path,
+            model=model,
+            data_loader=val_loader,
+            split="val",
+            max_samples=max_prediction_samples,
+        )
         final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
         _append_jsonl(metrics_path, {"split": "val", "epoch": 1, **final})
         lines.append(success_line)

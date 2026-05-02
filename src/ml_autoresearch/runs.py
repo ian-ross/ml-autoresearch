@@ -38,18 +38,31 @@ class RunSubmission:
     rejection_reason: str | None = None
 
 
-def run_candidate_with_synthetic_fixture(candidate_dir: str | Path, runs_root: str | Path) -> RunSubmission:
+def run_candidate_with_synthetic_fixture(
+    candidate_dir: str | Path, runs_root: str | Path, *, max_prediction_samples: int = 2
+) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
 
-    return _run_candidate_training(candidate_dir, runs_root, lambda run_dir: train_synthetic_fixture_run(run_dir))
+    return _run_candidate_training(
+        candidate_dir, runs_root, lambda run_dir: train_synthetic_fixture_run(run_dir, max_prediction_samples=max_prediction_samples)
+    )
 
 
 def run_candidate_with_gvccs_data(
-    candidate_dir: str | Path, runs_root: str | Path, data_root: str | Path, *, max_samples: int | None = None
+    candidate_dir: str | Path,
+    runs_root: str | Path,
+    data_root: str | Path,
+    *,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
 
-    return _run_candidate_training(candidate_dir, runs_root, lambda run_dir: train_gvccs_run(run_dir, data_root, max_samples=max_samples))
+    return _run_candidate_training(
+        candidate_dir,
+        runs_root,
+        lambda run_dir: train_gvccs_run(run_dir, data_root, max_samples=max_samples, max_prediction_samples=max_prediction_samples),
+    )
 
 
 def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, trainer) -> RunSubmission:
@@ -72,7 +85,7 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
         training_failure_reason=None,
     )
     try:
-        trainer(run.run_dir)
+        training_result = trainer(run.run_dir)
     except TrainingError as exc:
         reason = str(exc)
         _write_metadata(
@@ -98,6 +111,7 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
         rejection_reason=None,
         smoke_failure_reason=None,
         training_failure_reason=None,
+        artifacts=_artifacts_from_training_result(training_result),
     )
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
@@ -204,6 +218,7 @@ def _write_metadata(
     rejection_reason: str | None,
     smoke_failure_reason: str | None,
     training_failure_reason: str | None,
+    artifacts: dict[str, object] | None = None,
 ) -> None:
     metadata = {
         "run_id": run_id,
@@ -217,11 +232,19 @@ def _write_metadata(
         "smoke_failure_reason": smoke_failure_reason,
         "training_failure_reason": training_failure_reason,
     }
+    if artifacts is not None:
+        metadata["artifacts"] = artifacts
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 
 def _read_metadata(run_dir: Path) -> dict[str, object]:
     return json.loads((run_dir / "run_metadata.json").read_text())
+
+
+def _artifacts_from_training_result(training_result: object) -> dict[str, object] | None:
+    if isinstance(training_result, dict) and isinstance(training_result.get("artifacts"), dict):
+        return training_result["artifacts"]
+    return None
 
 
 def _write_yaml(path: Path, data: object) -> None:

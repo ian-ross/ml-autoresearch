@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from PIL import Image
+
 from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 
@@ -56,7 +58,34 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
     metadata = json.loads((run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "completed"
     assert metadata["training_failure_reason"] is None
+    assert metadata["artifacts"]["prediction_samples"] == "prediction_samples/samples.json"
     assert (run_dir / "logs" / "training.log").read_text()
     assert (run_dir / "metrics.jsonl").read_text()
     final = json.loads((run_dir / "final_metrics.json").read_text())
     assert set(final) >= {"val/dice", "val/iou", "val/precision", "val/recall", "val/loss"}
+    assert final["artifacts"]["prediction_samples"] == "prediction_samples/samples.json"
+
+    samples_dir = run_dir / "prediction_samples"
+    samples = json.loads((samples_dir / "samples.json").read_text())
+    assert samples["status"] == "completed"
+    assert samples["split"] == "val"
+    assert samples["sample_count"] == 2
+    assert len(samples["samples"]) == 2
+
+    first = samples["samples"][0]
+    assert first["sample_id"] == "val/000000"
+    assert first["split"] == "val"
+    assert set(first) >= {"dice", "iou", "paths"}
+    assert first["paths"] == {
+        "input": "sample_000_input.png",
+        "ground_truth": "sample_000_ground_truth.png",
+        "prediction": "sample_000_prediction.png",
+        "overlay": "sample_000_overlay.png",
+    }
+    sizes = []
+    for relative_path in first["paths"].values():
+        png = samples_dir / relative_path
+        assert png.is_file()
+        with Image.open(png) as image:
+            sizes.append(image.size)
+    assert sizes == [(128, 128)] * 4
