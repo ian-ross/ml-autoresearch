@@ -185,7 +185,7 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
     if "artifacts" in metadata:
         summary["artifacts"] = metadata["artifacts"]
 
-    final_metrics_path = run_dir / "final_metrics.json"
+    final_metrics_path = _outputs_dir(run_dir) / "final_metrics.json"
     if final_metrics_path.exists():
         try:
             metrics = json.loads(final_metrics_path.read_text())
@@ -210,7 +210,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
     root = Path(runs_root)
     run_id = _generate_run_id(root)
     run_dir = root / run_id
-    logs_dir = run_dir / "logs"
+    logs_dir = _outputs_dir(run_dir) / "logs"
     logs_dir.mkdir(parents=True)
     validation_log = logs_dir / "validation.log"
 
@@ -278,6 +278,10 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
         training_failure_reason=None,
     )
     return RunSubmission(run_id, run_dir, RunStatus.ACCEPTED)
+
+
+def _outputs_dir(run_dir: Path) -> Path:
+    return run_dir / "outputs"
 
 
 def _generate_run_id(runs_root: Path) -> str:

@@ -84,8 +84,8 @@ def test_run_candidate_cli_synthetic_fixture_trains_and_prints_json(tmp_path: Pa
     assert completed.returncode == 0
     payload = json.loads(completed.stdout)
     assert payload["status"] == "completed"
-    assert (runs_root / payload["run_id"] / "final_metrics.json").exists()
-    assert (runs_root / payload["run_id"] / "logs" / "training.log").exists()
+    assert (runs_root / payload["run_id"] / "outputs" / "final_metrics.json").exists()
+    assert (runs_root / payload["run_id"] / "outputs" / "logs" / "training.log").exists()
 
 
 def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_path: Path):
@@ -107,5 +107,5 @@ def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_pa
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["status"] == "completed"
-    assert (runs_root / payload["run_id"] / "final_metrics.json").exists()
-    assert "GVCCS" in (runs_root / payload["run_id"] / "logs" / "training.log").read_text()
+    assert (runs_root / payload["run_id"] / "outputs" / "final_metrics.json").exists()
+    assert "GVCCS" in (runs_root / payload["run_id"] / "outputs" / "logs" / "training.log").read_text()

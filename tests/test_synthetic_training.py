@@ -58,14 +58,14 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
     metadata = json.loads((run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "completed"
     assert metadata["training_failure_reason"] is None
-    assert metadata["artifacts"]["prediction_samples"] == "prediction_samples/samples.json"
-    assert (run_dir / "logs" / "training.log").read_text()
-    assert (run_dir / "metrics.jsonl").read_text()
-    final = json.loads((run_dir / "final_metrics.json").read_text())
+    assert metadata["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
+    assert (run_dir / "outputs" / "logs" / "training.log").read_text()
+    assert (run_dir / "outputs" / "metrics.jsonl").read_text()
+    final = json.loads((run_dir / "outputs" / "final_metrics.json").read_text())
     assert set(final) >= {"val/dice", "val/iou", "val/precision", "val/recall", "val/loss"}
-    assert final["artifacts"]["prediction_samples"] == "prediction_samples/samples.json"
+    assert final["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
 
-    samples_dir = run_dir / "prediction_samples"
+    samples_dir = run_dir / "outputs" / "prediction_samples"
     samples = json.loads((samples_dir / "samples.json").read_text())
     assert samples["status"] == "completed"
     assert samples["split"] == "val"

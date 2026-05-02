@@ -142,22 +142,21 @@ uv run ml-autoresearch get-best-runs --runs-root runs --metric val/dice --limit 
 
 ## Local Run artifacts
 
-A completed local Run currently writes artifacts under `runs/<run_id>/`, including:
+A completed local Run reserves `runs/<run_id>/` for Harness-owned files plus an `outputs/` directory:
 
 ```text
 candidate/                 copied Candidate Experiment source
 resolved_manifest.yaml     Harness-normalized manifest
 run_metadata.json          Run status, timestamps, sources, artifact references
-model_summary.json         model parameter summary
-metrics.jsonl              batch/epoch metric stream
-final_metrics.json         final Result metrics, including val/dice
-prediction_samples/        qualitative PNG samples and samples.json
-logs/                      validation, smoke-test, and training logs
+outputs/
+  model_summary.json       model parameter summary
+  metrics.jsonl            batch/epoch metric stream
+  final_metrics.json       final Result metrics, including val/dice
+  prediction_samples/      qualitative PNG samples and samples.json
+  logs/                    validation, smoke-test, and training logs
 ```
 
-Rejected, smoke-failed, and failed Runs are also represented as Run directories with metadata and logs so humans and agents can inspect repair feedback.
-
-Open issue #8 will move operation-produced artifacts under `outputs/` to prepare for Docker execution, while leaving Harness-owned files at the Run root.
+Rejected, smoke-failed, and failed Runs are also represented as Run directories with metadata and `outputs/logs/` so humans and agents can inspect repair feedback.
 
 ## Safety model
 

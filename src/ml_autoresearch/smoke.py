@@ -39,7 +39,8 @@ def smoke_test_run(run_dir: str | Path) -> SmokeTestResult:
 
     path = Path(run_dir)
     candidate_dir = path / "candidate"
-    log_path = path / "logs" / "smoke_test.log"
+    outputs_dir = path / "outputs"
+    log_path = outputs_dir / "logs" / "smoke_test.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     lines: list[str] = ["Starting synthetic PyTorch smoke test."]
@@ -94,7 +95,7 @@ def smoke_test_run(run_dir: str | Path) -> SmokeTestResult:
                 "dtype": str(mask_logits.dtype),
             },
         }
-        (path / "model_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+        (outputs_dir / "model_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
         lines.append(f"Parameter count: {parameter_count}")
         lines.append("Smoke test accepted.")
         log_path.write_text("\n".join(lines) + "\n")

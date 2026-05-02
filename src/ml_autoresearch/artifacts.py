@@ -29,7 +29,7 @@ def write_prediction_sample_artifacts(
         raise ValueError("max_samples must be at least 1")
 
     root = Path(run_dir)
-    samples_dir = root / "prediction_samples"
+    samples_dir = root / "outputs" / "prediction_samples"
     samples_dir.mkdir(parents=True, exist_ok=True)
 
     sample_records: list[dict[str, Any]] = []
@@ -83,7 +83,7 @@ def write_prediction_sample_artifacts(
         "samples": sample_records,
     }
     (samples_dir / "samples.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    return {"prediction_samples": "prediction_samples/samples.json"}
+    return {"prediction_samples": "outputs/prediction_samples/samples.json"}
 
 
 def _source_image_path(dataset: object, index: int) -> str | None:

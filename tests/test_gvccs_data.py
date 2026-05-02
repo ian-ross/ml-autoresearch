@@ -88,14 +88,14 @@ def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):
     run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", FIXTURE_ROOT, max_samples=4, max_prediction_samples=1)
 
     assert run.status == RunStatus.COMPLETED
-    final = json.loads((run.run_dir / "final_metrics.json").read_text())
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
     assert set(final) >= {"val/dice", "val/iou", "val/precision", "val/recall", "val/loss"}
-    assert final["artifacts"]["prediction_samples"] == "prediction_samples/samples.json"
-    samples = json.loads((run.run_dir / "prediction_samples" / "samples.json").read_text())
+    assert final["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
+    samples = json.loads((run.run_dir / "outputs" / "prediction_samples" / "samples.json").read_text())
     assert samples["sample_count"] == 1
     assert samples["max_sample_count"] == 1
     assert samples["samples"][0]["source_image_path"].endswith(".png")
     for relative_path in samples["samples"][0]["paths"].values():
-        with Image.open(run.run_dir / "prediction_samples" / relative_path) as image:
+        with Image.open(run.run_dir / "outputs" / "prediction_samples" / relative_path) as image:
             assert image.size == (128, 128)
-    assert "GVCCS" in (run.run_dir / "logs" / "training.log").read_text()
+    assert "GVCCS" in (run.run_dir / "outputs" / "logs" / "training.log").read_text()

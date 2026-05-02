@@ -26,7 +26,7 @@ run_20260502_153000_ab12cd
 
 ## Current accepted Run layout
 
-The current native/local implementation writes Harness-owned files and operation artifacts directly under the Run root:
+The native/local implementation reserves the Run root for Harness-owned files plus `outputs/`. Operation-produced artifacts live under `outputs/`:
 
 ```text
 runs/
@@ -36,49 +36,31 @@ runs/
     │   └── model.py
     ├── resolved_manifest.yaml
     ├── run_metadata.json
-    ├── model_summary.json              # after smoke test
-    ├── metrics.jsonl                   # after training
-    ├── final_metrics.json              # after training
-    ├── prediction_samples/             # after training, when generated
-    └── logs/
-        ├── validation.log
-        ├── smoke_test.log              # after smoke test
-        └── training.log                # after training
+    └── outputs/
+        ├── model_summary.json              # after smoke test
+        ├── metrics.jsonl                   # after training
+        ├── final_metrics.json              # after training
+        ├── prediction_samples/             # after training, when generated
+        └── logs/
+            ├── validation.log
+            ├── smoke_test.log              # after smoke test
+            └── training.log                # after training
 ```
 
 The Harness copies accepted candidate source into the Run directory. Later phases execute the copied source, not the original source path.
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
-Open issue #8 will change the canonical layout so operation-produced artifacts live under `outputs/`, leaving the Run root reserved for Harness-owned files plus `outputs/`.
+Observation commands read metrics and summaries from the `outputs/` layout. Docker issues will mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container.
 
 ## Rejected submissions
 
 Validation failures also create a Run directory so humans and agents have stable repair feedback. Rejected Runs contain:
 
 - `run_metadata.json` with `status: rejected` and `rejection_reason`
-- `logs/validation.log`
+- `outputs/logs/validation.log`
 
 Rejected submissions do not copy the candidate source into `candidate/`.
-
-## Planned output separation
-
-Issues #8-#13 track the next Candidate Execution Boundary branch. The first step, #8, separates Harness-owned Run files from operation-produced artifacts:
-
-```text
-runs/run_x/
-├── candidate/                 # Harness-owned source copy
-├── resolved_manifest.yaml      # Harness-owned
-├── run_metadata.json           # Harness-owned
-└── outputs/                    # smoke/training/prediction artifacts
-    ├── logs/
-    ├── model_summary.json
-    ├── metrics.jsonl
-    ├── final_metrics.json
-    └── prediction_samples/
-```
-
-After #8, observation commands should read artifacts from `outputs/`. Docker issues will mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container.
 
 ## Reserved statuses
 

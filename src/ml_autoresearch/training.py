@@ -89,9 +89,10 @@ def _train_one_epoch_run(
     max_prediction_samples: int,
 ) -> dict[str, object]:
     path = Path(run_dir)
-    log_path = path / "logs" / "training.log"
-    metrics_path = path / "metrics.jsonl"
-    final_metrics_path = path / "final_metrics.json"
+    outputs_dir = path / "outputs"
+    log_path = outputs_dir / "logs" / "training.log"
+    metrics_path = outputs_dir / "metrics.jsonl"
+    final_metrics_path = outputs_dir / "final_metrics.json"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [start_line]
 

@@ -56,13 +56,13 @@ def test_submit_candidate_smoke_tests_model_and_writes_artifacts(tmp_path: Path)
     assert metadata["status"] == "accepted"
     assert metadata["smoke_failure_reason"] is None
 
-    summary = json.loads((run_dir / "model_summary.json").read_text())
+    summary = json.loads((run_dir / "outputs" / "model_summary.json").read_text())
     assert summary["parameter_count"] == 4
     assert summary["input_spec"] == {"mode": "single_frame_rgb", "shape": [3, 128, 128]}
     assert summary["output_spec"] == {"form": "mask_logits", "shape": [1, 128, 128]}
     assert summary["output"]["names"] == ["mask_logits"]
     assert summary["output"]["shape"] == [2, 1, 128, 128]
-    assert "Smoke test accepted" in (run_dir / "logs" / "smoke_test.log").read_text()
+    assert "Smoke test accepted" in (run_dir / "outputs" / "logs" / "smoke_test.log").read_text()
 
 
 @pytest.mark.parametrize(
@@ -97,7 +97,7 @@ def test_smoke_failures_are_recorded_in_metadata_and_log(tmp_path: Path, model_p
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "smoke_failed"
     assert expected_reason in metadata["smoke_failure_reason"]
-    assert expected_reason in (run.run_dir / "logs" / "smoke_test.log").read_text()
+    assert expected_reason in (run.run_dir / "outputs" / "logs" / "smoke_test.log").read_text()
 
 
 def test_parameter_budget_violations_are_smoke_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

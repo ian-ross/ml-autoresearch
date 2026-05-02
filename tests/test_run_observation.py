@@ -21,7 +21,9 @@ def write_run(runs_root: Path, run_id: str, status: str, dice: float | None = No
     }
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata) + "\n")
     if dice is not None:
-        (run_dir / "final_metrics.json").write_text(json.dumps({"val/dice": dice, "val/iou": dice / 2}) + "\n")
+        outputs_dir = run_dir / "outputs"
+        outputs_dir.mkdir()
+        (outputs_dir / "final_metrics.json").write_text(json.dumps({"val/dice": dice, "val/iou": dice / 2}) + "\n")
     return run_dir
 
 

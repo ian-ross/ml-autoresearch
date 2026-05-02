@@ -52,7 +52,8 @@ def test_submit_candidate_creates_accepted_run_directory(tmp_path: Path):
     assert run.run_dir == run_dir
     assert (run_dir / "candidate" / "manifest.yaml").read_text() == (candidate / "manifest.yaml").read_text()
     assert (run_dir / "candidate" / "model.py").read_text() == (candidate / "model.py").read_text()
-    assert (run_dir / "logs" / "validation.log").exists()
+    assert (run_dir / "outputs" / "logs" / "validation.log").exists()
+    assert set(child.name for child in run_dir.iterdir()) == {"candidate", "outputs", "resolved_manifest.yaml", "run_metadata.json"}
 
     resolved = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
     assert resolved["name"] == "single_frame_unet_baseline"
@@ -95,5 +96,5 @@ def test_submit_candidate_records_rejected_run(tmp_path: Path):
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "rejected"
     assert metadata["rejection_reason"] == run.rejection_reason
-    assert (run.run_dir / "logs" / "validation.log").read_text()
+    assert (run.run_dir / "outputs" / "logs" / "validation.log").read_text()
     assert not (run.run_dir / "candidate" / "train.sh").exists()
