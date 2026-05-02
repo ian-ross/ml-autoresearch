@@ -392,7 +392,10 @@ runs/run_x/
 - Run as non-root.
 - Use read-only root filesystem where practical.
 - Keep `/outputs` and `/scratch` as the only writable paths.
-- Enforce wall-clock timeout.
+- Implement wall-clock budget handling as graceful shutdown, not only a hard container kill.
+- On budget exhaustion, the Harness signals the in-container training loop and gives it a bounded grace period to finish a safe unit of work, write logs/metrics, and persist the best meaningful Result available.
+- If the grace period expires, the Harness force-terminates the container and records that forced timeout failure clearly.
+- Run metadata distinguishes normal completion, graceful timeout completion, and forced timeout failure while remaining Harness-owned.
 - Add CPU/memory/GPU policy.
 - Use environment allowlist.
 - Drop capabilities and add process limits where practical.
@@ -400,7 +403,7 @@ runs/run_x/
 
 This issue is mandatory before making strong production safety claims.
 
-### #13: Add container image build and publish workflow
+### #13: Add container image build workflow
 
 - Keep the manual local build path initially:
 
@@ -408,4 +411,4 @@ This issue is mandatory before making strong production safety claims.
   docker build -t ml-autoresearch-runner:local .
   ```
 
-- Add a repeatable local build helper and decide whether to publish/pin a runner image later.
+- Add a repeatable local build helper for the local runner image.

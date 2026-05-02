@@ -107,6 +107,7 @@ Policy decisions for the branch:
 - For GVCCS training, host `--data-root` is mounted read-only at `/data`.
 - Candidate Experiments cannot request mounts or receive host dataset paths.
 - Containers run with no network; stricter resource/time/security limits are added in the hardening issue.
+- Wall-clock budget exhaustion should use a graceful shutdown protocol for training Runs: signal the training loop, allow a bounded grace period to write the best meaningful Result available, and force-terminate only if the grace period expires.
 - The agent has no Docker or host shell access.
 
 ### 7. Observation Layer

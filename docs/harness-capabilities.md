@@ -146,7 +146,7 @@ Allowed v1 bounds:
 - gradient clipping max norm: `0.1` to `10`, if enabled
 - parameter budget: default maximum `100M` parameters unless the Research Problem overrides it
 
-Wall-clock budget policy is intentionally left open. A smaller early budget may be useful to push the agent toward many cheap experiments that identify gross architecture choices before longer training runs. The Harness should make wall-clock limits explicit and easy to adjust.
+Wall-clock budget policy is intentionally adjustable. A smaller early budget may be useful to push the agent toward many cheap experiments that identify gross architecture choices before longer training runs. For Docker-backed training Runs, wall-clock budget exhaustion should be handled through a Harness-owned graceful shutdown protocol: signal the training loop, allow a bounded grace period to finish a safe unit of work and write the best meaningful Result available, then force-terminate only if the grace period expires.
 
 ## Run artifacts
 
