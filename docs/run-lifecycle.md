@@ -5,10 +5,10 @@ A local Candidate Experiment submission creates a Harness-owned **Run** director
 ## Submit command
 
 ```bash
-ml-autoresearch submit-candidate --candidate path/to/candidate --runs-root runs
+ml-autoresearch submit-candidate --candidate path/to/candidate --runs-root runs --backend native
 ```
 
-The command prints JSON containing `run_id`, `run_dir`, `status`, and `rejection_reason`. It exits with status `0` for accepted submissions and non-zero for rejected submissions.
+The command prints JSON containing `run_id`, `run_dir`, `status`, and `rejection_reason`. It exits with status `0` for accepted submissions and non-zero for rejected submissions. `--backend native|docker` selects the smoke-test Candidate Execution Boundary; Docker uses `--docker-image`, defaulting to `ml-autoresearch-runner:local`.
 
 ## Run IDs
 
@@ -51,7 +51,7 @@ The Harness copies accepted candidate source into the Run directory. Later phase
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
-Observation commands read metrics and summaries from the `outputs/` layout. Docker issues will mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container.
+Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing mounts Harness-owned files read-only and exposes only `/outputs` plus `/scratch` as writable paths inside the container.
 
 ## Rejected submissions
 

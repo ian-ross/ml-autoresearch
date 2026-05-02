@@ -14,7 +14,8 @@ from pathlib import Path
 import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
-from ml_autoresearch.smoke import SmokeTestError, smoke_test_run
+from ml_autoresearch.execution import ExecutionBackend, NativeBackend, backend_metadata
+from ml_autoresearch.smoke import SmokeTestError
 from ml_autoresearch.training import TrainingError, train_gvccs_run, train_synthetic_fixture_run
 
 
@@ -39,12 +40,19 @@ class RunSubmission:
 
 
 def run_candidate_with_synthetic_fixture(
-    candidate_dir: str | Path, runs_root: str | Path, *, max_prediction_samples: int = 2
+    candidate_dir: str | Path,
+    runs_root: str | Path,
+    *,
+    max_prediction_samples: int = 2,
+    backend: ExecutionBackend | None = None,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
 
     return _run_candidate_training(
-        candidate_dir, runs_root, lambda run_dir: train_synthetic_fixture_run(run_dir, max_prediction_samples=max_prediction_samples)
+        candidate_dir,
+        runs_root,
+        lambda run_dir: train_synthetic_fixture_run(run_dir, max_prediction_samples=max_prediction_samples),
+        backend=backend,
     )
 
 
@@ -55,6 +63,7 @@ def run_candidate_with_gvccs_data(
     *,
     max_samples: int | None = None,
     max_prediction_samples: int = 2,
+    backend: ExecutionBackend | None = None,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
 
@@ -62,11 +71,12 @@ def run_candidate_with_gvccs_data(
         candidate_dir,
         runs_root,
         lambda run_dir: train_gvccs_run(run_dir, data_root, max_samples=max_samples, max_prediction_samples=max_prediction_samples),
+        backend=backend,
     )
 
 
-def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, trainer) -> RunSubmission:
-    run = submit_candidate(candidate_dir, runs_root)
+def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, trainer, *, backend: ExecutionBackend | None = None) -> RunSubmission:
+    run = submit_candidate(candidate_dir, runs_root, backend=backend)
     if run.status != RunStatus.ACCEPTED:
         return run
 
@@ -83,6 +93,7 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
         rejection_reason=None,
         smoke_failure_reason=None,
         training_failure_reason=None,
+        execution_backend=metadata.get("execution_backend"),
     )
     try:
         training_result = trainer(run.run_dir)
@@ -98,6 +109,7 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
             rejection_reason=None,
             smoke_failure_reason=None,
             training_failure_reason=reason,
+            execution_backend=metadata.get("execution_backend"),
         )
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
 
@@ -112,6 +124,7 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
         smoke_failure_reason=None,
         training_failure_reason=None,
         artifacts=_artifacts_from_training_result(training_result),
+        execution_backend=metadata.get("execution_backend"),
     )
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
@@ -199,7 +212,7 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
     return summary
 
 
-def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSubmission:
+def submit_candidate(candidate_dir: str | Path, runs_root: str | Path, *, backend: ExecutionBackend | None = None) -> RunSubmission:
     """Submit a local Candidate Experiment directory and create a Run record.
 
     Validation and smoke failures are represented as rejected/smoke_failed Runs
@@ -207,6 +220,8 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
     """
 
     source = Path(candidate_dir)
+    execution_backend = backend or NativeBackend()
+    execution_backend_metadata = backend_metadata(execution_backend)
     root = Path(runs_root)
     run_id = _generate_run_id(root)
     run_dir = root / run_id
@@ -231,6 +246,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
             rejection_reason=reason,
             smoke_failure_reason=None,
             training_failure_reason=None,
+            execution_backend=execution_backend_metadata,
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason)
 
@@ -247,11 +263,12 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
         rejection_reason=None,
         smoke_failure_reason=None,
         training_failure_reason=None,
+        execution_backend=execution_backend_metadata,
     )
 
     try:
-        smoke_test_run(run_dir)
-    except SmokeTestError as exc:
+        execution_backend.smoke_test(run_dir)
+    except (SmokeTestError, RuntimeError) as exc:
         reason = str(exc)
         _write_metadata(
             run_dir,
@@ -263,6 +280,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
             rejection_reason=None,
             smoke_failure_reason=reason,
             training_failure_reason=None,
+            execution_backend=execution_backend_metadata,
         )
         return RunSubmission(run_id, run_dir, RunStatus.SMOKE_FAILED, reason)
 
@@ -276,6 +294,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
         rejection_reason=None,
         smoke_failure_reason=None,
         training_failure_reason=None,
+        execution_backend=execution_backend_metadata,
     )
     return RunSubmission(run_id, run_dir, RunStatus.ACCEPTED)
 
@@ -306,6 +325,7 @@ def _write_metadata(
     smoke_failure_reason: str | None,
     training_failure_reason: str | None,
     artifacts: dict[str, object] | None = None,
+    execution_backend: object | None = None,
 ) -> None:
     metadata = {
         "run_id": run_id,
@@ -319,6 +339,8 @@ def _write_metadata(
         "smoke_failure_reason": smoke_failure_reason,
         "training_failure_reason": training_failure_reason,
     }
+    if execution_backend is not None:
+        metadata["execution_backend"] = execution_backend
     if artifacts is not None:
         metadata["artifacts"] = artifacts
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")

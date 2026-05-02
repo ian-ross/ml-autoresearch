@@ -38,8 +38,14 @@ def smoke_test_run(run_dir: str | Path) -> SmokeTestResult:
     """Import copied candidate/model.py and run a cheap synthetic PyTorch check."""
 
     path = Path(run_dir)
-    candidate_dir = path / "candidate"
-    outputs_dir = path / "outputs"
+    return smoke_test_candidate(path / "candidate", path / "outputs")
+
+
+def smoke_test_candidate(candidate_dir: str | Path, outputs_dir: str | Path) -> SmokeTestResult:
+    """Import a Candidate Experiment and write smoke-test outputs under outputs_dir."""
+
+    candidate_dir = Path(candidate_dir)
+    outputs_dir = Path(outputs_dir)
     log_path = outputs_dir / "logs" / "smoke_test.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
