@@ -21,7 +21,17 @@ training:
 """.strip()
         + "\n"
     )
-    (candidate / "model.py").write_text("def build_model(input_spec, output_spec):\n    pass\n")
+    (candidate / "model.py").write_text(
+        "from torch import nn\n"
+        "class Tiny(nn.Module):\n"
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.conv = nn.Conv2d(3, 1, kernel_size=1)\n"
+        "    def forward(self, x):\n"
+        "        return {'mask_logits': self.conv(x)}\n"
+        "def build_model(input_spec, output_spec):\n"
+        "    return Tiny()\n"
+    )
     return candidate
 
 

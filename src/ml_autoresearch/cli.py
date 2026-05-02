@@ -38,7 +38,7 @@ def submit_candidate_command(
             sort_keys=True,
         )
     )
-    if run.status == RunStatus.REJECTED:
+    if run.status in {RunStatus.REJECTED, RunStatus.SMOKE_FAILED}:
         raise typer.Exit(1)
 
 

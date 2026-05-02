@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.smoke import SmokeTestError, smoke_test_run
 
 
 class RunStatus(StrEnum):
@@ -39,8 +40,8 @@ class RunSubmission:
 def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSubmission:
     """Submit a local Candidate Experiment directory and create a Run record.
 
-    Validation failures are represented as rejected Runs so humans and agents can
-    inspect logs and metadata for repair feedback.
+    Validation and smoke failures are represented as rejected/smoke_failed Runs
+    so humans and agents can inspect logs and metadata for repair feedback.
     """
 
     source = Path(candidate_dir)
@@ -66,6 +67,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
             updated_at=_now_iso(),
             candidate_source=source,
             rejection_reason=reason,
+            smoke_failure_reason=None,
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason)
 
@@ -75,11 +77,39 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
     _write_metadata(
         run_dir,
         run_id=run_id,
+        status=RunStatus.SMOKE_TESTING,
+        created_at=created_at,
+        updated_at=_now_iso(),
+        candidate_source=source,
+        rejection_reason=None,
+        smoke_failure_reason=None,
+    )
+
+    try:
+        smoke_test_run(run_dir)
+    except SmokeTestError as exc:
+        reason = str(exc)
+        _write_metadata(
+            run_dir,
+            run_id=run_id,
+            status=RunStatus.SMOKE_FAILED,
+            created_at=created_at,
+            updated_at=_now_iso(),
+            candidate_source=source,
+            rejection_reason=None,
+            smoke_failure_reason=reason,
+        )
+        return RunSubmission(run_id, run_dir, RunStatus.SMOKE_FAILED, reason)
+
+    _write_metadata(
+        run_dir,
+        run_id=run_id,
         status=RunStatus.ACCEPTED,
         created_at=created_at,
         updated_at=_now_iso(),
         candidate_source=source,
         rejection_reason=None,
+        smoke_failure_reason=None,
     )
     return RunSubmission(run_id, run_dir, RunStatus.ACCEPTED)
 
@@ -103,6 +133,7 @@ def _write_metadata(
     updated_at: str,
     candidate_source: Path,
     rejection_reason: str | None,
+    smoke_failure_reason: str | None,
 ) -> None:
     metadata = {
         "run_id": run_id,
@@ -113,6 +144,7 @@ def _write_metadata(
         "harness": {"package_version": _package_version()},
         "reserved_statuses": [member.value for member in RunStatus],
         "rejection_reason": rejection_reason,
+        "smoke_failure_reason": smoke_failure_reason,
     }
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
