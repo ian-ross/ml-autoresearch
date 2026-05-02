@@ -339,34 +339,73 @@ Out of scope:
 
 ## Next branch: Candidate Execution Boundary with Docker
 
-After the local Research Loop issues are complete, the next priority is the Docker-backed Candidate Execution Boundary. This should be split into multiple issues rather than attempted as one broad hardening task.
+After the local Research Loop issues are complete, the next priority is the Docker-backed Candidate Execution Boundary. The approved open issue sequence is:
 
-### Docker issue A: Docker smoke-test execution
+### #8: Separate Harness-owned Run files from operation outputs
 
-- Build/use fixed training image.
-- Run issue-3 smoke test inside the container.
-- Mount candidate read-only.
-- Mount run output directory read/write.
-- Use no-network execution.
-- Add resource limits where straightforward.
-- No dataset mount yet.
-- No MLflow.
+Prepare the Run layout for Docker by moving operation-produced artifacts under `outputs/` while keeping Harness-owned files at the Run root:
 
-### Docker issue B: Docker synthetic training
+```text
+runs/run_x/
+├── candidate/                 # Harness-owned source copy
+├── resolved_manifest.yaml      # Harness-owned
+├── run_metadata.json           # Harness-owned
+└── outputs/                    # operation-produced artifacts
+    ├── logs/
+    ├── model_summary.json
+    ├── metrics.jsonl
+    ├── final_metrics.json
+    └── prediction_samples/
+```
 
-- Run issue-4 synthetic fixture training inside the container.
-- Preserve local/native path for developer testing.
-- Keep output artifacts compatible with local observation commands.
+### #9: Add execution backend abstraction and Docker smoke-test backend
 
-### Docker issue C: Docker GVCCS training
+- Introduce `ExecutionBackend` with native and Docker implementations.
+- Add `--backend native|docker` and `--docker-image` with default `ml-autoresearch-runner:local`.
+- Commit a Dockerfile and an in-container smoke-test entrypoint.
+- Use structural containment only:
+  - `/candidate:ro`
+  - `/resolved_manifest.yaml:ro`
+  - `/run_metadata.json:ro`
+  - `/outputs:rw`
+  - `/scratch:rw`
+  - `--network none`
+- Host Harness remains sole writer of Run metadata.
+- Native backend is retained as developer-unsafe.
 
-- Add read-only data mount for local GVCCS path.
-- Run issue-5 GVCCS adapter path inside the container.
-- Preserve no-network candidate execution.
+### #10: Add Docker synthetic training backend and flip default backend to Docker
 
-### Docker issue D: stricter resource/time limits and hardening
+- Extend `ExecutionBackend` for synthetic training.
+- Run validation, smoke test, and synthetic training through Docker.
+- Synthetic training uses no data mount.
+- After Docker synthetic parity, `run-candidate` defaults to Docker and `--backend native` remains the explicit unsafe/developer escape hatch.
 
-- Enforce wall-clock limits.
-- Tighten CPU/GPU/memory limits.
-- Audit mounts and environment variables.
-- Ensure candidate code cannot access Docker, host shell, unrestricted filesystem paths, network, secrets, or MLflow writes.
+### #11: Add Docker GVCCS training backend with read-only data mount
+
+- Extend Docker execution for local GVCCS-compatible data training.
+- Host `--data-root` is mounted read-only at `/data`.
+- Harness-owned metadata records dataset id `gvccs`, real host path, and container path `/data`.
+- Candidate Experiments cannot request mounts or receive host dataset paths.
+
+### #12: Harden the Docker Candidate Execution Boundary
+
+- Run as non-root.
+- Use read-only root filesystem where practical.
+- Keep `/outputs` and `/scratch` as the only writable paths.
+- Enforce wall-clock timeout.
+- Add CPU/memory/GPU policy.
+- Use environment allowlist.
+- Drop capabilities and add process limits where practical.
+- Assert no network, no privileged mode, no Docker socket, no host project mount, and no arbitrary filesystem mounts.
+
+This issue is mandatory before making strong production safety claims.
+
+### #13: Add container image build and publish workflow
+
+- Keep the manual local build path initially:
+
+  ```bash
+  docker build -t ml-autoresearch-runner:local .
+  ```
+
+- Add a repeatable local build helper and decide whether to publish/pin a runner image later.

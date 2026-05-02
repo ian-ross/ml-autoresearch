@@ -1,5 +1,7 @@
 # Pi Enclave + Docker + Trusted Host Runner for ML Architecture Search
 
+> Historical design brief. `CONTEXT.md`, `docs/top-level-plan.md`, `docs/tracer-bullet-issues.md`, and the current GitHub issues are canonical for implementation sequencing. Where this document differs from those sources or the current code, treat it as background rationale rather than the active contract.
+
 This document describes a practical setup for running the Pi coding agent inside `pi-enclave`/Gondolin while delegating GPU training to a trusted host-side runner that uses Docker.
 
 The intended use case is agent-assisted ML architecture search for contrail detection in video from ground-based cameras, with a path toward more complex satellite/multispectral experiments later.

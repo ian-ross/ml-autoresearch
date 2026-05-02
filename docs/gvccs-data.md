@@ -29,3 +29,7 @@ ml-autoresearch run-candidate \
 ```
 
 `--max-samples` bounds the discovered, sorted training sample list before the deterministic train/validation split.
+
+## Planned Docker data mount
+
+The current native/local Harness reads the host path passed as `--data-root` directly. Open issue #11 will add Docker GVCCS training. In that Docker path, the host `--data-root` will be mounted read-only at `/data` inside the container, and the in-container Harness-owned GVCCS adapter will read `/data`. Candidate Experiments will not choose data mounts or receive host dataset paths.

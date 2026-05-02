@@ -1,6 +1,8 @@
 # Candidate Experiment Contract
 
-Issue #1 defines the initial local Candidate Experiment source contract. A Candidate Experiment is submitted as a local directory, not as an archive.
+This document describes the currently implemented local Candidate Experiment source contract. A Candidate Experiment is submitted as a local directory, not as an archive.
+
+The current tracer-bullet implementation supports Single-Frame RGB Input, mask-only output, `bce_dice`, and `adamw`. Broader v1 contract surface such as temporal inputs, auxiliary heads, additional losses, and pretrained weight requests is documented as planned capability in `docs/harness-capabilities.md` and `docs/top-level-plan.md`.
 
 ## Minimal layout
 

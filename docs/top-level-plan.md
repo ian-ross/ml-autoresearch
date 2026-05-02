@@ -94,14 +94,20 @@ Implement Harness-owned training:
 
 ### 6. Execution Boundary
 
-Add the Candidate Execution Boundary:
+Add the Candidate Execution Boundary. The current open issue sequence for this branch is #8-#13.
 
-- Docker image.
-- fixed read-only candidate/data mounts.
-- run-specific writable output mount.
-- no network in training container.
-- resource limits.
-- no Docker or host shell access for the agent.
+Policy decisions for the branch:
+
+- Docker is the intended default execution backend once Docker synthetic training reaches parity with native execution.
+- Native execution remains available as an explicit unsafe/developer backend.
+- The first Docker issue proves structural containment only; stronger hardening is tracked separately.
+- Harness-owned files stay at the Run root; operation-produced artifacts move under `outputs/`.
+- In Docker, `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` are mounted read-only.
+- In Docker, only `/outputs` and `/scratch` are writable.
+- For GVCCS training, host `--data-root` is mounted read-only at `/data`.
+- Candidate Experiments cannot request mounts or receive host dataset paths.
+- Containers run with no network; stricter resource/time/security limits are added in the hardening issue.
+- The agent has no Docker or host shell access.
 
 ### 7. Observation Layer
 
@@ -146,6 +152,8 @@ It should use native/local execution first, not Docker or MLflow, and should pro
    - `run_metadata.json`
    - `prediction_samples/`
    - `logs/`
+
+   The current native implementation writes operation artifacts at the Run root. Issue #8 will move operation artifacts under `outputs/` for the Docker boundary.
 8. A human or agent can inspect the Run and decide what Candidate Experiment to try next.
 
 ### Explicit non-goals

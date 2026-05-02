@@ -12,15 +12,15 @@ The GVCCS Dataset is from whole-sky cameras. Likely downstream use may involve c
 
 ## Execution model
 
-The v1 execution model is hybrid:
+The current tracer-bullet implementation is synchronous and local/native:
 
-1. The agent submits a Candidate Experiment with `submit_candidate`.
-2. The Harness synchronously validates the manifest/source, creates a Run ID, and performs cheap smoke tests when feasible.
-3. If validation fails, the Harness returns a rejected or blocked status with a clear reason.
-4. If validation succeeds, training starts or queues asynchronously and the Harness returns the Run ID.
-5. The agent follows progress through narrow commands such as `get_run_status`, `get_run_summary`, `list_runs`, `get_best_runs`, and optionally `cancel_run`.
+1. The agent or human submits a Candidate Experiment with `submit-candidate` or `run-candidate`.
+2. The Harness validates the manifest/source, creates a Run ID, and copies accepted source into the Run directory.
+3. The Harness performs a PyTorch smoke test through `build_model(input_spec, output_spec)`.
+4. `run-candidate` trains synchronously on either the deterministic synthetic fixture or a local GVCCS-compatible `--data-root`.
+5. The agent follows Results through local observation commands: `list-runs`, `run-summary` / `get-run-summary`, and `get-best-runs`.
 
-This avoids blocking the agent on long GPU jobs while keeping validation feedback immediate.
+Docker execution, asynchronous queueing, MLflow persistence, and stronger production isolation are planned layers around the same Research Loop. Issues #8-#13 track the next Docker-backed Candidate Execution Boundary branch.
 
 ## Input modes
 
@@ -64,6 +64,8 @@ Allowed v1 primary mask losses:
 - `bce_dice`
 - `focal_dice`
 - `focal_tversky`
+
+The current tracer-bullet implementation supports only `bce_dice`; the broader v1 allowlist is planned contract surface.
 
 Allowed v1 auxiliary losses for `line_logits` and `boundary_logits`:
 
@@ -131,6 +133,8 @@ Allowed v1 optimizers:
 - `adamw`
 - `sgd_momentum`
 
+The current tracer-bullet implementation supports only `adamw`; the broader v1 allowlist is planned contract surface.
+
 Allowed v1 bounds:
 
 - learning rate: `1e-5` to `3e-3`
@@ -157,6 +161,8 @@ Required completed-Run artifacts:
 - `run_metadata.json` — dataset/split identifiers, Harness version, code/image digests, timestamps, resource limits, and Run status.
 - `prediction_samples/` — visual examples including input image or clip reference, ground truth mask, predicted mask, and overlay; include informative failures when possible.
 - `logs/` — validation, smoke-test, training, and persistence logs.
+
+The current native/local implementation writes operation artifacts at the Run root. Issue #8 will move operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root.
 
 Best-checkpoint persistence is optional Harness policy, not required for every Run, because checkpoint storage can become large.
 

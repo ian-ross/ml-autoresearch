@@ -15,7 +15,7 @@ This repository currently contains the native/local tracer-bullet Harness:
 - write local Run artifacts such as metrics, metadata, logs, model summaries, and prediction samples
 - inspect local Runs without MLflow
 
-Docker execution, MLflow upload, async scheduling, and stronger production isolation are planned later layers around the same Research Loop.
+Docker execution, MLflow upload, async scheduling, and stronger production isolation are planned later layers around the same Research Loop. The current open Docker branch is tracked by issues #8-#13.
 
 ## Core concepts
 
@@ -142,7 +142,7 @@ uv run ml-autoresearch get-best-runs --runs-root runs --metric val/dice --limit 
 
 ## Local Run artifacts
 
-A completed local Run writes artifacts under `runs/<run_id>/`, including:
+A completed local Run currently writes artifacts under `runs/<run_id>/`, including:
 
 ```text
 candidate/                 copied Candidate Experiment source
@@ -152,10 +152,12 @@ model_summary.json         model parameter summary
 metrics.jsonl              batch/epoch metric stream
 final_metrics.json         final Result metrics, including val/dice
 prediction_samples/        qualitative PNG samples and samples.json
-logs/                      validation and training logs
+logs/                      validation, smoke-test, and training logs
 ```
 
 Rejected, smoke-failed, and failed Runs are also represented as Run directories with metadata and logs so humans and agents can inspect repair feedback.
+
+Open issue #8 will move operation-produced artifacts under `outputs/` to prepare for Docker execution, while leaving Harness-owned files at the Run root.
 
 ## Safety model
 
