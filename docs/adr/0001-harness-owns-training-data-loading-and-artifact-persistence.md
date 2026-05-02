@@ -1,0 +1,3 @@
+# Harness owns training, data loading, and artifact persistence
+
+ML Autoresearch prioritizes safe, auditable research iteration over arbitrary candidate authority. Candidate Experiments may express research variation only through an allowlisted Candidate Experiment Contract; the trusted Harness owns training loops, data loading, validation, execution policy, artifact persistence, and MLflow writes. If new research freedom is needed, it is added as an explicit Harness-owned parameter or audited capability rather than by allowing arbitrary candidate filesystem, network, dataset, training-loop, or MLflow access.
