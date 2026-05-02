@@ -13,6 +13,9 @@ dependencies = [
   "PyYAML>=6,<7",
 ]
 
+[project.scripts]
+ml-autoresearch = "ml_autoresearch.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8,<9",
