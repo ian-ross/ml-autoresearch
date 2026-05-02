@@ -18,7 +18,7 @@ The project should be driven by the Research Loop: propose Candidate Experiments
 - **Run** — one execution attempt of a Candidate Experiment.
 - **Result** — metrics and artifacts produced by a Run.
 
-See `CONTEXT.md` for canonical definitions and relationships.
+See `CONTEXT.md` for canonical definitions and relationships. Where this plan differs from the older `docs/project-brief.md`, this plan is canonical for implementation sequencing.
 
 ## Top-level approach
 
@@ -131,7 +131,7 @@ It should use native/local execution first, not Docker or MLflow, and should pro
 2. The Harness validates the manifest against the v1 contract.
 3. The Harness builds the model via `build_model(input_spec, output_spec)`.
 4. The Harness runs a synthetic forward/backward smoke test.
-5. The Harness trains on a tiny GVCCS subset or fixture subset for at least one epoch.
+5. The Harness trains on a deterministic synthetic contrail-like segmentation fixture for at least one epoch, then later swaps in a tiny GVCCS subset or fixture subset.
 6. The Harness computes:
    - `val/dice`
    - `val/iou`
@@ -161,9 +161,13 @@ The first tracer bullet does not need:
 
 ## Notes and constraints
 
+- Implementation language is Python.
+- ML implementation uses PyTorch.
+- Candidate Experiment manifest validation uses Pydantic v2.
 - The Harness always owns training loops and data loading.
 - Candidate Experiments must not access arbitrary filesystem paths, network, Docker, dataset paths, or MLflow writes.
 - Candidate Experiments may reference only Approved Weight Artifacts by stable ID.
 - Runtime pretrained weight downloads are forbidden.
 - Wall-Clock Budget Policy is Harness-owned and intentionally adjustable; early exploration may use small budgets to encourage many cheap architecture comparisons.
 - GVCCS is whole-sky-camera data; downstream conventional-camera evaluation is separate from the initial ML Autoresearch loop.
+- Real GVCCS data is not checked into this repository; tests use synthetic or GVCCS-like fixtures, and real training points at a local downloaded dataset path.

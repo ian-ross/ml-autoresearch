@@ -32,6 +32,10 @@ _Avoid_: Minimal contract when that implies low research expressiveness
 The Harness-owned policy limiting Run duration, expected to be adjustable so early research can prefer many cheap experiments before longer training runs.
 _Avoid_: Fixed training duration baked into Candidate Experiments
 
+**Resolved Manifest**:
+The Harness-owned record of the Candidate Experiment manifest after validation, normalization, and Harness defaults have been applied for a specific Run.
+_Avoid_: Source manifest, candidate configuration
+
 **Harness**:
 The trusted outer implementation that owns training loops, data loading, validation, execution policy, artifact persistence, and approved parameterized variations.
 _Avoid_: Candidate code, agent code
@@ -128,6 +132,8 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **ML Autoresearch** uses a **Candidate Experiment Runner** to execute agent-proposed **Candidate Experiments** safely.
 - A **Research Problem** is explored through many **Candidate Experiments**.
 - A **Candidate Experiment** conforms to a **Candidate Experiment Contract**.
+- A **Candidate Experiment** may have a **Resolved Manifest** for each accepted **Run**.
+- A **Resolved Manifest** records what the **Harness** actually ran, not just what the Candidate Experiment requested.
 - A **Candidate Experiment** contains one **Model Architecture**.
 - A **Candidate Experiment** may produce zero or more **Runs**.
 - A **Run** produces at most one **Result**.
