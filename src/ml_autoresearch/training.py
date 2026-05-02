@@ -1,0 +1,124 @@
+"""Harness-owned synthetic fixture training loop."""
+
+from __future__ import annotations
+
+import json
+import traceback
+from pathlib import Path
+
+import torch
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+import yaml
+
+from ml_autoresearch.metrics import binary_segmentation_metrics
+from ml_autoresearch.smoke import INPUT_SPEC, OUTPUT_SPEC, _extract_mask_logits, _import_candidate_model
+from ml_autoresearch.synthetic import SyntheticContrailDataset
+
+SYNTHETIC_FIXTURE_SEED = 20260502
+TRAIN_SAMPLES = 8
+VAL_SAMPLES = 4
+
+
+class TrainingError(RuntimeError):
+    """Raised when Harness-owned training fails."""
+
+
+def train_synthetic_fixture_run(run_dir: str | Path) -> dict[str, float]:
+    """Train one epoch on deterministic generated Contrail Mask fixture data."""
+
+    path = Path(run_dir)
+    log_path = path / "logs" / "training.log"
+    metrics_path = path / "metrics.jsonl"
+    final_metrics_path = path / "final_metrics.json"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["Starting deterministic synthetic contrail fixture training."]
+
+    try:
+        torch.manual_seed(SYNTHETIC_FIXTURE_SEED)
+        manifest = yaml.safe_load((path / "resolved_manifest.yaml").read_text())
+        training = manifest["training"]
+        if training["loss"] != "bce_dice":
+            raise TrainingError(f"unsupported loss: {training['loss']}")
+
+        module = _import_candidate_model(path / "candidate")
+        model = module.build_model(dict(INPUT_SPEC), dict(OUTPUT_SPEC))
+        if not isinstance(model, torch.nn.Module):
+            raise TrainingError("build_model must return a torch.nn.Module")
+
+        optimizer = torch.optim.AdamW(model.parameters(), lr=float(training["learning_rate"]))
+        batch_size = int(training["batch_size"])
+        train_loader = DataLoader(
+            SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED),
+            batch_size=batch_size,
+            shuffle=False,
+        )
+        val_loader = DataLoader(
+            SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000),
+            batch_size=batch_size,
+            shuffle=False,
+        )
+
+        metrics_path.write_text("")
+        model.train()
+        train_loss_total = 0.0
+        for batch_index, (inputs, targets) in enumerate(train_loader):
+            optimizer.zero_grad(set_to_none=True)
+            logits = _extract_mask_logits(model(inputs))[0]
+            loss = bce_dice_loss(logits, targets)
+            loss.backward()
+            optimizer.step()
+            train_loss_total += float(loss.item()) * inputs.shape[0]
+            _append_jsonl(metrics_path, {"split": "train", "epoch": 1, "batch": batch_index, "loss": float(loss.item())})
+
+        final = _evaluate(model, val_loader)
+        final["train/loss"] = train_loss_total / TRAIN_SAMPLES
+        final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
+        _append_jsonl(metrics_path, {"split": "val", "epoch": 1, **final})
+        lines.append("Synthetic training completed.")
+        log_path.write_text("\n".join(lines) + "\n")
+        return final
+    except Exception as exc:  # noqa: BLE001 - persist clear Harness failure details.
+        reason = str(exc)
+        lines.append(f"Synthetic training failed: {reason}")
+        lines.append(traceback.format_exc())
+        log_path.write_text("\n".join(lines) + "\n")
+        if isinstance(exc, TrainingError):
+            raise
+        raise TrainingError(reason) from exc
+
+
+def bce_dice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor) -> torch.Tensor:
+    bce = F.binary_cross_entropy_with_logits(mask_logits, target_mask)
+    probabilities = torch.sigmoid(mask_logits)
+    intersection = (probabilities * target_mask).sum(dim=(1, 2, 3))
+    denominator = probabilities.sum(dim=(1, 2, 3)) + target_mask.sum(dim=(1, 2, 3))
+    dice_loss = 1.0 - ((2.0 * intersection + 1e-7) / (denominator + 1e-7)).mean()
+    return bce + dice_loss
+
+
+def _evaluate(model: torch.nn.Module, val_loader: DataLoader) -> dict[str, float]:
+    model.eval()
+    total_loss = 0.0
+    predictions: list[torch.Tensor] = []
+    targets: list[torch.Tensor] = []
+    with torch.no_grad():
+        for inputs, target in val_loader:
+            logits = _extract_mask_logits(model(inputs))[0]
+            loss = bce_dice_loss(logits, target)
+            total_loss += float(loss.item()) * inputs.shape[0]
+            predictions.append(torch.sigmoid(logits) >= 0.5)
+            targets.append(target >= 0.5)
+    metrics = binary_segmentation_metrics(torch.cat(predictions), torch.cat(targets))
+    return {
+        "val/dice": metrics["dice"],
+        "val/iou": metrics["iou"],
+        "val/precision": metrics["precision"],
+        "val/recall": metrics["recall"],
+        "val/loss": total_loss / VAL_SAMPLES,
+    }
+
+
+def _append_jsonl(path: Path, payload: dict[str, object]) -> None:
+    with path.open("a") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")

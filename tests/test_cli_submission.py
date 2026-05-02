@@ -71,3 +71,18 @@ def test_submit_candidate_cli_exits_nonzero_for_rejected_candidate(tmp_path: Pat
     assert payload["status"] == "rejected"
     assert "forbidden" in payload["rejection_reason"]
     assert (runs_root / payload["run_id"] / "run_metadata.json").exists()
+
+
+def test_run_candidate_cli_synthetic_fixture_trains_and_prints_json(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    completed = run_cli(
+        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--synthetic-fixture"
+    )
+
+    assert completed.returncode == 0
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "completed"
+    assert (runs_root / payload["run_id"] / "final_metrics.json").exists()
+    assert (runs_root / payload["run_id"] / "logs" / "training.log").exists()

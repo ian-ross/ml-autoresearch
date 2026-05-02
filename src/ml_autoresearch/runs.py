@@ -15,6 +15,7 @@ import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.smoke import SmokeTestError, smoke_test_run
+from ml_autoresearch.training import TrainingError, train_synthetic_fixture_run
 
 
 class RunStatus(StrEnum):
@@ -35,6 +36,58 @@ class RunSubmission:
     run_dir: Path
     status: RunStatus
     rejection_reason: str | None = None
+
+
+def run_candidate_with_synthetic_fixture(candidate_dir: str | Path, runs_root: str | Path) -> RunSubmission:
+    """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
+
+    run = submit_candidate(candidate_dir, runs_root)
+    if run.status != RunStatus.ACCEPTED:
+        return run
+
+    metadata = _read_metadata(run.run_dir)
+    created_at = str(metadata["created_at"])
+    candidate_source = Path(str(metadata["candidate_source"]["path"]))
+    _write_metadata(
+        run.run_dir,
+        run_id=run.run_id,
+        status=RunStatus.TRAINING,
+        created_at=created_at,
+        updated_at=_now_iso(),
+        candidate_source=candidate_source,
+        rejection_reason=None,
+        smoke_failure_reason=None,
+        training_failure_reason=None,
+    )
+    try:
+        train_synthetic_fixture_run(run.run_dir)
+    except TrainingError as exc:
+        reason = str(exc)
+        _write_metadata(
+            run.run_dir,
+            run_id=run.run_id,
+            status=RunStatus.FAILED,
+            created_at=created_at,
+            updated_at=_now_iso(),
+            candidate_source=candidate_source,
+            rejection_reason=None,
+            smoke_failure_reason=None,
+            training_failure_reason=reason,
+        )
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
+
+    _write_metadata(
+        run.run_dir,
+        run_id=run.run_id,
+        status=RunStatus.COMPLETED,
+        created_at=created_at,
+        updated_at=_now_iso(),
+        candidate_source=candidate_source,
+        rejection_reason=None,
+        smoke_failure_reason=None,
+        training_failure_reason=None,
+    )
+    return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 
 def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSubmission:
@@ -68,6 +121,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
             candidate_source=source,
             rejection_reason=reason,
             smoke_failure_reason=None,
+            training_failure_reason=None,
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason)
 
@@ -83,6 +137,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
         candidate_source=source,
         rejection_reason=None,
         smoke_failure_reason=None,
+        training_failure_reason=None,
     )
 
     try:
@@ -98,6 +153,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
             candidate_source=source,
             rejection_reason=None,
             smoke_failure_reason=reason,
+            training_failure_reason=None,
         )
         return RunSubmission(run_id, run_dir, RunStatus.SMOKE_FAILED, reason)
 
@@ -110,6 +166,7 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path) -> RunSub
         candidate_source=source,
         rejection_reason=None,
         smoke_failure_reason=None,
+        training_failure_reason=None,
     )
     return RunSubmission(run_id, run_dir, RunStatus.ACCEPTED)
 
@@ -134,6 +191,7 @@ def _write_metadata(
     candidate_source: Path,
     rejection_reason: str | None,
     smoke_failure_reason: str | None,
+    training_failure_reason: str | None,
 ) -> None:
     metadata = {
         "run_id": run_id,
@@ -145,8 +203,13 @@ def _write_metadata(
         "reserved_statuses": [member.value for member in RunStatus],
         "rejection_reason": rejection_reason,
         "smoke_failure_reason": smoke_failure_reason,
+        "training_failure_reason": training_failure_reason,
     }
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+
+
+def _read_metadata(run_dir: Path) -> dict[str, object]:
+    return json.loads((run_dir / "run_metadata.json").read_text())
 
 
 def _write_yaml(path: Path, data: object) -> None:
