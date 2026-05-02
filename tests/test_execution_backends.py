@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -80,16 +81,20 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
     docker_run = calls[1]
     assert docker_run[:5] == ["docker", "run", "--rm", "--network", "none"]
+    assert "--user" in docker_run
+    assert docker_run[docker_run.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
     assert "custom:tag" in docker_run
+    assert "TMPDIR=/scratch" in docker_run
+    assert "TORCHINDUCTOR_CACHE_DIR=/scratch/torchinductor" in docker_run
     assert "--entrypoint" in docker_run
     assert docker_run[docker_run.index("--entrypoint") + 1] == "python"
     assert docker_run[-2:] == ["-m", "ml_autoresearch.container_smoke"]
     joined = "\n".join(docker_run)
-    assert f"type=bind,src={run_dir / 'candidate'},dst=/candidate,readonly" in joined
-    assert f"type=bind,src={run_dir / 'resolved_manifest.yaml'},dst=/resolved_manifest.yaml,readonly" in joined
-    assert f"type=bind,src={run_dir / 'run_metadata.json'},dst=/run_metadata.json,readonly" in joined
-    assert f"type=bind,src={run_dir / 'outputs'},dst=/outputs" in joined
-    assert f"type=bind,src={run_dir / 'scratch'},dst=/scratch" in joined
+    assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
+    assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined
+    assert f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z" in joined
+    assert f"{run_dir / 'outputs'}:/outputs:z" in joined
+    assert f"{run_dir / 'scratch'}:/scratch:z" in joined
     assert "/var/run/docker.sock" not in joined
 
 

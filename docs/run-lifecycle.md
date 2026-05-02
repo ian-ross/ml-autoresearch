@@ -51,7 +51,15 @@ The Harness copies accepted candidate source into the Run directory. Later phase
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
-Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing mounts Harness-owned files read-only and exposes only `/outputs` plus `/scratch` as writable paths inside the container.
+Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container.
+
+## Run command
+
+```bash
+ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --synthetic-fixture
+```
+
+`run-candidate` defaults to `--backend docker` for the synthetic fixture path. Use `--backend native` only as an explicit developer-unsafe escape hatch. Docker synthetic training uses no data mount.
 
 ## Rejected submissions
 

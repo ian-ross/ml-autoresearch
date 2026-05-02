@@ -29,6 +29,26 @@ class TrainingError(RuntimeError):
 def train_synthetic_fixture_run(run_dir: str | Path, *, max_prediction_samples: int = 2) -> dict[str, object]:
     """Train one epoch on deterministic generated Contrail Mask fixture data."""
 
+    path = Path(run_dir)
+    return train_synthetic_fixture(
+        candidate_dir=path / "candidate",
+        resolved_manifest_path=path / "resolved_manifest.yaml",
+        outputs_dir=path / "outputs",
+        artifact_run_dir=path,
+        max_prediction_samples=max_prediction_samples,
+    )
+
+
+def train_synthetic_fixture(
+    *,
+    candidate_dir: str | Path,
+    resolved_manifest_path: str | Path,
+    outputs_dir: str | Path,
+    artifact_run_dir: str | Path,
+    max_prediction_samples: int = 2,
+) -> dict[str, object]:
+    """Train deterministic generated Contrail Mask fixture data with explicit mounted paths."""
+
     train_loader_factory = lambda batch_size: DataLoader(  # noqa: E731 - local concise factory.
         SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED), batch_size=batch_size, shuffle=False
     )
@@ -36,7 +56,10 @@ def train_synthetic_fixture_run(run_dir: str | Path, *, max_prediction_samples: 
         SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000), batch_size=batch_size, shuffle=False
     )
     return _train_one_epoch_run(
-        run_dir,
+        candidate_dir=candidate_dir,
+        resolved_manifest_path=resolved_manifest_path,
+        outputs_dir=outputs_dir,
+        artifact_run_dir=artifact_run_dir,
         start_line="Starting deterministic synthetic contrail fixture training.",
         success_line="Synthetic training completed.",
         failure_prefix="Synthetic training failed",
@@ -66,7 +89,10 @@ def train_gvccs_run(
         GVCCSDataset(split.val), batch_size=batch_size, shuffle=False
     )
     return _train_one_epoch_run(
-        run_dir,
+        candidate_dir=Path(run_dir) / "candidate",
+        resolved_manifest_path=Path(run_dir) / "resolved_manifest.yaml",
+        outputs_dir=Path(run_dir) / "outputs",
+        artifact_run_dir=Path(run_dir),
         start_line=f"Starting GVCCS training from {Path(data_root)} with {len(split.train)} train and {len(split.val)} val samples.",
         success_line="GVCCS training completed.",
         failure_prefix="GVCCS training failed",
@@ -78,8 +104,11 @@ def train_gvccs_run(
 
 
 def _train_one_epoch_run(
-    run_dir: str | Path,
     *,
+    candidate_dir: str | Path,
+    resolved_manifest_path: str | Path,
+    outputs_dir: str | Path,
+    artifact_run_dir: str | Path,
     start_line: str,
     success_line: str,
     failure_prefix: str,
@@ -88,8 +117,10 @@ def _train_one_epoch_run(
     train_sample_count: int,
     max_prediction_samples: int,
 ) -> dict[str, object]:
-    path = Path(run_dir)
-    outputs_dir = path / "outputs"
+    candidate_dir = Path(candidate_dir)
+    resolved_manifest_path = Path(resolved_manifest_path)
+    outputs_dir = Path(outputs_dir)
+    artifact_run_dir = Path(artifact_run_dir)
     log_path = outputs_dir / "logs" / "training.log"
     metrics_path = outputs_dir / "metrics.jsonl"
     final_metrics_path = outputs_dir / "final_metrics.json"
@@ -98,12 +129,12 @@ def _train_one_epoch_run(
 
     try:
         torch.manual_seed(SYNTHETIC_FIXTURE_SEED)
-        manifest = yaml.safe_load((path / "resolved_manifest.yaml").read_text())
+        manifest = yaml.safe_load(resolved_manifest_path.read_text())
         training = manifest["training"]
         if training["loss"] != "bce_dice":
             raise TrainingError(f"unsupported loss: {training['loss']}")
 
-        module = _import_candidate_model(path / "candidate")
+        module = _import_candidate_model(candidate_dir)
         model = module.build_model(dict(INPUT_SPEC), dict(OUTPUT_SPEC))
         if not isinstance(model, torch.nn.Module):
             raise TrainingError("build_model must return a torch.nn.Module")
@@ -128,7 +159,7 @@ def _train_one_epoch_run(
         final = _evaluate(model, val_loader)
         final["train/loss"] = train_loss_total / train_sample_count
         final["artifacts"] = write_prediction_sample_artifacts(
-            run_dir=path,
+            run_dir=artifact_run_dir,
             model=model,
             data_loader=val_loader,
             split="val",

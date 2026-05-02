@@ -16,7 +16,7 @@ import yaml
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.smoke import SmokeTestError
-from ml_autoresearch.training import TrainingError, train_gvccs_run, train_synthetic_fixture_run
+from ml_autoresearch.training import TrainingError, train_gvccs_run
 
 
 class RunStatus(StrEnum):
@@ -48,10 +48,10 @@ def run_candidate_with_synthetic_fixture(
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
 
-    return _run_candidate_training(
+    return _run_candidate_synthetic_training(
         candidate_dir,
         runs_root,
-        lambda run_dir: train_synthetic_fixture_run(run_dir, max_prediction_samples=max_prediction_samples),
+        max_prediction_samples=max_prediction_samples,
         backend=backend,
     )
 
@@ -73,6 +73,69 @@ def run_candidate_with_gvccs_data(
         lambda run_dir: train_gvccs_run(run_dir, data_root, max_samples=max_samples, max_prediction_samples=max_prediction_samples),
         backend=backend,
     )
+
+
+def _run_candidate_synthetic_training(
+    candidate_dir: str | Path,
+    runs_root: str | Path,
+    *,
+    max_prediction_samples: int,
+    backend: ExecutionBackend | None = None,
+) -> RunSubmission:
+    run = submit_candidate(candidate_dir, runs_root, backend=backend)
+    if run.status != RunStatus.ACCEPTED:
+        return run
+
+    metadata = _read_metadata(run.run_dir)
+    created_at = str(metadata["created_at"])
+    candidate_source = Path(str(metadata["candidate_source"]["path"]))
+    execution_backend_metadata = metadata.get("execution_backend")
+    _write_metadata(
+        run.run_dir,
+        run_id=run.run_id,
+        status=RunStatus.TRAINING,
+        created_at=created_at,
+        updated_at=_now_iso(),
+        candidate_source=candidate_source,
+        rejection_reason=None,
+        smoke_failure_reason=None,
+        training_failure_reason=None,
+        execution_backend=execution_backend_metadata,
+    )
+    selected_backend = backend or NativeBackend()
+    try:
+        selected_backend.train_synthetic(run.run_dir, max_prediction_samples=max_prediction_samples)
+        artifacts = _validate_synthetic_training_outputs(run.run_dir)
+    except (TrainingError, RuntimeError) as exc:
+        reason = str(exc)
+        _write_metadata(
+            run.run_dir,
+            run_id=run.run_id,
+            status=RunStatus.FAILED,
+            created_at=created_at,
+            updated_at=_now_iso(),
+            candidate_source=candidate_source,
+            rejection_reason=None,
+            smoke_failure_reason=None,
+            training_failure_reason=reason,
+            execution_backend=execution_backend_metadata,
+        )
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
+
+    _write_metadata(
+        run.run_dir,
+        run_id=run.run_id,
+        status=RunStatus.COMPLETED,
+        created_at=created_at,
+        updated_at=_now_iso(),
+        candidate_source=candidate_source,
+        rejection_reason=None,
+        smoke_failure_reason=None,
+        training_failure_reason=None,
+        artifacts=artifacts,
+        execution_backend=execution_backend_metadata,
+    )
+    return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 
 def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, trainer, *, backend: ExecutionBackend | None = None) -> RunSubmission:
@@ -348,6 +411,29 @@ def _write_metadata(
 
 def _read_metadata(run_dir: Path) -> dict[str, object]:
     return json.loads((run_dir / "run_metadata.json").read_text())
+
+
+def _validate_synthetic_training_outputs(run_dir: Path) -> dict[str, object] | None:
+    outputs_dir = _outputs_dir(run_dir)
+    required = [
+        outputs_dir / "metrics.jsonl",
+        outputs_dir / "final_metrics.json",
+        outputs_dir / "logs" / "training.log",
+    ]
+    for path in required:
+        if not path.exists():
+            raise TrainingError(f"required synthetic training artifact is missing: {path.relative_to(run_dir)}")
+    try:
+        final_metrics = json.loads((outputs_dir / "final_metrics.json").read_text())
+    except Exception as exc:  # noqa: BLE001 - backend output validation should produce clear run failure.
+        raise TrainingError(f"required synthetic training artifact is invalid: outputs/final_metrics.json: {exc}") from exc
+    artifacts = final_metrics.get("artifacts") if isinstance(final_metrics, dict) else None
+    if isinstance(artifacts, dict):
+        prediction_samples = artifacts.get("prediction_samples")
+        if isinstance(prediction_samples, str) and not (run_dir / prediction_samples).exists():
+            raise TrainingError(f"required synthetic training artifact is missing: {prediction_samples}")
+        return artifacts
+    return None
 
 
 def _artifacts_from_training_result(training_result: object) -> dict[str, object] | None:

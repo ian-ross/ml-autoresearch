@@ -78,7 +78,7 @@ def test_run_candidate_cli_synthetic_fixture_trains_and_prints_json(tmp_path: Pa
     runs_root = tmp_path / "runs"
 
     completed = run_cli(
-        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--synthetic-fixture"
+        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--synthetic-fixture", "--backend", "native"
     )
 
     assert completed.returncode == 0
@@ -102,6 +102,8 @@ def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_pa
         "tests/fixtures/gvccs_like",
         "--max-samples",
         "4",
+        "--backend",
+        "native",
     )
 
     assert completed.returncode == 0, completed.stderr
