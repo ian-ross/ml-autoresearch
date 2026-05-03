@@ -36,25 +36,33 @@ Candidate Experiments select from allowed Input Modes in their manifest. The Har
 
 A Candidate Experiment must always produce `mask_logits` for the Contrail Mask.
 
-Allowed v1 forms:
+The current tracer-bullet implementation accepts either:
 
 ```python
-# mask-only form
+# mask-only tensor form
 Tensor  # shape [B, 1, H, W]
 ```
 
 or:
 
 ```python
-# dictionary form with optional auxiliary heads
+# mask-only dictionary form
 {
-    "mask_logits": Tensor,      # required, shape [B, 1, H, W]
-    "line_logits": Tensor,      # optional, shape [B, 1, H, W]
-    "boundary_logits": Tensor,  # optional, shape [B, 1, H, W]
+    "mask_logits": Tensor,  # required, shape [B, 1, H, W]
 }
 ```
 
-Arbitrary dictionary keys are not part of the v1 contract. The Harness validates output names, shapes, and dtypes before real training.
+The broader v1 contract may add optional auxiliary heads:
+
+```python
+{
+    "mask_logits": Tensor,
+    "line_logits": Tensor,
+    "boundary_logits": Tensor,
+}
+```
+
+Auxiliary heads are planned contract surface; the current smoke test rejects dictionary keys other than `mask_logits`. The Harness validates output names, shapes, and dtypes before real training.
 
 ## Loss allowlist
 
@@ -145,7 +153,7 @@ Allowed v1 bounds:
 - early stopping patience: `5` to `20`, if early stopping is enabled
 - mixed precision: `on` or `off`, default `on`
 - gradient clipping max norm: `0.1` to `10`, if enabled
-- parameter budget: default maximum `100M` parameters unless the Research Problem overrides it
+- parameter budget: the current tracer-bullet smoke test enforces `10M` parameters; broader Harness policy may raise or override this per Research Problem later
 
 Wall-clock budget policy is intentionally adjustable. A smaller early budget may be useful to push the agent toward many cheap experiments that identify gross architecture choices before longer training runs. For Docker-backed training Runs, wall-clock budget exhaustion should be handled through a Harness-owned graceful shutdown protocol: signal the training loop, allow a bounded grace period to finish a safe unit of work and write the best meaningful Result available, then force-terminate only if the grace period expires.
 
@@ -161,7 +169,7 @@ Required completed-Run artifacts:
 - `resolved_manifest.yaml` — fully resolved Candidate Experiment configuration after Harness defaults and validation.
 - `run_metadata.json` — dataset/split identifiers, Harness version, code/image digests, timestamps, resource limits, and Run status.
 - `prediction_samples/` — visual examples including input image or clip reference, ground truth mask, predicted mask, and overlay; include informative failures when possible.
-- `logs/` — validation, smoke-test, training, and persistence logs.
+- `logs/` — validation, smoke-test, training, timeout, and future persistence logs.
 
 The current implementation writes operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root. GVCCS Runs record dataset id `gvccs`, the real host data path, and the container path `/data` in `run_metadata.json`.
 
@@ -224,7 +232,7 @@ Candidate Experiments may reference only Approved Weight Artifacts by stable ide
 
 ## Docker Candidate Execution Boundary hardening status
 
-The current Docker backend runs Candidate Experiment smoke tests and training as a non-root user with no network, a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, bounded memory/CPU/process limits, and Harness-owned explicit environment variables. `/outputs` and `/scratch` are the only writable container paths; `/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and GVCCS `/data` are read-only. GPU access is disabled by default and is only enabled by Harness configuration.
+The current Docker backend runs Candidate Experiment smoke tests and training as a non-root user with no network, a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, bounded memory/CPU/process limits, and Harness-owned explicit environment variables. `/outputs` and `/scratch` are the only writable container paths: `/outputs` is the run-scoped writable artifact mount, and `/scratch` is bounded tmpfs. `/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and GVCCS `/data` are read-only. GPU access is disabled by default and is only enabled by Harness configuration.
 
 Docker training wall-clock exhaustion uses a graceful timeout protocol. The Harness records timeout events, writes a sentinel in `/scratch`, waits a bounded grace period for the in-container Harness-owned training loop to stop at an end-of-batch checkpoint and write usable Results, and force-kills only after grace expires. Run metadata distinguishes normal completion, graceful timeout completion, and forced timeout failure.
 

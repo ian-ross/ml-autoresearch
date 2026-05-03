@@ -1,6 +1,8 @@
 # Tracer-Bullet Issue Breakdown
 
-This document refines `docs/top-level-plan.md` into independently grabbable implementation issues. The first milestone is a local/native Research Loop: submit a Candidate Experiment, validate it, create a Run, smoke-test the model, train on a deterministic synthetic contrail-like fixture, train on a local GVCCS-compatible data path, generate artifacts, and inspect Results.
+This document refines `docs/top-level-plan.md` into independently grabbable implementation issues. It is a historical issue breakdown, not the current user-facing contract; see `docs/run-lifecycle.md`, `docs/candidate-experiment-contract.md`, `docs/gvccs-data.md`, and `docs/harness-capabilities.md` for the current implemented behavior. Issues #1 through #12 are implemented in the current codebase; earlier issue snippets may describe the pre-Docker or pre-`outputs/` layout that existed at that slice.
+
+The first milestone was a local/native Research Loop: submit a Candidate Experiment, validate it, create a Run, smoke-test the model, train on a deterministic synthetic contrail-like fixture, train on a local GVCCS-compatible data path, generate artifacts, and inspect Results.
 
 Where this document differs from `docs/project-brief.md`, the top-level plan and this breakdown are canonical for implementation sequencing.
 
@@ -337,9 +339,9 @@ Out of scope:
 - MLflow persistence/querying.
 - async orchestration.
 
-## Next branch: Candidate Execution Boundary with Docker
+## Implemented branch: Candidate Execution Boundary with Docker
 
-After the local Research Loop issues are complete, the next priority is the Docker-backed Candidate Execution Boundary. The approved open issue sequence is:
+After the local Research Loop issues, the Docker-backed Candidate Execution Boundary was implemented through issues #8-#12. The issue sequence was:
 
 ### #8: Separate Harness-owned Run files from operation outputs
 
@@ -363,12 +365,12 @@ runs/run_x/
 - Introduce `ExecutionBackend` with native and Docker implementations.
 - Add `--backend native|docker` and `--docker-image` with default `ml-autoresearch-runner:local`.
 - Commit a Dockerfile and an in-container smoke-test entrypoint.
-- Use structural containment only:
+- At that slice, use structural containment only:
   - `/candidate:ro`
   - `/resolved_manifest.yaml:ro`
   - `/run_metadata.json:ro`
   - `/outputs:rw`
-  - `/scratch:rw`
+  - `/scratch:rw` (later hardened to bounded tmpfs)
   - `--network none`
 - Host Harness remains sole writer of Run metadata.
 - Native backend is retained as developer-unsafe.
@@ -401,7 +403,7 @@ runs/run_x/
 - Drop capabilities and add process limits where practical.
 - Assert no network, no privileged mode, no Docker socket, no host project mount, and no arbitrary filesystem mounts.
 
-This issue is mandatory before making strong production safety claims.
+This issue is implemented as the current Docker hardening baseline. It is still not a formal production sandbox proof; see `docs/run-lifecycle.md` for current limitations.
 
 ### #13: Add container image build workflow
 

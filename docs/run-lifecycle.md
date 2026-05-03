@@ -26,7 +26,7 @@ run_20260502_153000_ab12cd
 
 ## Current accepted Run layout
 
-The native/local implementation reserves the Run root for Harness-owned files plus `outputs/`. Operation-produced artifacts live under `outputs/`:
+The current implementation reserves the Run root for Harness-owned files plus `outputs/`. Operation-produced artifacts live under `outputs/`:
 
 ```text
 runs/
@@ -44,14 +44,15 @@ runs/
         └── logs/
             ├── validation.log
             ├── smoke_test.log              # after smoke test
-            └── training.log                # after training
+            ├── training.log                # after training
+            └── harness_timeout.log         # Docker training timeout events, when applicable
 ```
 
 The Harness copies accepted candidate source into the Run directory. Later phases execute the copied source, not the original source path.
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
-Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container. Docker GVCCS training also mounts the host `--data-root` read-only at `/data`; `/outputs` and `/scratch` remain the only writable paths.
+Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container. `/outputs` is a run-scoped writable bind mount and `/scratch` is bounded tmpfs. Docker GVCCS training also mounts the host `--data-root` read-only at `/data`; `/outputs` and `/scratch` remain the only writable paths.
 
 ## Run command
 

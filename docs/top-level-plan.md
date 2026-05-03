@@ -94,19 +94,18 @@ Implement Harness-owned training:
 
 ### 6. Execution Boundary
 
-Add the Candidate Execution Boundary. Docker smoke testing, synthetic training, and GVCCS training are now implemented for the local tracer-bullet Harness; remaining work in this branch focuses on hardening and follow-on capabilities.
+Add the Candidate Execution Boundary. Docker smoke testing, synthetic training, GVCCS training, and the initial hardening pass are now implemented for the local tracer-bullet Harness; remaining work in this area focuses on follow-on capabilities such as image build workflow, async scheduling, and production isolation beyond Docker hardening.
 
 Policy decisions for the branch:
 
 - Docker is the default execution backend for `run-candidate`.
 - Native execution remains available as an explicit unsafe/developer backend.
-- The first Docker issue proves structural containment only; stronger hardening is tracked separately.
 - Harness-owned files stay at the Run root; operation-produced artifacts move under `outputs/`.
 - In Docker, `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` are mounted read-only.
-- In Docker, only `/outputs` and `/scratch` are writable.
+- In Docker, only `/outputs` and `/scratch` are writable container paths; `/outputs` is a run-scoped artifact mount and `/scratch` is bounded tmpfs.
 - For GVCCS training, host `--data-root` is mounted read-only at `/data`.
 - Candidate Experiments cannot request mounts or receive host dataset paths.
-- Containers run with no network; stricter resource/time/security limits are added in the hardening issue.
+- Containers run with no network, non-root users, read-only root filesystems, dropped Linux capabilities, process/CPU/memory limits, and GPU disabled by default unless enabled by Harness configuration.
 - Wall-clock budget exhaustion should use a graceful shutdown protocol for training Runs: signal the training loop, allow a bounded grace period to write the best meaningful Result available, and force-terminate only if the grace period expires.
 - The agent has no Docker or host shell access.
 
@@ -114,9 +113,8 @@ Policy decisions for the branch:
 
 Persist and expose Results:
 
-- Harness uploads approved artifacts and metrics to MLflow.
-- agent has read-only MLflow access.
-- narrow commands for summaries and comparisons, e.g. `get_run_summary`, `get_best_runs`, `list_runs`.
+- Current local observation reads Run artifacts from the local `runs/` tree through `list_runs`, `get_run_summary` / `run-summary`, and `get_best_runs`.
+- A future MLflow layer should have the Harness upload approved artifacts and metrics, with agent read-only MLflow access.
 
 ### 8. Baseline Candidate Experiments
 
