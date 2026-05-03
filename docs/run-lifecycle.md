@@ -101,3 +101,25 @@ Rejected submissions do not copy the candidate source into `candidate/`.
 - `training`
 - `completed`
 - `failed`
+
+## Candidate Execution Boundary hardening
+
+Docker-backed smoke tests, synthetic training, and GVCCS training launch containers with the following Harness-owned policy:
+
+- non-root user matching the host Harness uid/gid;
+- no network (`--network none`);
+- read-only root filesystem;
+- only `/outputs` and `/scratch` are writable container paths (`/outputs` is a run-scoped bind mount; `/scratch` is bounded tmpfs);
+- Harness-owned inputs are read-only mounts (`/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and `/data` for GVCCS);
+- bounded resources: memory, CPU, process count, and tmpfs scratch policy are set by the Harness defaults;
+- Linux capabilities are dropped and `no-new-privileges` is set;
+- GPU access is disabled by default and can only be enabled by Harness-owned configuration;
+- environment variables are allowlisted explicitly by the Docker invocation.
+
+For Docker-backed training Runs with a Harness wall-clock budget, timeout handling is graceful first: the Harness writes `/scratch/ml_autoresearch_timeout_requested`, records the event in `outputs/logs/harness_timeout.log`, and allows a bounded grace period. The in-container Harness-owned training loop checks the sentinel at end-of-batch boundaries, evaluates the best available model state, writes `metrics.jsonl`, `final_metrics.json`, training logs, and supported artifacts, then exits cleanly. If the grace period expires, the Harness force-kills the container and records forced timeout failure in Harness-owned metadata.
+
+Run metadata remains authoritative for lifecycle state. Candidate Experiment code may write operation outputs under `/outputs`, but it cannot authoritatively set normal completion, graceful timeout completion, or forced timeout failure.
+
+### Remaining limitations and non-goals
+
+This local tracer-bullet boundary is Docker hardening, not a formal sandbox proof. It does not yet implement seccomp/AppArmor profile customization, user namespaces, per-GPU allowlists, cgroup tuning beyond the current defaults, artifact quota enforcement under `/outputs`, or distributed/multi-container training. Native backend execution remains a developer-unsafe escape hatch only.

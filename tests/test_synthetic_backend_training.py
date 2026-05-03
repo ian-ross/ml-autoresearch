@@ -82,19 +82,30 @@ def test_docker_backend_constructs_structurally_contained_synthetic_training_com
     assert result.docker_image == "custom:tag"
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
     docker_run = calls[1]
-    assert docker_run[:5] == ["docker", "run", "--rm", "--network", "none"]
+    assert docker_run[:3] == ["docker", "run", "--rm"]
+    assert "--network" in docker_run
+    assert docker_run[docker_run.index("--network") + 1] == "none"
     assert "--user" in docker_run
     assert docker_run[docker_run.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
     assert "custom:tag" in docker_run
     assert "TMPDIR=/scratch" in docker_run
     assert "TORCHINDUCTOR_CACHE_DIR=/scratch/torchinductor" in docker_run
+    assert "ML_AUTORESEARCH_TIMEOUT_SENTINEL=/scratch/ml_autoresearch_timeout_requested" in docker_run
+    assert "--read-only" in docker_run
+    assert docker_run[docker_run.index("--cap-drop") + 1] == "ALL"
+    assert docker_run[docker_run.index("--security-opt") + 1] == "no-new-privileges"
+    assert docker_run[docker_run.index("--pids-limit") + 1] == "512"
+    assert docker_run[docker_run.index("--memory") + 1] == "4g"
+    assert docker_run[docker_run.index("--cpus") + 1] == "2"
+    assert "--privileged" not in docker_run
+    assert "--gpus" not in docker_run
     assert docker_run[-4:] == ["-m", "ml_autoresearch.container_runner", "train-synthetic", "--max-prediction-samples=3"]
     joined = "\n".join(docker_run)
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
     assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined
     assert f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z" in joined
-    assert f"{run_dir / 'outputs'}:/outputs:z" in joined
-    assert f"{run_dir / 'scratch'}:/scratch:z" in joined
+    assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
+    assert "type=tmpfs,destination=/scratch,tmpfs-size=2g,tmpfs-mode=1777" in joined
     assert "/var/run/docker.sock" not in joined
 
 
@@ -158,7 +169,7 @@ def test_docker_backend_constructs_gvccs_training_command_with_read_only_data_mo
     joined = "\n".join(docker_run)
     assert f"{data_root}:/data:ro,z" in joined
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
-    assert f"{run_dir / 'outputs'}:/outputs:z" in joined
+    assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
     assert "/data" in joined
     assert f"{data_root}:/data:z" not in joined
 
@@ -182,3 +193,76 @@ def test_docker_backend_rejects_missing_or_file_gvccs_data_root_before_launch(tm
         backend.train_gvccs(tmp_path / "run", file_root)
 
     assert calls == []
+
+
+def test_docker_training_timeout_requests_graceful_shutdown_and_records_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    run_dir = tmp_path / "runs" / "run_1"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "logs").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+
+    run_calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        run_calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    class FakeProcess:
+        returncode = 0
+        calls = 0
+
+        def communicate(self, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired(["docker"], timeout)
+            return "", ""
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+
+    result = DockerBackend("custom:tag", wall_clock_timeout_seconds=0.01, timeout_grace_seconds=2).train_synthetic(run_dir)
+
+    assert result.lifecycle_status == "timeout_graceful"
+    assert result.timeout == {
+        "requested": True,
+        "wall_clock_timeout_seconds": 0.01,
+        "grace_seconds": 2,
+        "forced_termination": False,
+    }
+    assert any(call[:2] == ["docker", "exec"] and call[2].startswith("ml-autoresearch-") for call in run_calls)
+    assert "budget exhausted" in (run_dir / "outputs" / "logs" / "harness_timeout.log").read_text()
+
+
+def test_docker_training_timeout_force_kills_after_grace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    run_dir = tmp_path / "runs" / "run_1"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "logs").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+    run_calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        run_calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    class FakeProcess:
+        returncode = -9
+        calls = 0
+
+        def communicate(self, timeout=None):
+            self.calls += 1
+            if self.calls <= 2:
+                raise subprocess.TimeoutExpired(["docker"], timeout)
+            return "", "killed"
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+
+    with pytest.raises(Exception, match="grace period expired"):
+        DockerBackend("custom:tag", wall_clock_timeout_seconds=0.01, timeout_grace_seconds=1).train_synthetic(run_dir)
+
+    assert any(call[:2] == ["docker", "kill"] for call in run_calls)
+    assert "force-terminated" in (run_dir / "outputs" / "logs" / "harness_timeout.log").read_text()

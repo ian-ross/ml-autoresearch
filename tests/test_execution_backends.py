@@ -80,12 +80,23 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert result.docker_image == "custom:tag"
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
     docker_run = calls[1]
-    assert docker_run[:5] == ["docker", "run", "--rm", "--network", "none"]
+    assert docker_run[:3] == ["docker", "run", "--rm"]
+    assert "--network" in docker_run
+    assert docker_run[docker_run.index("--network") + 1] == "none"
     assert "--user" in docker_run
     assert docker_run[docker_run.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
     assert "custom:tag" in docker_run
     assert "TMPDIR=/scratch" in docker_run
     assert "TORCHINDUCTOR_CACHE_DIR=/scratch/torchinductor" in docker_run
+    assert "--read-only" in docker_run
+    assert docker_run[docker_run.index("--cap-drop") + 1] == "ALL"
+    assert docker_run[docker_run.index("--security-opt") + 1] == "no-new-privileges"
+    assert "--privileged" not in docker_run
+    assert "--pids-limit" in docker_run
+    assert "--memory" in docker_run
+    assert "--cpus" in docker_run
+    assert not any(arg.startswith("--env-file") for arg in docker_run)
+    assert "--gpus" not in docker_run
     assert "--entrypoint" in docker_run
     assert docker_run[docker_run.index("--entrypoint") + 1] == "python"
     assert docker_run[-2:] == ["-m", "ml_autoresearch.container_smoke"]
@@ -93,8 +104,8 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
     assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined
     assert f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z" in joined
-    assert f"{run_dir / 'outputs'}:/outputs:z" in joined
-    assert f"{run_dir / 'scratch'}:/scratch:z" in joined
+    assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
+    assert "type=tmpfs,destination=/scratch,tmpfs-size=2g,tmpfs-mode=1777" in joined
     assert "/var/run/docker.sock" not in joined
 
 

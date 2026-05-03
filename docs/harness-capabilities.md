@@ -221,3 +221,11 @@ If new research freedom is needed, it should be added as an explicit Harness-own
 ## Pretrained weights
 
 Candidate Experiments may reference only Approved Weight Artifacts by stable identifier. New pretrained weights enter the system through Pretrained Weight Requests that record source, license, intended use, and audit information. Once approved, the Harness makes the artifact available under an approved ID.
+
+## Docker Candidate Execution Boundary hardening status
+
+The current Docker backend runs Candidate Experiment smoke tests and training as a non-root user with no network, a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, bounded memory/CPU/process limits, and Harness-owned explicit environment variables. `/outputs` and `/scratch` are the only writable container paths; `/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and GVCCS `/data` are read-only. GPU access is disabled by default and is only enabled by Harness configuration.
+
+Docker training wall-clock exhaustion uses a graceful timeout protocol. The Harness records timeout events, writes a sentinel in `/scratch`, waits a bounded grace period for the in-container Harness-owned training loop to stop at an end-of-batch checkpoint and write usable Results, and force-kills only after grace expires. Run metadata distinguishes normal completion, graceful timeout completion, and forced timeout failure.
+
+Remaining limitations: no custom seccomp/AppArmor policy yet, no user-namespace remapping requirement yet, no hard artifact quota for `/outputs`, and no distributed/multi-container GPU policy.

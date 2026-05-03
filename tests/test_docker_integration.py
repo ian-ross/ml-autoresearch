@@ -77,7 +77,8 @@ def test_docker_synthetic_research_loop_runs_in_real_container(tmp_path: Path):
 
     metadata = json.loads((run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "completed"
-    assert metadata["execution_backend"] == {"name": "docker", "docker_image": INTEGRATION_IMAGE}
+    assert metadata["execution_backend"]["name"] == "docker"
+    assert metadata["execution_backend"]["docker_image"] == INTEGRATION_IMAGE
 
     assert (run_dir / "outputs" / "model_summary.json").is_file()
     assert (run_dir / "outputs" / "metrics.jsonl").is_file()

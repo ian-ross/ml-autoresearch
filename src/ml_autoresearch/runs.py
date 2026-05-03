@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
-from ml_autoresearch.execution import ExecutionBackend, NativeBackend, backend_metadata
+from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.smoke import SmokeTestError
 from ml_autoresearch.gvccs import GVCCSDataError
 from ml_autoresearch.training import TrainingError
@@ -109,9 +109,26 @@ def _run_candidate_synthetic_training(
         execution_backend=execution_backend_metadata,
     )
     selected_backend = backend or NativeBackend()
+    training_result = None
     try:
-        selected_backend.train_synthetic(run.run_dir, max_prediction_samples=max_prediction_samples)
+        training_result = selected_backend.train_synthetic(run.run_dir, max_prediction_samples=max_prediction_samples)
         artifacts = _validate_synthetic_training_outputs(run.run_dir)
+    except DockerOperationTimeoutError as exc:
+        reason = str(exc)
+        _write_metadata(
+            run.run_dir,
+            run_id=run.run_id,
+            status=RunStatus.FAILED,
+            created_at=created_at,
+            updated_at=_now_iso(),
+            candidate_source=candidate_source,
+            rejection_reason=None,
+            smoke_failure_reason=None,
+            training_failure_reason=reason,
+            execution_backend=execution_backend_metadata,
+            training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
+        )
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
     except (TrainingError, RuntimeError) as exc:
         reason = str(exc)
         _write_metadata(
@@ -140,6 +157,7 @@ def _run_candidate_synthetic_training(
         training_failure_reason=None,
         artifacts=artifacts,
         execution_backend=execution_backend_metadata,
+        training_lifecycle=_training_lifecycle_from_result(training_result),
     )
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
@@ -174,6 +192,24 @@ def _run_candidate_training(
     )
     try:
         training_result = trainer(run.run_dir)
+    except DockerOperationTimeoutError as exc:
+        reason = str(exc)
+        _write_training_failure_log(run.run_dir, reason)
+        _write_metadata(
+            run.run_dir,
+            run_id=run.run_id,
+            status=RunStatus.FAILED,
+            created_at=created_at,
+            updated_at=_now_iso(),
+            candidate_source=candidate_source,
+            rejection_reason=None,
+            smoke_failure_reason=None,
+            training_failure_reason=reason,
+            execution_backend=metadata.get("execution_backend"),
+            dataset=dataset,
+            training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
+        )
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
     except (TrainingError, RuntimeError, GVCCSDataError) as exc:
         reason = str(exc)
         _write_training_failure_log(run.run_dir, reason)
@@ -205,6 +241,7 @@ def _run_candidate_training(
         artifacts=_artifacts_from_training_result(training_result),
         execution_backend=metadata.get("execution_backend"),
         dataset=dataset,
+        training_lifecycle=_training_lifecycle_from_result(training_result),
     )
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
@@ -420,6 +457,7 @@ def _write_metadata(
     artifacts: dict[str, object] | None = None,
     execution_backend: object | None = None,
     dataset: dict[str, object] | None = None,
+    training_lifecycle: dict[str, object] | None = None,
 ) -> None:
     metadata = {
         "run_id": run_id,
@@ -439,6 +477,8 @@ def _write_metadata(
         metadata["dataset"] = dataset
     if artifacts is not None:
         metadata["artifacts"] = artifacts
+    if training_lifecycle is not None:
+        metadata["training_lifecycle"] = training_lifecycle
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 
@@ -479,6 +519,17 @@ def _validate_synthetic_training_outputs(run_dir: Path) -> dict[str, object] | N
 def _artifacts_from_training_result(training_result: object) -> dict[str, object] | None:
     if isinstance(training_result, dict) and isinstance(training_result.get("artifacts"), dict):
         return training_result["artifacts"]
+    return None
+
+
+def _training_lifecycle_from_result(training_result: object) -> dict[str, object] | None:
+    status = getattr(training_result, "lifecycle_status", None)
+    timeout = getattr(training_result, "timeout", None)
+    if status and status != "completed":
+        lifecycle: dict[str, object] = {"status": str(status)}
+        if isinstance(timeout, dict):
+            lifecycle["timeout"] = timeout
+        return lifecycle
     return None
 
 

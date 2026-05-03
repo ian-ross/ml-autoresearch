@@ -78,7 +78,8 @@ def test_submit_candidate_cli_accepts_docker_backend_and_image(tmp_path: Path):
     assert completed.returncode == 1
     payload = json.loads(completed.stdout)
     metadata = json.loads((tmp_path / "runs" / payload["run_id"] / "run_metadata.json").read_text())
-    assert metadata["execution_backend"] == {"name": "docker", "docker_image": "custom:tag"}
+    assert metadata["execution_backend"]["name"] == "docker"
+    assert metadata["execution_backend"]["docker_image"] == "custom:tag"
 
 
 def test_run_candidate_cli_rejects_missing_data_root_before_creating_run(tmp_path: Path):

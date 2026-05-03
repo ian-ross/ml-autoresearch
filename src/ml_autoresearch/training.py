@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import traceback
 from pathlib import Path
 
@@ -171,17 +172,26 @@ def _train_one_epoch_run(
         metrics_path.write_text("")
         model.train()
         train_loss_total = 0.0
+        trained_samples = 0
+        timeout_requested = False
         for batch_index, (inputs, targets) in enumerate(train_loader):
             optimizer.zero_grad(set_to_none=True)
             logits = _extract_mask_logits(model(inputs))[0]
             loss = bce_dice_loss(logits, targets)
             loss.backward()
             optimizer.step()
+            trained_samples += int(inputs.shape[0])
             train_loss_total += float(loss.item()) * inputs.shape[0]
             _append_jsonl(metrics_path, {"split": "train", "epoch": 1, "batch": batch_index, "loss": float(loss.item())})
+            if _timeout_requested():
+                timeout_requested = True
+                lines.append("Wall-clock timeout requested by Harness; stopping at end-of-batch checkpoint.")
+                break
 
         final = _evaluate(model, val_loader)
-        final["train/loss"] = train_loss_total / train_sample_count
+        final["train/loss"] = train_loss_total / max(trained_samples, 1)
+        if timeout_requested:
+            final["run/timeout_requested"] = True
         final["artifacts"] = write_prediction_sample_artifacts(
             run_dir=artifact_run_dir,
             model=model,
@@ -191,7 +201,10 @@ def _train_one_epoch_run(
         )
         final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
         _append_jsonl(metrics_path, {"split": "val", "epoch": 1, **final})
-        lines.append(success_line)
+        if timeout_requested:
+            lines.append("Training exited cleanly after Harness timeout request.")
+        else:
+            lines.append(success_line)
         log_path.write_text("\n".join(lines) + "\n")
         return final
     except Exception as exc:  # noqa: BLE001 - persist clear Harness failure details.
@@ -238,3 +251,8 @@ def _evaluate(model: torch.nn.Module, val_loader: DataLoader) -> dict[str, float
 def _append_jsonl(path: Path, payload: dict[str, object]) -> None:
     with path.open("a") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _timeout_requested() -> bool:
+    sentinel = os.environ.get("ML_AUTORESEARCH_TIMEOUT_SENTINEL")
+    return bool(sentinel and Path(sentinel).exists())
