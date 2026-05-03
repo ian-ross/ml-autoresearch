@@ -28,9 +28,13 @@ Use a Research Loop first approach:
 2. Define the v1 Candidate Experiment Contract.
 3. Build the simplest Harness capable of executing one useful baseline Candidate Experiment.
 4. Add enough artifacts and metrics for the agent to learn from Results.
-5. Add Docker, MLflow, async orchestration, and security hardening around the loop.
-6. Expand the Candidate Experiment Contract only through Harness-owned parameters or audited capabilities.
-7. Generalize to additional Research Problems after the contrail loop proves reusable seams.
+5. Run Human-Guided Research Iterations for Ground-Camera Contrail Detection with the current limited contract.
+6. Capture each iteration in a lightweight Markdown Research Note under `research-notes/`, and use Research Notes plus constraints as the input to later Experiment Proposals.
+7. Use those iterations to identify what the autonomous Pi-agent proposal loop actually needs.
+8. Expand the Candidate Experiment Contract only when Results show that a missing Harness-owned capability is blocking useful research.
+9. Keep Research Problem-specific code and artifacts coupled to the local Harness until Human-Guided Research Iterations reveal concrete seams worth extracting.
+10. Add Docker, MLflow, async orchestration, and security hardening around the loop as operational needs arise.
+11. Generalize to additional Research Problems after the contrail loop proves reusable seams.
 
 ## Top-level workstreams
 
@@ -124,11 +128,22 @@ Provide initial candidates to exercise the loop:
 - temporal stack UNet baseline.
 - optional auxiliary-head UNet using `line_logits` and/or `boundary_logits`.
 
-## First tracer-bullet milestone
+## First tracer-bullet milestone — complete
 
-The first milestone is a tiny real-training vertical slice.
+The first milestone was a tiny real-training vertical slice proving that the Candidate Experiment Contract and Harness can support the Research Loop. It is complete in the current codebase.
 
-It should use native/local execution first, not Docker or MLflow, and should prove that the Candidate Experiment Contract and Harness can support the Research Loop.
+Completion evidence:
+
+- local Candidate Experiment submission and validation are implemented;
+- Run creation, copied candidate source, resolved manifests, metadata, logs, and operation outputs are implemented;
+- PyTorch model smoke testing through `build_model(input_spec, output_spec)` is implemented;
+- deterministic synthetic contrail-like training is implemented;
+- local GVCCS-compatible data training is implemented for Single-Frame RGB Input;
+- metrics, prediction samples, and local observation commands are implemented;
+- Docker-backed execution and initial hardening have been added around the local loop;
+- the test suite passes for the implemented tracer-bullet behavior.
+
+The milestone remains intentionally narrower than the broader v1 contract. Temporal inputs, auxiliary heads, additional losses, pretrained-weight workflows, MLflow persistence, async orchestration, and production sandbox claims are follow-on work, not blockers for leaving the first tracer bullet.
 
 ### Success criteria
 

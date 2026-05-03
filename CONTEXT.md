@@ -13,8 +13,20 @@ A target ML problem that ML Autoresearch explores through Candidate Experiments,
 _Avoid_: Task, use case, project
 
 **Research Loop**:
-The closed cycle in which the agent proposes Candidate Experiments, the system runs them, Results are evaluated, and the next Candidate Experiment is informed by prior Results.
+The closed cycle in which Candidate Experiments are proposed, the system runs them, Results are evaluated, and the next Candidate Experiment is informed by prior Results. In early Human-Guided Research Iterations, humans may make proposal decisions before the Pi-agent proposal loop is automated.
 _Avoid_: Pipeline when referring to the iterative research cycle
+
+**Human-Guided Research Iteration**:
+An early Research Loop iteration where a human chooses or edits the next Candidate Experiment, uses the Harness to run it, and inspects Results before deciding the next step. This bridges the completed tracer-bullet Harness and a later autonomous Pi-agent proposal loop.
+_Avoid_: Manual testing when referring to learning-oriented research iteration
+
+**Research Note**:
+A lightweight, human- and agent-readable record of what a Run or comparison tested, what Result it produced, what qualitative behavior was observed, and what decision follows from it. Early Research Notes may be manually written Markdown; later reporting may derive richer LaTeX experiment reports and current-status summaries from the same information.
+_Avoid_: Log file, paper, raw metrics dump
+
+**Experiment Proposal**:
+A short rationale for the next Candidate Experiment, written before code generation, that states the hypothesis, expected effect, implementation sketch, constraints, and comparison target. The proposal is the bridge between reviewing prior Research Notes and generating Candidate Experiment code for the Harness.
+_Avoid_: Candidate Experiment when referring only to the rationale before runnable code exists
 
 **Candidate Experiment**:
 An agent-proposed, runnable ML research package containing the model architecture and allowed configuration needed for the runner to evaluate one research idea.
@@ -129,6 +141,9 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Single-Frame RGB Input** and **Centered Temporal RGB Clip Input** are v1 **Input Modes** for **Ground-Camera Contrail Detection**.
 - **ML Autoresearch** works by sustaining a **Research Loop**.
 - A **Research Loop** explores a **Research Problem** through many **Candidate Experiments**.
+- **Human-Guided Research Iterations** are early **Research Loop** iterations used before the autonomous Pi-agent proposal loop is implemented.
+- A **Research Note** records the observed outcome and decision from a **Run** or comparison of **Runs**.
+- An **Experiment Proposal** uses prior **Research Notes** and constraints to justify the next **Candidate Experiment** before runnable code is generated.
 - **ML Autoresearch** uses a **Candidate Experiment Runner** to execute agent-proposed **Candidate Experiments** safely.
 - A **Research Problem** is explored through many **Candidate Experiments**.
 - A **Candidate Experiment** conforms to a **Candidate Experiment Contract**.
