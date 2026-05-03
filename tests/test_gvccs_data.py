@@ -99,3 +99,39 @@ def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):
         with Image.open(run.run_dir / "outputs" / "prediction_samples" / relative_path) as image:
             assert image.size == (128, 128)
     assert "GVCCS" in (run.run_dir / "outputs" / "logs" / "training.log").read_text()
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["dataset"] == {
+        "id": "gvccs",
+        "host_data_path": str(FIXTURE_ROOT.resolve()),
+        "container_data_path": "/data",
+    }
+
+
+def test_run_candidate_with_gvccs_data_validates_host_data_root_before_submission(tmp_path: Path):
+    candidate = write_trainable_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    with pytest.raises(GVCCSDataError, match="data root does not exist"):
+        run_candidate_with_gvccs_data(candidate, runs_root, tmp_path / "missing")
+
+    assert not runs_root.exists()
+
+
+def test_malformed_gvccs_data_root_fails_run_with_training_metadata(tmp_path: Path):
+    candidate = write_trainable_candidate(tmp_path)
+    data_root = tmp_path / "malformed_gvccs"
+    (data_root / "train" / "images").mkdir(parents=True)
+
+    run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", data_root)
+
+    assert run.status == RunStatus.FAILED
+    assert "missing annotations.json" in (run.rejection_reason or "")
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["status"] == "failed"
+    assert "missing annotations.json" in metadata["training_failure_reason"]
+    assert metadata["dataset"] == {
+        "id": "gvccs",
+        "host_data_path": str(data_root.resolve()),
+        "container_data_path": "/data",
+    }
+    assert "missing annotations.json" in (run.run_dir / "outputs" / "logs" / "training.log").read_text()

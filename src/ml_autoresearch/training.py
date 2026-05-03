@@ -79,6 +79,30 @@ def train_gvccs_run(
 ) -> dict[str, object]:
     """Train one epoch on local GVCCS RGB image and binary Contrail Mask pairs."""
 
+    path = Path(run_dir)
+    return train_gvccs(
+        candidate_dir=path / "candidate",
+        resolved_manifest_path=path / "resolved_manifest.yaml",
+        outputs_dir=path / "outputs",
+        artifact_run_dir=path,
+        data_root=data_root,
+        max_samples=max_samples,
+        max_prediction_samples=max_prediction_samples,
+    )
+
+
+def train_gvccs(
+    *,
+    candidate_dir: str | Path,
+    resolved_manifest_path: str | Path,
+    outputs_dir: str | Path,
+    artifact_run_dir: str | Path,
+    data_root: str | Path,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+) -> dict[str, object]:
+    """Train GVCCS data with explicit Harness-controlled mounted paths."""
+
     samples = discover_gvccs_samples(data_root, split="train", max_samples=max_samples)
     split = deterministic_train_val_split(samples)
 
@@ -89,10 +113,10 @@ def train_gvccs_run(
         GVCCSDataset(split.val), batch_size=batch_size, shuffle=False
     )
     return _train_one_epoch_run(
-        candidate_dir=Path(run_dir) / "candidate",
-        resolved_manifest_path=Path(run_dir) / "resolved_manifest.yaml",
-        outputs_dir=Path(run_dir) / "outputs",
-        artifact_run_dir=Path(run_dir),
+        candidate_dir=candidate_dir,
+        resolved_manifest_path=resolved_manifest_path,
+        outputs_dir=outputs_dir,
+        artifact_run_dir=artifact_run_dir,
         start_line=f"Starting GVCCS training from {Path(data_root)} with {len(split.train)} train and {len(split.val)} val samples.",
         success_line="GVCCS training completed.",
         failure_prefix="GVCCS training failed",

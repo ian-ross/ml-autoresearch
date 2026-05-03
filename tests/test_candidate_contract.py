@@ -154,3 +154,31 @@ def test_symlinks_are_rejected(tmp_path: Path):
 
     with pytest.raises(CandidateValidationError, match="symlink"):
         validate_candidate_directory(candidate)
+
+
+def test_candidate_manifest_cannot_request_data_paths_or_mounts(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: broken
+input_mode: single_frame_rgb
+output_form: mask_logits
+data_root: /host/data
+mounts:
+  - /host/data:/data
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate)
+
+    message = str(excinfo.value)
+    assert "data_root" in message
+    assert "mounts" in message

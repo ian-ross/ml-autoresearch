@@ -93,3 +93,57 @@ def test_docker_synthetic_research_loop_runs_in_real_container(tmp_path: Path):
     sample_manifest = json.loads((run_dir / prediction_samples).read_text())
     assert sample_manifest["status"] == "completed"
     assert sample_manifest["sample_count"] > 0
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not RUN_DOCKER_INTEGRATION,
+    reason="set ML_AUTORESEARCH_DOCKER_INTEGRATION=1 to run real Docker integration tests",
+)
+def test_docker_gvccs_like_fixture_training_runs_in_real_container(tmp_path: Path):
+    """Build the runner image and train on the GVCCS-like fixture through read-only /data."""
+
+    if shutil.which("docker") is None:
+        pytest.fail("Docker executable is not available")
+
+    build = _run(["docker", "build", "-t", INTEGRATION_IMAGE, "."], timeout=600)
+    assert build.returncode == 0, f"docker build failed\nSTDOUT:\n{build.stdout}\nSTDERR:\n{build.stderr}"
+
+    candidate = PROJECT_ROOT / "tests" / "fixtures" / "candidates" / "single_frame_unet_baseline"
+    data_root = PROJECT_ROOT / "tests" / "fixtures" / "gvccs_like"
+    runs_root = tmp_path / "runs"
+    completed = _run(
+        [
+            sys.executable,
+            "-m",
+            "ml_autoresearch.cli",
+            "run-candidate",
+            "--candidate",
+            str(candidate),
+            "--runs-root",
+            str(runs_root),
+            "--data-root",
+            str(data_root),
+            "--max-samples",
+            "4",
+            "--docker-image",
+            INTEGRATION_IMAGE,
+        ],
+        timeout=600,
+    )
+    assert completed.returncode == 0, (
+        "Docker GVCCS fixture Research Loop failed\n"
+        f"STDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "completed"
+    run_dir = Path(payload["run_dir"])
+    metadata = json.loads((run_dir / "run_metadata.json").read_text())
+    assert metadata["dataset"] == {
+        "id": "gvccs",
+        "host_data_path": str(data_root.resolve()),
+        "container_data_path": "/data",
+    }
+    assert "Starting GVCCS training from /data" in (run_dir / "outputs" / "logs" / "training.log").read_text()
+    assert (run_dir / "outputs" / "final_metrics.json").is_file()

@@ -120,3 +120,65 @@ def test_host_harness_marks_training_failed_when_backend_omits_required_syntheti
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "failed"
     assert "required synthetic training artifact is missing" in metadata["training_failure_reason"]
+
+
+def test_docker_backend_constructs_gvccs_training_command_with_read_only_data_mount(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    run_dir = tmp_path / "runs" / "run_1"
+    data_root = tmp_path / "gvccs"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "logs").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+    data_root.mkdir()
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = DockerBackend("custom:tag").train_gvccs(run_dir, data_root, max_samples=4, max_prediction_samples=1)
+
+    assert result.backend == "docker"
+    assert result.operation == "train_gvccs"
+    assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
+    docker_run = calls[1]
+    assert docker_run[-5:] == [
+        "-m",
+        "ml_autoresearch.container_runner",
+        "train-gvccs",
+        "--max-samples=4",
+        "--max-prediction-samples=1",
+    ]
+    joined = "\n".join(docker_run)
+    assert f"{data_root}:/data:ro,z" in joined
+    assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
+    assert f"{run_dir / 'outputs'}:/outputs:z" in joined
+    assert "/data" in joined
+    assert f"{data_root}:/data:z" not in joined
+
+
+def test_docker_backend_rejects_missing_or_file_gvccs_data_root_before_launch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    backend = DockerBackend("custom:tag")
+    with pytest.raises(RuntimeError, match="GVCCS data root does not exist"):
+        backend.train_gvccs(tmp_path / "run", tmp_path / "missing")
+
+    file_root = tmp_path / "not-a-dir"
+    file_root.write_text("x")
+    with pytest.raises(RuntimeError, match="GVCCS data root is not a directory"):
+        backend.train_gvccs(tmp_path / "run", file_root)
+
+    assert calls == []

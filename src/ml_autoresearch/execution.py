@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ml_autoresearch.smoke import SmokeTestResult, smoke_test_run
-from ml_autoresearch.training import train_synthetic_fixture_run
+from ml_autoresearch.training import train_gvccs_run, train_synthetic_fixture_run
 
 DEFAULT_DOCKER_IMAGE = "ml-autoresearch-runner:local"
 MANUAL_DOCKER_BUILD_COMMAND = f"docker build -t {DEFAULT_DOCKER_IMAGE} ."
@@ -38,6 +38,16 @@ class ExecutionBackend(Protocol):
     def train_synthetic(self, run_dir: str | Path, *, max_prediction_samples: int = 2) -> OperationResult:
         """Train the copied Candidate Experiment on deterministic synthetic fixture data."""
 
+    def train_gvccs(
+        self,
+        run_dir: str | Path,
+        data_root: str | Path,
+        *,
+        max_samples: int | None = None,
+        max_prediction_samples: int = 2,
+    ) -> OperationResult:
+        """Train the copied Candidate Experiment on Harness-owned GVCCS data loading."""
+
 
 @dataclass(frozen=True)
 class NativeBackend:
@@ -59,6 +69,17 @@ class NativeBackend:
     def train_synthetic(self, run_dir: str | Path, *, max_prediction_samples: int = 2) -> OperationResult:
         train_synthetic_fixture_run(run_dir, max_prediction_samples=max_prediction_samples)
         return OperationResult(backend=self.name, operation="train_synthetic")
+
+    def train_gvccs(
+        self,
+        run_dir: str | Path,
+        data_root: str | Path,
+        *,
+        max_samples: int | None = None,
+        max_prediction_samples: int = 2,
+    ) -> OperationResult:
+        train_gvccs_run(run_dir, data_root, max_samples=max_samples, max_prediction_samples=max_prediction_samples)
+        return OperationResult(backend=self.name, operation="train_gvccs")
 
 
 @dataclass(frozen=True)
@@ -91,6 +112,27 @@ class DockerBackend:
         self._run_operation(command, "Docker synthetic training failed")
         return OperationResult(backend=self.name, operation="train_synthetic", docker_image=self.docker_image)
 
+    def train_gvccs(
+        self,
+        run_dir: str | Path,
+        data_root: str | Path,
+        *,
+        max_samples: int | None = None,
+        max_prediction_samples: int = 2,
+    ) -> OperationResult:
+        path = Path(run_dir)
+        data_path = self._validate_gvccs_data_root(data_root)
+        (path / "outputs" / "logs").mkdir(parents=True, exist_ok=True)
+        (path / "scratch").mkdir(parents=True, exist_ok=True)
+        self._ensure_image_available()
+        args = ["train-gvccs"]
+        if max_samples is not None:
+            args.append(f"--max-samples={max_samples}")
+        args.append(f"--max-prediction-samples={max_prediction_samples}")
+        command = self._operation_command(path, "ml_autoresearch.container_runner", *args, data_root=data_path)
+        self._run_operation(command, "Docker GVCCS training failed")
+        return OperationResult(backend=self.name, operation="train_gvccs", docker_image=self.docker_image)
+
     def _run_operation(self, command: list[str], failure_prefix: str) -> None:
         try:
             subprocess.run(command, check=True, capture_output=True, text=True)
@@ -109,8 +151,8 @@ class DockerBackend:
                 f"Docker image '{self.docker_image}' is not available. Build it with: {MANUAL_DOCKER_BUILD_COMMAND}"
             ) from exc
 
-    def _operation_command(self, run_dir: Path, module: str, *args: str) -> list[str]:
-        return [
+    def _operation_command(self, run_dir: Path, module: str, *args: str, data_root: Path | None = None) -> list[str]:
+        command = [
             "docker",
             "run",
             "--rm",
@@ -139,13 +181,31 @@ class DockerBackend:
             f"{run_dir / 'outputs'}:/outputs:z",
             "--volume",
             f"{run_dir / 'scratch'}:/scratch:z",
-            "--entrypoint",
-            "python",
-            self.docker_image,
-            "-m",
-            module,
-            *args,
         ]
+        if data_root is not None:
+            command.extend(["--volume", f"{data_root}:/data:ro,z"])
+        command.extend(
+            [
+                "--entrypoint",
+                "python",
+                self.docker_image,
+                "-m",
+                module,
+                *args,
+            ]
+        )
+        return command
+
+    def _validate_gvccs_data_root(self, data_root: str | Path) -> Path:
+        path = Path(data_root)
+        if not path.exists():
+            raise RuntimeError(f"GVCCS data root does not exist: {path}")
+        if not path.is_dir():
+            raise RuntimeError(f"GVCCS data root is not a directory: {path}")
+        try:
+            return path.resolve(strict=True)
+        except OSError as exc:
+            raise RuntimeError(f"GVCCS data root cannot be resolved: {path}: {exc}") from exc
 
 
 def backend_metadata(backend: ExecutionBackend) -> dict[str, object]:

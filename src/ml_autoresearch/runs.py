@@ -16,7 +16,8 @@ import yaml
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.smoke import SmokeTestError
-from ml_autoresearch.training import TrainingError, train_gvccs_run
+from ml_autoresearch.gvccs import GVCCSDataError
+from ml_autoresearch.training import TrainingError
 
 
 class RunStatus(StrEnum):
@@ -67,11 +68,16 @@ def run_candidate_with_gvccs_data(
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
 
+    data_path = _validate_host_data_root(data_root)
+    selected_backend = backend or NativeBackend()
     return _run_candidate_training(
         candidate_dir,
         runs_root,
-        lambda run_dir: train_gvccs_run(run_dir, data_root, max_samples=max_samples, max_prediction_samples=max_prediction_samples),
-        backend=backend,
+        lambda run_dir: selected_backend.train_gvccs(
+            run_dir, data_path, max_samples=max_samples, max_prediction_samples=max_prediction_samples
+        ),
+        backend=selected_backend,
+        dataset=_gvccs_dataset_metadata(data_path),
     )
 
 
@@ -138,7 +144,14 @@ def _run_candidate_synthetic_training(
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 
-def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, trainer, *, backend: ExecutionBackend | None = None) -> RunSubmission:
+def _run_candidate_training(
+    candidate_dir: str | Path,
+    runs_root: str | Path,
+    trainer,
+    *,
+    backend: ExecutionBackend | None = None,
+    dataset: dict[str, object] | None = None,
+) -> RunSubmission:
     run = submit_candidate(candidate_dir, runs_root, backend=backend)
     if run.status != RunStatus.ACCEPTED:
         return run
@@ -157,11 +170,13 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
         smoke_failure_reason=None,
         training_failure_reason=None,
         execution_backend=metadata.get("execution_backend"),
+        dataset=dataset,
     )
     try:
         training_result = trainer(run.run_dir)
-    except TrainingError as exc:
+    except (TrainingError, RuntimeError, GVCCSDataError) as exc:
         reason = str(exc)
+        _write_training_failure_log(run.run_dir, reason)
         _write_metadata(
             run.run_dir,
             run_id=run.run_id,
@@ -173,6 +188,7 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
             smoke_failure_reason=None,
             training_failure_reason=reason,
             execution_backend=metadata.get("execution_backend"),
+            dataset=dataset,
         )
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
 
@@ -188,6 +204,7 @@ def _run_candidate_training(candidate_dir: str | Path, runs_root: str | Path, tr
         training_failure_reason=None,
         artifacts=_artifacts_from_training_result(training_result),
         execution_backend=metadata.get("execution_backend"),
+        dataset=dataset,
     )
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
@@ -366,6 +383,19 @@ def _outputs_dir(run_dir: Path) -> Path:
     return run_dir / "outputs"
 
 
+def _validate_host_data_root(data_root: str | Path) -> Path:
+    path = Path(data_root)
+    if not path.exists():
+        raise GVCCSDataError(f"GVCCS data root does not exist: {path}")
+    if not path.is_dir():
+        raise GVCCSDataError(f"GVCCS data root is not a directory: {path}")
+    return path.resolve()
+
+
+def _gvccs_dataset_metadata(data_root: Path) -> dict[str, object]:
+    return {"id": "gvccs", "host_data_path": str(data_root), "container_data_path": "/data"}
+
+
 def _generate_run_id(runs_root: Path) -> str:
     runs_root.mkdir(parents=True, exist_ok=True)
     while True:
@@ -389,6 +419,7 @@ def _write_metadata(
     training_failure_reason: str | None,
     artifacts: dict[str, object] | None = None,
     execution_backend: object | None = None,
+    dataset: dict[str, object] | None = None,
 ) -> None:
     metadata = {
         "run_id": run_id,
@@ -404,6 +435,8 @@ def _write_metadata(
     }
     if execution_backend is not None:
         metadata["execution_backend"] = execution_backend
+    if dataset is not None:
+        metadata["dataset"] = dataset
     if artifacts is not None:
         metadata["artifacts"] = artifacts
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
@@ -411,6 +444,13 @@ def _write_metadata(
 
 def _read_metadata(run_dir: Path) -> dict[str, object]:
     return json.loads((run_dir / "run_metadata.json").read_text())
+
+
+def _write_training_failure_log(run_dir: Path, reason: str) -> None:
+    log_path = _outputs_dir(run_dir) / "logs" / "training.log"
+    if not log_path.exists():
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(f"Training failed: {reason}\n")
 
 
 def _validate_synthetic_training_outputs(run_dir: Path) -> dict[str, object] | None:
