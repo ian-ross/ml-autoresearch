@@ -6,16 +6,17 @@ The first Research Problem is **Ground-Camera Contrail Detection**: binary seman
 
 ## Current status
 
-This repository currently contains the native/local tracer-bullet Harness:
+This repository currently contains the local tracer-bullet Harness with a Docker-backed Candidate Execution Boundary:
 
 - validate a local Candidate Experiment directory
 - create Harness-owned Run directories
 - smoke-test candidate models through the controlled `build_model(input_spec, output_spec)` interface
 - train one epoch on deterministic synthetic data or a local GVCCS-like/GVCCS dataset
+- for Docker GVCCS training, mount the host `--data-root` read-only at `/data` inside the container
 - write local Run artifacts such as metrics, metadata, logs, model summaries, and prediction samples
 - inspect local Runs without MLflow
 
-Docker execution, MLflow upload, async scheduling, and stronger production isolation are planned later layers around the same Research Loop. The current open Docker branch is tracked by issues #8-#13.
+The native backend remains available as an explicit developer-unsafe escape hatch. MLflow upload, async scheduling, and stronger production isolation are planned later layers around the same Research Loop.
 
 ## Core concepts
 
@@ -111,7 +112,7 @@ uv run ml-autoresearch run-candidate \
   --synthetic-fixture
 ```
 
-Run against a local GVCCS-like or real GVCCS data root:
+Run against a local GVCCS-like or real GVCCS data root using the default Docker backend:
 
 ```bash
 uv run ml-autoresearch run-candidate \
@@ -121,7 +122,7 @@ uv run ml-autoresearch run-candidate \
   --max-samples 8
 ```
 
-Real GVCCS data is not committed to this repository. See [`docs/gvccs-data.md`](docs/gvccs-data.md) for expected local layout.
+Real GVCCS data is not committed to this repository. The Docker backend validates the host path and mounts it read-only at `/data`; Candidate Experiments cannot choose data paths or mounts. See [`docs/gvccs-data.md`](docs/gvccs-data.md) for expected local layout.
 
 ## Inspecting local Runs
 
@@ -147,7 +148,7 @@ A completed local Run reserves `runs/<run_id>/` for Harness-owned files plus an 
 ```text
 candidate/                 copied Candidate Experiment source
 resolved_manifest.yaml     Harness-normalized manifest
-run_metadata.json          Run status, timestamps, sources, artifact references
+run_metadata.json          Run status, timestamps, sources, dataset metadata, artifact references
 outputs/
   model_summary.json       model parameter summary
   metrics.jsonl            batch/epoch metric stream
@@ -164,7 +165,7 @@ The intended architecture separates authority:
 
 - agents propose Candidate Experiments through a narrow contract
 - the trusted Harness validates, runs, and records them
-- future Docker execution will form the Candidate Execution Boundary
+- Docker execution forms the current Candidate Execution Boundary for smoke tests and training
 - future MLflow integration should be written by the trusted Harness, not candidate code
 
-The current native/local Harness is a development tracer bullet, not a production sandbox.
+The current Harness is still a development tracer bullet, not a production sandbox.

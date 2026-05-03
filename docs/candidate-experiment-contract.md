@@ -29,7 +29,7 @@ training:
   max_epochs: 1
 ```
 
-## Allowed files for issue #1
+## Allowed files
 
 Required:
 
@@ -51,3 +51,7 @@ Rejected:
 - notebooks
 - dataset files
 - arbitrary config blobs
+
+## Dataset and mount authority
+
+Candidate manifests cannot request data roots, bind mounts, arbitrary filesystem paths, custom data loaders, or custom training loops. For GVCCS training, the host CLI accepts `--data-root`; the Harness validates it and, for Docker execution, mounts it read-only at `/data` for the in-container Harness-owned GVCCS adapter. Candidate code receives only the tensors supplied by the Harness.

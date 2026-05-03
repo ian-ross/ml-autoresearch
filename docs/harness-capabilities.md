@@ -12,15 +12,16 @@ The GVCCS Dataset is from whole-sky cameras. Likely downstream use may involve c
 
 ## Execution model
 
-The current tracer-bullet implementation is synchronous and local/native:
+The current tracer-bullet implementation is synchronous and local, with Docker as the default Candidate Execution Boundary for `run-candidate`:
 
 1. The agent or human submits a Candidate Experiment with `submit-candidate` or `run-candidate`.
 2. The Harness validates the manifest/source, creates a Run ID, and copies accepted source into the Run directory.
 3. The Harness performs a PyTorch smoke test through `build_model(input_spec, output_spec)`.
 4. `run-candidate` trains synchronously on either the deterministic synthetic fixture or a local GVCCS-compatible `--data-root`.
-5. The agent follows Results through local observation commands: `list-runs`, `run-summary` / `get-run-summary`, and `get-best-runs`.
+5. For Docker GVCCS training, the host Harness validates `--data-root`, mounts it read-only at `/data`, and the in-container Harness-owned GVCCS adapter reads `/data`.
+6. The agent follows Results through local observation commands: `list-runs`, `run-summary` / `get-run-summary`, and `get-best-runs`.
 
-Docker execution, asynchronous queueing, MLflow persistence, and stronger production isolation are planned layers around the same Research Loop. Issues #8-#13 track the next Docker-backed Candidate Execution Boundary branch.
+The native backend remains available as an explicit developer-unsafe escape hatch. Asynchronous queueing, MLflow persistence, and stronger production isolation are planned layers around the same Research Loop.
 
 ## Input modes
 
@@ -162,7 +163,7 @@ Required completed-Run artifacts:
 - `prediction_samples/` — visual examples including input image or clip reference, ground truth mask, predicted mask, and overlay; include informative failures when possible.
 - `logs/` — validation, smoke-test, training, and persistence logs.
 
-The current native/local implementation writes operation artifacts at the Run root. Issue #8 will move operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root.
+The current implementation writes operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root. GVCCS Runs record dataset id `gvccs`, the real host data path, and the container path `/data` in `run_metadata.json`.
 
 Best-checkpoint persistence is optional Harness policy, not required for every Run, because checkpoint storage can become large.
 

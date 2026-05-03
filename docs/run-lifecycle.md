@@ -51,7 +51,7 @@ The Harness copies accepted candidate source into the Run directory. Later phase
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
-Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container.
+Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container. Docker GVCCS training also mounts the host `--data-root` read-only at `/data`; `/outputs` and `/scratch` remain the only writable paths.
 
 ## Run command
 
@@ -59,7 +59,29 @@ Observation commands read metrics and summaries from the `outputs/` layout. Dock
 ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --synthetic-fixture
 ```
 
-`run-candidate` defaults to `--backend docker` for the synthetic fixture path. Use `--backend native` only as an explicit developer-unsafe escape hatch. Docker synthetic training uses no data mount.
+`run-candidate` defaults to `--backend docker`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Docker synthetic training and smoke testing use no data mount. Docker GVCCS training validates the host `--data-root`, mounts it read-only at `/data`, and records dataset metadata in `run_metadata.json`.
+
+GVCCS example:
+
+```bash
+ml-autoresearch run-candidate \
+  --candidate path/to/candidate \
+  --runs-root runs \
+  --data-root /path/to/GVCCS \
+  --max-samples 8
+```
+
+GVCCS dataset metadata shape:
+
+```json
+{
+  "dataset": {
+    "id": "gvccs",
+    "host_data_path": "/path/to/GVCCS",
+    "container_data_path": "/data"
+  }
+}
+```
 
 ## Rejected submissions
 

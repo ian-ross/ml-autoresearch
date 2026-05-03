@@ -94,11 +94,11 @@ Implement Harness-owned training:
 
 ### 6. Execution Boundary
 
-Add the Candidate Execution Boundary. The current open issue sequence for this branch is #8-#13.
+Add the Candidate Execution Boundary. Docker smoke testing, synthetic training, and GVCCS training are now implemented for the local tracer-bullet Harness; remaining work in this branch focuses on hardening and follow-on capabilities.
 
 Policy decisions for the branch:
 
-- Docker is the intended default execution backend once Docker synthetic training reaches parity with native execution.
+- Docker is the default execution backend for `run-candidate`.
 - Native execution remains available as an explicit unsafe/developer backend.
 - The first Docker issue proves structural containment only; stronger hardening is tracked separately.
 - Harness-owned files stay at the Run root; operation-produced artifacts move under `outputs/`.
@@ -154,19 +154,18 @@ It should use native/local execution first, not Docker or MLflow, and should pro
    - `prediction_samples/`
    - `logs/`
 
-   The current native implementation writes operation artifacts at the Run root. Issue #8 will move operation artifacts under `outputs/` for the Docker boundary.
+   Operation-produced artifacts are written under `outputs/`; Harness-owned `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` remain at the Run root.
 8. A human or agent can inspect the Run and decide what Candidate Experiment to try next.
 
 ### Explicit non-goals
 
 The first tracer bullet does not need:
 
-- Docker execution.
 - MLflow persistence.
 - asynchronous queueing.
 - pretrained weight workflow.
 - production security claims.
-- full GVCCS training.
+- full-scale GVCCS training beyond local GVCCS-compatible roots.
 
 ## Notes and constraints
 
