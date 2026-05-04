@@ -130,6 +130,17 @@ uv run ml-autoresearch run-candidate \
   --max-samples 8
 ```
 
+Docker GPU access is disabled by default. Opt in explicitly for Docker runs when running on a GPU-capable host or cluster node:
+
+```bash
+uv run ml-autoresearch run-candidate \
+  --candidate tests/fixtures/candidates/single_frame_unet_baseline \
+  --runs-root runs \
+  --data-root /path/to/GVCCS \
+  --max-samples 8 \
+  --docker-enable-gpu
+```
+
 Real GVCCS data is not committed to this repository. The Docker backend validates the host path and mounts it read-only at `/data`; Candidate Experiments cannot choose data paths or mounts. See [`docs/gvccs-data.md`](docs/gvccs-data.md) for expected local layout.
 
 ## Inspecting local Runs
