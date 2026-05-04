@@ -109,6 +109,29 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert "/var/run/docker.sock" not in joined
 
 
+def test_docker_backend_accepts_explicit_container_user_for_userns_remap_clusters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    run_dir = tmp_path / "runs" / "run_1"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    DockerBackend("custom:tag", container_user="65534:65534").smoke_test(run_dir)
+
+    docker_run = calls[1]
+    assert docker_run[docker_run.index("--user") + 1] == "65534:65534"
+    assert oct((run_dir / "outputs").stat().st_mode & 0o777) == "0o777"
+
+
 def test_docker_backend_includes_gpus_all_only_when_explicitly_enabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

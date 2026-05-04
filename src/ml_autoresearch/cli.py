@@ -31,13 +31,20 @@ def _echo_json(payload: object) -> None:
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
 
 
-def _select_backend(name: str, docker_image: str, docker_enable_gpu: bool = False) -> ExecutionBackend:
+def _select_backend(
+    name: str,
+    docker_image: str,
+    docker_enable_gpu: bool = False,
+    docker_user: str | None = None,
+) -> ExecutionBackend:
     if name == "native":
         if docker_enable_gpu:
             raise typer.BadParameter("--docker-enable-gpu requires --backend docker")
+        if docker_user is not None:
+            raise typer.BadParameter("--docker-user requires --backend docker")
         return NativeBackend()
     if name == "docker":
-        return DockerBackend(docker_image, enable_gpu=docker_enable_gpu)
+        return DockerBackend(docker_image, enable_gpu=docker_enable_gpu, container_user=docker_user)
     raise typer.BadParameter("backend must be native or docker")
 
 
@@ -62,10 +69,17 @@ def submit_candidate_command(
         bool,
         typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access by passing --gpus all to Docker runs."),
     ] = False,
+    docker_user: Annotated[
+        str | None,
+        typer.Option(
+            "--docker-user",
+            help="Container uid:gid for Docker runs; use a low mapped uid on userns-remap clusters, e.g. 65534:65534.",
+        ),
+    ] = None,
 ) -> None:
     """Validate a local Candidate Experiment and create a Run."""
 
-    run = submit_candidate(candidate, runs_root, backend=_select_backend(backend, docker_image, docker_enable_gpu))
+    run = submit_candidate(candidate, runs_root, backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user))
     _echo_run(run)
     if run.status in {RunStatus.REJECTED, RunStatus.SMOKE_FAILED}:
         raise typer.Exit(1)
@@ -84,12 +98,19 @@ def run_candidate_command(
         bool,
         typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access by passing --gpus all to Docker runs."),
     ] = False,
+    docker_user: Annotated[
+        str | None,
+        typer.Option(
+            "--docker-user",
+            help="Container uid:gid for Docker runs; use a low mapped uid on userns-remap clusters, e.g. 65534:65534.",
+        ),
+    ] = None,
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
 
     if synthetic_fixture and data_root is not None:
         raise typer.BadParameter("choose either --synthetic-fixture or --data-root, not both")
-    selected_backend = _select_backend(backend, docker_image, docker_enable_gpu)
+    selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user)
     if synthetic_fixture:
         run = run_candidate_with_synthetic_fixture(candidate, runs_root, backend=selected_backend)
     elif data_root is not None:

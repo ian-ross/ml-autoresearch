@@ -124,6 +124,7 @@ class DockerBackend:
     pids_limit: str = DEFAULT_DOCKER_PIDS_LIMIT
     scratch_size: str = DEFAULT_DOCKER_SCRATCH_SIZE
     enable_gpu: bool = False
+    container_user: str | None = None
 
     def smoke_test(self, run_dir: str | Path) -> OperationResult:
         path = Path(run_dir)
@@ -165,8 +166,13 @@ class DockerBackend:
         return self._run_training_operation(command, path, "Docker GVCCS training failed", "train_gvccs")
 
     def _prepare_writable_paths(self, path: Path) -> None:
-        (path / "outputs" / "logs").mkdir(parents=True, exist_ok=True)
+        outputs = path / "outputs"
+        logs = outputs / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
         (path / "scratch").mkdir(parents=True, exist_ok=True)
+        if self.container_user is not None and self.container_user != self._host_user():
+            os.chmod(outputs, 0o777)
+            os.chmod(logs, 0o777)
 
     def _run_training_operation(
         self, command: list[str], run_dir: Path, failure_prefix: str, operation: str
@@ -265,7 +271,7 @@ class DockerBackend:
             "--network",
             "none",
             "--user",
-            f"{os.getuid()}:{os.getgid()}",
+            self._container_user(),
             "--read-only",
             "--cap-drop",
             "ALL",
@@ -306,6 +312,13 @@ class DockerBackend:
             command.extend(["--volume", f"{data_root}:/data:ro,z"])
         command.extend(["--entrypoint", "python", self.docker_image, "-m", module, *args])
         return command
+
+    def _container_user(self) -> str:
+        return self.container_user or self._host_user()
+
+    @staticmethod
+    def _host_user() -> str:
+        return f"{os.getuid()}:{os.getgid()}"
 
     def _validate_gvccs_data_root(self, data_root: str | Path) -> Path:
         path = Path(data_root)
@@ -385,6 +398,7 @@ def backend_metadata(backend: ExecutionBackend) -> dict[str, object]:
             "name": backend.name,
             "docker_image": backend.docker_image,
             "gpu_policy": "disabled_by_default" if not backend.enable_gpu else "enabled_by_harness_configuration",
+            "docker_user": backend._container_user(),
             "resource_limits": {
                 "memory": backend.memory_limit,
                 "cpus": backend.cpus,
