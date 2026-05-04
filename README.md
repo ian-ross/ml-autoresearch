@@ -46,14 +46,14 @@ Important docs:
 
 ## Development setup
 
-This project uses Python 3.12 and PyTorch. With `uv` installed:
+This project uses Python 3.12. Host development and tests use a pinned CPU-only PyTorch build so local installs do not accidentally resolve a GPU/CUDA PyTorch stack. With `uv` installed:
 
 ```bash
 uv sync --python 3.12 --extra dev
 uv run --python 3.12 pytest -q
 ```
 
-The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported.
+The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported. Base `ml-autoresearch` installs do not include PyTorch; use the `dev` extra for host tests. Docker-backed Candidate Execution Boundary runs get their runtime PyTorch/CUDA stack from the runner image, not from base package metadata.
 
 Run the CLI via:
 
