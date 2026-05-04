@@ -70,6 +70,8 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
 
     def fake_run(command, check, capture_output, text):
         calls.append(command)
+        if command[:2] == ["docker", "info"]:
+            return subprocess.CompletedProcess(command, 0, '["name=seccomp,profile=builtin"]', "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -79,8 +81,10 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert result.backend == "docker"
     assert result.docker_image == "custom:tag"
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
-    docker_run = calls[1]
+    assert calls[1] == ["docker", "info", "--format", "{{json .SecurityOptions}}"]
+    docker_run = calls[2]
     assert docker_run[:3] == ["docker", "run", "--rm"]
+    assert "--userns=host" in docker_run
     assert "--network" in docker_run
     assert docker_run[docker_run.index("--network") + 1] == "none"
     assert "--user" in docker_run
@@ -107,6 +111,56 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
     assert "type=tmpfs,destination=/scratch,tmpfs-size=2g,tmpfs-mode=1777" in joined
     assert "/var/run/docker.sock" not in joined
+
+
+def test_docker_backend_defaults_to_rootless_container_root_when_docker_is_rootless(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    run_dir = tmp_path / "runs" / "run_1"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        if command[:2] == ["docker", "info"]:
+            return subprocess.CompletedProcess(command, 0, '["name=rootless"]', "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    DockerBackend("custom:tag").smoke_test(run_dir)
+
+    docker_run = calls[2]
+    assert "--userns=host" not in docker_run
+    assert docker_run[docker_run.index("--user") + 1] == "0:0"
+
+
+
+def test_docker_backend_can_use_rootless_container_root_to_preserve_output_ownership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    run_dir = tmp_path / "runs" / "run_1"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    DockerBackend("custom:tag", rootless_container_root=True).smoke_test(run_dir)
+
+    docker_run = calls[1]
+    assert "--userns=host" not in docker_run
+    assert docker_run[docker_run.index("--user") + 1] == "0:0"
+    assert oct((run_dir / "outputs").stat().st_mode & 0o777) != "0o777"
 
 
 def test_docker_backend_accepts_explicit_container_user_for_userns_remap_clusters(
@@ -152,7 +206,7 @@ def test_docker_backend_includes_gpus_all_only_when_explicitly_enabled(
 
     DockerBackend("custom:tag", enable_gpu=True).smoke_test(run_dir)
 
-    docker_run = calls[1]
+    docker_run = calls[-1]
     assert docker_run[docker_run.index("--gpus") + 1] == "all"
 
 

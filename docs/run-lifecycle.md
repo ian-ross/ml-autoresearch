@@ -107,7 +107,7 @@ Rejected submissions do not copy the candidate source into `candidate/`.
 
 Docker-backed smoke tests, synthetic training, and GVCCS training launch containers with the following Harness-owned policy:
 
-- non-root user matching the host Harness uid/gid by default; on Docker user-namespace-remapped clusters, the Harness may be configured with an explicit low mapped container uid/gid via `--docker-user` while keeping the container non-root;
+- Docker user selection is automatic by default: rootless Docker uses container `0:0`, which maps back to the invoking unprivileged host user so output artifacts remain user-owned; rootful Docker uses `--userns=host` with the host Harness uid/gid;
 - no network (`--network none`);
 - read-only root filesystem;
 - only `/outputs` and `/scratch` are writable container paths (`/outputs` is a run-scoped bind mount; `/scratch` is bounded tmpfs);

@@ -36,15 +36,25 @@ def _select_backend(
     docker_image: str,
     docker_enable_gpu: bool = False,
     docker_user: str | None = None,
+    docker_rootless_container_root: bool = False,
 ) -> ExecutionBackend:
     if name == "native":
         if docker_enable_gpu:
             raise typer.BadParameter("--docker-enable-gpu requires --backend docker")
         if docker_user is not None:
             raise typer.BadParameter("--docker-user requires --backend docker")
+        if docker_rootless_container_root:
+            raise typer.BadParameter("--docker-rootless-container-root requires --backend docker")
         return NativeBackend()
     if name == "docker":
-        return DockerBackend(docker_image, enable_gpu=docker_enable_gpu, container_user=docker_user)
+        if docker_user is not None and docker_rootless_container_root:
+            raise typer.BadParameter("choose either --docker-user or --docker-rootless-container-root, not both")
+        return DockerBackend(
+            docker_image,
+            enable_gpu=docker_enable_gpu,
+            container_user=docker_user,
+            rootless_container_root=docker_rootless_container_root,
+        )
     raise typer.BadParameter("backend must be native or docker")
 
 
@@ -73,13 +83,24 @@ def submit_candidate_command(
         str | None,
         typer.Option(
             "--docker-user",
-            help="Container uid:gid for Docker runs; use a low mapped uid on userns-remap clusters, e.g. 65534:65534.",
+            help="Container uid:gid for Docker runs. May create host artifacts owned by a remapped uid on rootless/userns Docker.",
         ),
     ] = None,
+    docker_rootless_container_root: Annotated[
+        bool,
+        typer.Option(
+            "--docker-rootless-container-root",
+            help="Force rootless Docker ownership mode: run as container root, which maps to the invoking host user and preserves output ownership.",
+        ),
+    ] = False,
 ) -> None:
     """Validate a local Candidate Experiment and create a Run."""
 
-    run = submit_candidate(candidate, runs_root, backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user))
+    run = submit_candidate(
+        candidate,
+        runs_root,
+        backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root),
+    )
     _echo_run(run)
     if run.status in {RunStatus.REJECTED, RunStatus.SMOKE_FAILED}:
         raise typer.Exit(1)
@@ -102,15 +123,22 @@ def run_candidate_command(
         str | None,
         typer.Option(
             "--docker-user",
-            help="Container uid:gid for Docker runs; use a low mapped uid on userns-remap clusters, e.g. 65534:65534.",
+            help="Container uid:gid for Docker runs. May create host artifacts owned by a remapped uid on rootless/userns Docker.",
         ),
     ] = None,
+    docker_rootless_container_root: Annotated[
+        bool,
+        typer.Option(
+            "--docker-rootless-container-root",
+            help="Force rootless Docker ownership mode: run as container root, which maps to the invoking host user and preserves output ownership.",
+        ),
+    ] = False,
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
 
     if synthetic_fixture and data_root is not None:
         raise typer.BadParameter("choose either --synthetic-fixture or --data-root, not both")
-    selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user)
+    selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     if synthetic_fixture:
         run = run_candidate_with_synthetic_fixture(candidate, runs_root, backend=selected_backend)
     elif data_root is not None:

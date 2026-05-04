@@ -83,6 +83,25 @@ def test_submit_candidate_cli_accepts_docker_backend_and_image(tmp_path: Path):
     assert metadata["execution_backend"]["gpu_policy"] == "disabled_by_default"
 
 
+def test_submit_candidate_cli_records_rootless_container_root_mode(tmp_path: Path):
+    completed = run_cli(
+        "submit-candidate",
+        "--candidate",
+        str(tmp_path / "missing"),
+        "--runs-root",
+        str(tmp_path / "runs"),
+        "--backend",
+        "docker",
+        "--docker-rootless-container-root",
+    )
+
+    assert completed.returncode == 1
+    payload = json.loads(completed.stdout)
+    metadata = json.loads((tmp_path / "runs" / payload["run_id"] / "run_metadata.json").read_text())
+    assert metadata["execution_backend"]["docker_user"] == "0:0"
+    assert metadata["execution_backend"]["rootless_container_root"] is True
+
+
 def test_submit_candidate_cli_records_explicit_docker_user(tmp_path: Path):
     completed = run_cli(
         "submit-candidate",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import uuid
@@ -125,6 +126,7 @@ class DockerBackend:
     scratch_size: str = DEFAULT_DOCKER_SCRATCH_SIZE
     enable_gpu: bool = False
     container_user: str | None = None
+    rootless_container_root: bool = False
 
     def smoke_test(self, run_dir: str | Path) -> OperationResult:
         path = Path(run_dir)
@@ -170,7 +172,7 @@ class DockerBackend:
         logs = outputs / "logs"
         logs.mkdir(parents=True, exist_ok=True)
         (path / "scratch").mkdir(parents=True, exist_ok=True)
-        if self.container_user is not None and self.container_user != self._host_user():
+        if self.container_user is not None and self.container_user != self._host_user() and not self.rootless_container_root:
             os.chmod(outputs, 0o777)
             os.chmod(logs, 0o777)
 
@@ -262,16 +264,18 @@ class DockerBackend:
         data_root: Path | None = None,
     ) -> list[str]:
         container_name = f"ml-autoresearch-{run_dir.name}-{uuid.uuid4().hex[:12]}"
+        docker_is_rootless = self._docker_is_rootless() if self.container_user is None and not self.rootless_container_root else False
         command = [
             "docker",
             "run",
             "--rm",
+            *([] if docker_is_rootless or self.rootless_container_root or self.container_user is not None else ["--userns=host"]),
             "--name",
             container_name,
             "--network",
             "none",
             "--user",
-            self._container_user(),
+            self._container_user(docker_is_rootless=docker_is_rootless),
             "--read-only",
             "--cap-drop",
             "ALL",
@@ -313,8 +317,27 @@ class DockerBackend:
         command.extend(["--entrypoint", "python", self.docker_image, "-m", module, *args])
         return command
 
-    def _container_user(self) -> str:
+    def _container_user(self, *, docker_is_rootless: bool = False) -> str:
+        if self.rootless_container_root or (docker_is_rootless and self.container_user is None):
+            return "0:0"
         return self.container_user or self._host_user()
+
+    @staticmethod
+    def _docker_is_rootless() -> bool:
+        try:
+            completed = subprocess.run(
+                ["docker", "info", "--format", "{{json .SecurityOptions}}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
+            return False
+        try:
+            security_options = json.loads(completed.stdout)
+        except json.JSONDecodeError:
+            return False
+        return any("rootless" in str(option) for option in security_options)
 
     @staticmethod
     def _host_user() -> str:
@@ -394,11 +417,17 @@ def _append_harness_timeout_log(run_dir: Path, line: str) -> None:
 
 def backend_metadata(backend: ExecutionBackend) -> dict[str, object]:
     if isinstance(backend, DockerBackend):
+        docker_is_rootless = (
+            backend._docker_is_rootless() if backend.container_user is None and not backend.rootless_container_root else False
+        )
+        rootless_container_root = backend.rootless_container_root or (docker_is_rootless and backend.container_user is None)
         metadata: dict[str, object] = {
             "name": backend.name,
             "docker_image": backend.docker_image,
             "gpu_policy": "disabled_by_default" if not backend.enable_gpu else "enabled_by_harness_configuration",
-            "docker_user": backend._container_user(),
+            "docker_user": backend._container_user(docker_is_rootless=docker_is_rootless),
+            "rootless_container_root": rootless_container_root,
+            "user_namespace": "rootless" if docker_is_rootless else "host",
             "resource_limits": {
                 "memory": backend.memory_limit,
                 "cpus": backend.cpus,

@@ -81,8 +81,10 @@ def test_docker_backend_constructs_structurally_contained_synthetic_training_com
     assert result.operation == "train_synthetic"
     assert result.docker_image == "custom:tag"
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
-    docker_run = calls[1]
+    assert calls[1] == ["docker", "info", "--format", "{{json .SecurityOptions}}"]
+    docker_run = calls[2]
     assert docker_run[:3] == ["docker", "run", "--rm"]
+    assert "--userns=host" in docker_run
     assert "--network" in docker_run
     assert docker_run[docker_run.index("--network") + 1] == "none"
     assert "--user" in docker_run
@@ -158,7 +160,8 @@ def test_docker_backend_constructs_gvccs_training_command_with_read_only_data_mo
     assert result.backend == "docker"
     assert result.operation == "train_gvccs"
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
-    docker_run = calls[1]
+    assert calls[1] == ["docker", "info", "--format", "{{json .SecurityOptions}}"]
+    docker_run = calls[2]
     assert docker_run[-5:] == [
         "-m",
         "ml_autoresearch.container_runner",
