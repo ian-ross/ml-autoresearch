@@ -43,6 +43,7 @@ Important docs:
 - [`docs/candidate-experiment-contract.md`](docs/candidate-experiment-contract.md)
 - [`docs/run-lifecycle.md`](docs/run-lifecycle.md)
 - [`docs/gvccs-data.md`](docs/gvccs-data.md)
+- [`docs/dependency-strategy.md`](docs/dependency-strategy.md)
 
 ## Development setup
 
