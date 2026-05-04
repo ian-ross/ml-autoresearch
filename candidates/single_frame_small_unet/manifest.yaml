@@ -1,0 +1,10 @@
+name: single_frame_small_unet
+description: Small standard U-Net-style single-frame mask-only segmentation baseline.
+input_mode: single_frame_rgb
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
