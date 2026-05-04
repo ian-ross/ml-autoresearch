@@ -19,6 +19,19 @@ DEFAULT_DOCKER_CPUS = "2"
 DEFAULT_DOCKER_PIDS_LIMIT = "512"
 DEFAULT_DOCKER_SCRATCH_SIZE = "2g"
 DEFAULT_TIMEOUT_GRACE_SECONDS = 30
+DOCKER_GPU_VALIDATION_PROBE = """
+import json
+import torch
+
+payload = {
+    "torch.__version__": torch.__version__,
+    "torch.version.cuda": torch.version.cuda,
+    "torch.cuda.is_available()": torch.cuda.is_available(),
+    "torch.cuda.device_count()": torch.cuda.device_count(),
+    "driver_visible_gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+}
+print(json.dumps(payload, indent=2, sort_keys=True))
+""".strip()
 
 
 class DockerOperationTimeoutError(RuntimeError):
@@ -304,6 +317,36 @@ class DockerBackend:
             return path.resolve(strict=True)
         except OSError as exc:
             raise RuntimeError(f"GVCCS data root cannot be resolved: {path}: {exc}") from exc
+
+
+def docker_gpu_validation_command(docker_image: str = DEFAULT_DOCKER_IMAGE) -> list[str]:
+    """Build the safe runner-image GPU validation command."""
+
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--gpus",
+        "all",
+        "--network",
+        "none",
+        "--entrypoint",
+        "python",
+        docker_image,
+        "-c",
+        DOCKER_GPU_VALIDATION_PROBE,
+    ]
+
+
+def validate_docker_gpu(docker_image: str = DEFAULT_DOCKER_IMAGE) -> subprocess.CompletedProcess[str]:
+    """Run the runner-image GPU validation probe without launching candidate code."""
+
+    return subprocess.run(
+        docker_gpu_validation_command(docker_image),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def _docker_arg_value(command: list[str], option: str) -> str | None:

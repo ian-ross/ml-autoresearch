@@ -43,15 +43,18 @@ Important docs:
 - [`docs/candidate-experiment-contract.md`](docs/candidate-experiment-contract.md)
 - [`docs/run-lifecycle.md`](docs/run-lifecycle.md)
 - [`docs/gvccs-data.md`](docs/gvccs-data.md)
+- [`docs/dependency-strategy.md`](docs/dependency-strategy.md)
 
 ## Development setup
 
-This project uses Python and PyTorch. With `uv` installed:
+This project uses Python 3.12. Host development and tests use a pinned CPU-only PyTorch build so local installs do not accidentally resolve a GPU/CUDA PyTorch stack. Host unit tests are CPU-only by design and should not initialize or depend on the host NVIDIA driver. With `uv` installed:
 
 ```bash
-uv sync --dev
-uv run pytest -q
+uv sync --python 3.12 --extra dev
+uv run --python 3.12 pytest -q
 ```
+
+The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported. Base `ml-autoresearch` installs do not include PyTorch; use the `dev` extra for host tests. Docker-backed Candidate Execution Boundary runs get their runtime PyTorch/CUDA stack from the runner image and also use Python 3.12, with PyTorch `2.5.1+cu121` installed from the PyTorch CUDA 12.1 wheel index on top of the pinned `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04` base image. The Dockerfile installs `ml-autoresearch` without dependency resolution so the pinned PyTorch/CUDA stack is not replaced.
 
 Run the CLI via:
 
@@ -112,6 +115,12 @@ uv run ml-autoresearch run-candidate \
   --synthetic-fixture
 ```
 
+Build the pinned Docker runner image:
+
+```bash
+docker build -t ml-autoresearch-runner:local .
+```
+
 Run against a local GVCCS-like or real GVCCS data root using the default Docker backend:
 
 ```bash
@@ -120,6 +129,25 @@ uv run ml-autoresearch run-candidate \
   --runs-root runs \
   --data-root /path/to/GVCCS \
   --max-samples 8
+```
+
+Docker GPU access is disabled by default. Before launching GPU-enabled Candidate Experiment training on the cluster, validate GPU visibility inside the same runner image used for candidate execution:
+
+```bash
+uv run ml-autoresearch validate-docker-gpu
+```
+
+The command runs the pinned runner image with `--gpus all` and prints `torch.__version__`, `torch.version.cuda`, the driver-visible GPU name, and `torch.cuda.is_available()` from inside the container. It does not mount Candidate Experiment code, data, or run outputs, and is safe to run on a cluster GPU node before training. If validation fails, check that the host NVIDIA driver is new enough for the container CUDA runtime and that Docker's NVIDIA runtime is available; do not use the host virtualenv as the authoritative GPU probe for Docker-backed Runs.
+
+Opt in explicitly for Docker runs when running on a GPU-capable host or cluster node:
+
+```bash
+uv run ml-autoresearch run-candidate \
+  --candidate tests/fixtures/candidates/single_frame_unet_baseline \
+  --runs-root runs \
+  --data-root /path/to/GVCCS \
+  --max-samples 8 \
+  --docker-enable-gpu
 ```
 
 Real GVCCS data is not committed to this repository. The Docker backend validates the host path and mounts it read-only at `/data`; Candidate Experiments cannot choose data paths or mounts. See [`docs/gvccs-data.md`](docs/gvccs-data.md) for expected local layout.
