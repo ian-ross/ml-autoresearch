@@ -46,7 +46,7 @@ Important docs:
 
 ## Development setup
 
-This project uses Python 3.12. Host development and tests use a pinned CPU-only PyTorch build so local installs do not accidentally resolve a GPU/CUDA PyTorch stack. With `uv` installed:
+This project uses Python 3.12. Host development and tests use a pinned CPU-only PyTorch build so local installs do not accidentally resolve a GPU/CUDA PyTorch stack. Host unit tests are CPU-only by design and should not initialize or depend on the host NVIDIA driver. With `uv` installed:
 
 ```bash
 uv sync --python 3.12 --extra dev
