@@ -130,7 +130,15 @@ uv run ml-autoresearch run-candidate \
   --max-samples 8
 ```
 
-Docker GPU access is disabled by default. Opt in explicitly for Docker runs when running on a GPU-capable host or cluster node:
+Docker GPU access is disabled by default. Before launching GPU-enabled Candidate Experiment training on the cluster, validate GPU visibility inside the same runner image used for candidate execution:
+
+```bash
+uv run ml-autoresearch validate-docker-gpu
+```
+
+The command runs the pinned runner image with `--gpus all` and prints `torch.__version__`, `torch.version.cuda`, the driver-visible GPU name, and `torch.cuda.is_available()` from inside the container. It does not mount Candidate Experiment code, data, or run outputs, and is safe to run on a cluster GPU node before training. If validation fails, check that the host NVIDIA driver is new enough for the container CUDA runtime and that Docker's NVIDIA runtime is available; do not use the host virtualenv as the authoritative GPU probe for Docker-backed Runs.
+
+Opt in explicitly for Docker runs when running on a GPU-capable host or cluster node:
 
 ```bash
 uv run ml-autoresearch run-candidate \

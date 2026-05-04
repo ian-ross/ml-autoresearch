@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 import typer
 
-from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend
+from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.runs import (
     RunStatus,
     get_best_runs,
@@ -110,6 +110,21 @@ def _echo_table(rows: list[dict[str, object]]) -> None:
         metrics = row.get("metrics")
         dice = metrics.get("val/dice") if isinstance(metrics, dict) else ""
         typer.echo(f"{row.get('run_id', '')}\t{row.get('status', '')}\t{dice}\t{row.get('reason', row.get('error', ''))}")
+
+
+@app.command("validate-docker-gpu")
+def validate_docker_gpu_command(
+    docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image to validate.")] = DEFAULT_DOCKER_IMAGE,
+) -> None:
+    """Validate PyTorch/CUDA/GPU visibility inside the Docker runner image."""
+
+    completed = validate_docker_gpu(docker_image)
+    if completed.stdout:
+        typer.echo(completed.stdout.rstrip())
+    if completed.stderr:
+        typer.echo(completed.stderr.rstrip(), err=True)
+    if completed.returncode != 0:
+        raise typer.Exit(completed.returncode)
 
 
 @app.command("list-runs")
