@@ -11,7 +11,8 @@ def test_dependency_strategy_doc_covers_runtime_split() -> None:
     assert "host development" in text
     assert "CPU-only PyTorch" in text
     assert "base dependencies do not include PyTorch" in text
-    assert "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime" in text
+    assert "nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04" in text
+    assert "PyTorch `2.5.1+cu121`" in text
     assert "CUDA 12.1" in text
 
 

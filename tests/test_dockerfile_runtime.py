@@ -4,18 +4,26 @@ from pathlib import Path
 DOCKERFILE = Path("Dockerfile")
 
 
-def test_dockerfile_uses_pinned_pytorch_cuda_121_runtime_image() -> None:
+def test_dockerfile_uses_cuda_121_base_and_installs_python_312() -> None:
     dockerfile = DOCKERFILE.read_text()
 
-    assert dockerfile.startswith("FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime\n")
+    assert dockerfile.startswith("FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04\n")
+    assert "python3.12" in dockerfile
+    assert "ln -sf /usr/bin/python3.12 /usr/local/bin/python" in dockerfile
+
+
+def test_dockerfile_installs_pinned_pytorch_cuda_121_for_python_312() -> None:
+    dockerfile = DOCKERFILE.read_text()
+
+    assert "https://download.pytorch.org/whl/cu121" in dockerfile
+    assert "torch==2.5.1+cu121" in dockerfile
 
 
 def test_dockerfile_installs_package_without_replacing_image_torch() -> None:
     dockerfile = DOCKERFILE.read_text()
 
-    assert "pip install --no-cache-dir --no-deps --ignore-requires-python ." in dockerfile
-    pip_lines = [line.strip() for line in dockerfile.splitlines() if line.startswith("RUN pip install")]
-    assert not any("torch" in line.lower() for line in pip_lines)
+    assert "python -m pip install --no-cache-dir --no-deps ." in dockerfile
+    assert "--ignore-requires-python" not in dockerfile
 
 
 def test_dockerfile_installs_runtime_dependencies_before_package_install() -> None:

@@ -6,8 +6,8 @@ ML Autoresearch separates the host development environment from the Docker runti
 
 - Host development and package resolution use **Python 3.12** (`requires-python = ">=3.12,<3.13"`).
 - Host unit tests use pinned **CPU-only PyTorch** via the `dev` extra.
-- Docker-backed Candidate Experiment execution targets the pinned CUDA runner image `pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime`.
-- The Docker runner target is **CUDA 12.1**. The selected upstream PyTorch image currently provides Python 3.11 inside the container; host Python 3.12 remains the project development baseline.
+- Docker-backed Candidate Experiment execution targets a pinned **CUDA 12.1** runner stack: `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04`, Python 3.12, and PyTorch `2.5.1+cu121` from the PyTorch CUDA 12.1 wheel index.
+- The Docker runner target is **CUDA 12.1** and uses the same Python 3.12 baseline as host development.
 
 ## Why base installs do not include PyTorch
 
@@ -17,7 +17,7 @@ Instead:
 
 - base `ml-autoresearch` installs contain the Harness code and non-runtime dependencies;
 - host development installs use `uv sync --python 3.12 --extra dev`, which resolves the pinned CPU-only PyTorch wheel from the PyTorch CPU index;
-- Docker runner images own the PyTorch/CUDA runtime used for Candidate Experiment smoke tests and training. The Dockerfile installs only non-PyTorch runtime dependencies before installing `ml-autoresearch` with dependency resolution disabled, so package installation does not replace the PyTorch/CUDA stack supplied by the image.
+- Docker runner images own the PyTorch/CUDA runtime used for Candidate Experiment smoke tests and training. The Dockerfile installs Python 3.12, installs the pinned PyTorch CUDA 12.1 wheel explicitly, installs only non-PyTorch runtime dependencies, and then installs `ml-autoresearch` with dependency resolution disabled, so package installation does not replace the pinned PyTorch/CUDA stack.
 
 Candidate Experiments do not choose dependencies, Docker images, CUDA versions, or GPU access.
 
