@@ -46,12 +46,14 @@ Important docs:
 
 ## Development setup
 
-This project uses Python and PyTorch. With `uv` installed:
+This project uses Python 3.12 and PyTorch. With `uv` installed:
 
 ```bash
-uv sync --dev
-uv run pytest -q
+uv sync --python 3.12 --extra dev
+uv run --python 3.12 pytest -q
 ```
+
+The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported.
 
 Run the CLI via:
 

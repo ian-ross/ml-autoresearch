@@ -7,7 +7,7 @@ name = "ml-autoresearch"
 version = "0.1.0"
 description = "Safe agent-assisted ML autoresearch harness"
 readme = "docs/top-level-plan.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
   "numpy>=2,<3",
   "pillow>=10,<12",
