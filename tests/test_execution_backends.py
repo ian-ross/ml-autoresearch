@@ -106,6 +106,12 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z" in joined
     assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
     assert "type=tmpfs,destination=/scratch,tmpfs-size=2g,tmpfs-mode=1777" in joined
+    volume_targets = [
+        docker_run[index + 1].split(":", 1)[1].split(":", 1)[0]
+        for index, value in enumerate(docker_run)
+        if value == "--volume"
+    ]
+    assert volume_targets == ["/candidate", "/resolved_manifest.yaml", "/run_metadata.json", "/outputs"]
     assert "/var/run/docker.sock" not in joined
 
 

@@ -170,6 +170,12 @@ def test_docker_backend_constructs_gvccs_training_command_with_read_only_data_mo
     assert f"{data_root}:/data:ro,z" in joined
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
     assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
+    volume_targets = [
+        docker_run[index + 1].split(":", 1)[1].split(":", 1)[0]
+        for index, value in enumerate(docker_run)
+        if value == "--volume"
+    ]
+    assert volume_targets == ["/candidate", "/resolved_manifest.yaml", "/run_metadata.json", "/outputs", "/data"]
     assert "/data" in joined
     assert f"{data_root}:/data:z" not in joined
 
