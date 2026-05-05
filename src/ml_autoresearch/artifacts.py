@@ -52,7 +52,8 @@ def write_prediction_sample_artifacts(
             inputs, target = data_loader.dataset[dataset_index]
             model_inputs = inputs.unsqueeze(0).to(device)
             logits = _extract_mask_logits(model(model_inputs))[0]
-            prediction = (torch.sigmoid(logits).detach().cpu()[0] >= 0.5)
+            probabilities = torch.sigmoid(logits).detach().cpu()[0]
+            prediction = probabilities >= 0.5
 
             prefix = f"sample_{seen:03d}"
             paths = {
@@ -60,6 +61,7 @@ def write_prediction_sample_artifacts(
                 "ground_truth": f"{prefix}_ground_truth.png",
                 "prediction": f"{prefix}_prediction.png",
                 "overlay": f"{prefix}_overlay.png",
+                "probability_heatmap": f"{prefix}_probability_heatmap.png",
             }
             image = inputs.detach().cpu().clamp(0.0, 1.0)
             target = target.detach().cpu() >= 0.5
@@ -68,6 +70,7 @@ def write_prediction_sample_artifacts(
             _save_mask_tensor(samples_dir / paths["ground_truth"], target)
             _save_mask_tensor(samples_dir / paths["prediction"], prediction)
             _save_overlay(samples_dir / paths["overlay"], image, target, prediction)
+            _save_probability_heatmap(samples_dir / paths["probability_heatmap"], probabilities)
 
             metrics = binary_segmentation_metrics(prediction.unsqueeze(0), target.unsqueeze(0))
             record: dict[str, Any] = {
@@ -233,3 +236,18 @@ def _save_overlay(path: Path, image: torch.Tensor, target: torch.Tensor, predict
     overlay[target_mask] = 0.55 * overlay[target_mask] + 0.45 * np.array([0, 255, 0], dtype=np.float32)
     overlay[prediction_mask] = 0.55 * overlay[prediction_mask] + 0.45 * np.array([255, 0, 0], dtype=np.float32)
     Image.fromarray(np.clip(overlay, 0, 255).astype(np.uint8)).save(path)
+
+
+def _save_probability_heatmap(path: Path, probabilities: torch.Tensor) -> None:
+    if probabilities.ndim == 3:
+        probabilities = probabilities.squeeze(0)
+    values = probabilities.detach().cpu().clamp(0.0, 1.0).numpy().astype(np.float32)
+    heatmap = np.stack(
+        [
+            values,
+            1.0 - np.abs((values * 2.0) - 1.0),
+            1.0 - values,
+        ],
+        axis=-1,
+    )
+    Image.fromarray((np.clip(heatmap, 0.0, 1.0) * 255.0).round().astype(np.uint8)).save(path)

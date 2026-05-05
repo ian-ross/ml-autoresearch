@@ -117,6 +117,7 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
         "ground_truth": "sample_000_ground_truth.png",
         "prediction": "sample_000_prediction.png",
         "overlay": "sample_000_overlay.png",
+        "probability_heatmap": "sample_000_probability_heatmap.png",
     }
     sizes = []
     for relative_path in first["paths"].values():
@@ -124,7 +125,7 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
         assert png.is_file()
         with Image.open(png) as image:
             sizes.append(image.size)
-    assert sizes == [(128, 128)] * 4
+    assert sizes == [(128, 128)] * 5
 
 
 def test_synthetic_fixture_training_honors_manifest_max_epochs(tmp_path: Path):
