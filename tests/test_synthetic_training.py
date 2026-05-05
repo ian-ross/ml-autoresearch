@@ -7,11 +7,11 @@ from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 
 
-def write_trainable_candidate(root: Path) -> Path:
+def write_trainable_candidate(root: Path, *, max_epochs: int = 1) -> Path:
     candidate = root / "candidate"
     candidate.mkdir()
     (candidate / "manifest.yaml").write_text(
-        """
+        f"""
 name: trainable_candidate
 input_mode: single_frame_rgb
 output_form: mask_logits
@@ -20,7 +20,7 @@ training:
   optimizer: adamw
   learning_rate: 0.001
   batch_size: 2
-  max_epochs: 1
+  max_epochs: {max_epochs}
 """.strip()
         + "\n"
     )
@@ -89,3 +89,21 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
         with Image.open(png) as image:
             sizes.append(image.size)
     assert sizes == [(128, 128)] * 4
+
+
+def test_synthetic_fixture_training_honors_manifest_max_epochs(tmp_path: Path):
+    candidate = write_trainable_candidate(tmp_path, max_epochs=3)
+
+    run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs", max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    records = [json.loads(line) for line in (run.run_dir / "outputs" / "metrics.jsonl").read_text().splitlines()]
+    train_epochs = [record["epoch"] for record in records if record["split"] == "train"]
+    val_epochs = [record["epoch"] for record in records if record["split"] == "val"]
+    assert sorted(set(train_epochs)) == [1, 2, 3]
+    assert val_epochs == [1, 2, 3]
+
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
+    final_val_record = [record for record in records if record["split"] == "val"][-1]
+    assert final["epoch"] == 3
+    assert final["val/loss"] == final_val_record["val/loss"]
