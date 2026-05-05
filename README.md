@@ -81,6 +81,8 @@ name: single_frame_unet_baseline
 description: Tiny single-frame mask-only baseline for harness validation.
 input_mode: single_frame_rgb
 output_form: mask_logits
+data:
+  sampling_policy: sequential
 training:
   loss: bce_dice
   optimizer: adamw
@@ -96,7 +98,7 @@ def build_model(input_spec: dict, output_spec: dict):
     ...
 ```
 
-The Harness owns training loops, data loading, filesystem paths, artifact persistence, and run policy. Candidate Experiments must not provide arbitrary shell scripts, datasets, notebooks, checkpoints, Dockerfiles, custom data loaders, or MLflow logging code.
+The Harness owns training loops, data loading, filesystem paths, artifact persistence, and run policy. Candidate Experiments may select only allowlisted Harness-owned data policy values such as `data.sampling_policy`; they must not provide arbitrary shell scripts, datasets, notebooks, checkpoints, Dockerfiles, custom data loaders, samplers, transforms, or MLflow logging code.
 
 A working fixture lives at:
 

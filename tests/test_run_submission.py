@@ -60,6 +60,7 @@ def test_submit_candidate_creates_accepted_run_directory(tmp_path: Path):
     assert resolved["description"] == "Tiny single-frame mask-only baseline for harness validation."
     assert resolved["input_mode"] == "single_frame_rgb"
     assert resolved["output_form"] == "mask_logits"
+    assert resolved["data"]["sampling_policy"] == "sequential"
     assert resolved["training"]["loss"] == "bce_dice"
 
     metadata = json.loads((run_dir / "run_metadata.json").read_text())

@@ -127,11 +127,14 @@ Allowed v1 temporal data-policy parameters:
 - `frame_stride`
 - centered Target Frame only
 
-Allowed v1 sampling policy:
+Allowed v1 sampling policies:
 
-- `positive_negative_balance`
+- `sequential`
+- `deterministic_shuffle`
 
-Deferred policies include vertical flips, hard-negative mining from prior Results, and cloud-heavy negative sampling until the relevant metadata, subsets, or artifact loop exist.
+Manifests that omit `data.sampling_policy` resolve to `sequential`. `deterministic_shuffle` changes training example order reproducibly while validation order remains stable for reproducible metrics and qualitative diagnostics.
+
+Deferred policies include positive/negative balancing, vertical flips, hard-negative mining from prior Results, and cloud-heavy negative sampling until the relevant metadata, subsets, or artifact loop exist.
 
 ## Training knobs and resource bounds
 

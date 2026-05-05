@@ -6,6 +6,7 @@ import torch
 
 from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture
 from ml_autoresearch.synthetic import SyntheticContrailDataset
+from ml_autoresearch.training import _data_loader_for_sampling
 
 
 def write_trainable_candidate(root: Path, *, max_epochs: int = 1) -> Path:
@@ -37,6 +38,40 @@ training:
         "    return Tiny()\n"
     )
     return candidate
+
+
+class IndexDataset(torch.utils.data.Dataset):
+    def __init__(self, size: int):
+        self.size = size
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, index: int):
+        return index
+
+
+def loader_order(policy: str) -> list[int]:
+    loader = _data_loader_for_sampling(IndexDataset(10), batch_size=3, sampling_policy=policy)
+    return [int(item) for batch in loader for item in batch]
+
+
+def test_sampling_policy_sequential_preserves_dataset_order():
+    assert loader_order("sequential") == list(range(10))
+
+
+def test_sampling_policy_deterministic_shuffle_changes_training_order_reproducibly():
+    first = loader_order("deterministic_shuffle")
+    second = loader_order("deterministic_shuffle")
+
+    assert first == second
+    assert first != list(range(10))
+    assert sorted(first) == list(range(10))
+
+
+def test_sampling_policy_validation_loader_stays_stable():
+    # Validation loaders must use sequential policy regardless of the manifest's training Sampling Policy.
+    assert loader_order("sequential") == list(range(10))
 
 
 def test_synthetic_fixture_dataset_is_deterministic():

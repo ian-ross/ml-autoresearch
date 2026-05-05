@@ -2,6 +2,8 @@ name: single_frame_small_unet_realistic_training
 description: Small U-Net single-frame mask-only segmentation candidate with more realistic training budget.
 input_mode: single_frame_rgb
 output_form: mask_logits
+data:
+  sampling_policy: deterministic_shuffle
 training:
   loss: bce_dice
   optimizer: adamw

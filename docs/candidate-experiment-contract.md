@@ -21,6 +21,8 @@ name: single_frame_unet_baseline
 description: Tiny single-frame mask-only baseline for harness validation.
 input_mode: single_frame_rgb
 output_form: mask_logits
+data:
+  sampling_policy: sequential
 training:
   loss: bce_dice
   optimizer: adamw
@@ -52,6 +54,17 @@ Rejected:
 - dataset files
 - arbitrary config blobs
 
+## Data policy
+
+Candidate manifests may select a Harness-owned Sampling Policy:
+
+```yaml
+data:
+  sampling_policy: deterministic_shuffle
+```
+
+Allowed values are `sequential` and `deterministic_shuffle`. If omitted, `data.sampling_policy` resolves to `sequential` for compatibility with older manifests. `deterministic_shuffle` only affects training example order and is reproducible; validation order stays stable for reproducible metrics and qualitative diagnostics.
+
 ## Dataset and mount authority
 
-Candidate manifests cannot request data roots, bind mounts, arbitrary filesystem paths, custom data loaders, or custom training loops. For GVCCS training, the host CLI accepts `--data-root`; the Harness validates it and, for Docker execution, mounts it read-only at `/data` for the in-container Harness-owned GVCCS adapter. Candidate code receives only the tensors supplied by the Harness.
+Candidate manifests cannot request data roots, bind mounts, arbitrary filesystem paths, custom data loaders, custom samplers, custom transforms, or custom training loops. For GVCCS training, the host CLI accepts `--data-root`; the Harness validates it and, for Docker execution, mounts it read-only at `/data` for the in-container Harness-owned GVCCS adapter. Candidate code receives only the tensors supplied by the Harness.

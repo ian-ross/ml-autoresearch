@@ -23,6 +23,12 @@ class TrainingManifest(BaseModel):
     max_epochs: int = Field(ge=1, le=100)
 
 
+class DataManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sampling_policy: Literal["sequential", "deterministic_shuffle"] = "sequential"
+
+
 class CandidateManifest(BaseModel):
     """Normalized v1 Candidate Experiment source manifest."""
 
@@ -32,6 +38,7 @@ class CandidateManifest(BaseModel):
     description: str | None = None
     input_mode: Literal["single_frame_rgb"]
     output_form: Literal["mask_logits"]
+    data: DataManifest = Field(default_factory=DataManifest)
     training: TrainingManifest
 
 
@@ -120,5 +127,7 @@ def _load_manifest(path: Path) -> CandidateManifest:
         details = []
         for error in exc.errors():
             loc = ".".join(str(part) for part in error["loc"])
-            details.append(f"{loc}: {error['msg']}")
+            input_value = error.get("input")
+            input_detail = f" (got {input_value!r})" if input_value is not None else ""
+            details.append(f"{loc}: {error['msg']}{input_detail}")
         raise CandidateValidationError("invalid manifest.yaml: " + "; ".join(details)) from exc

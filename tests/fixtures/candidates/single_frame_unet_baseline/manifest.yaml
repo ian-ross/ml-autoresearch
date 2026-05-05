@@ -2,6 +2,8 @@ name: single_frame_unet_baseline
 description: Tiny single-frame mask-only baseline for harness validation.
 input_mode: single_frame_rgb
 output_form: mask_logits
+data:
+  sampling_policy: sequential
 training:
   loss: bce_dice
   optimizer: adamw

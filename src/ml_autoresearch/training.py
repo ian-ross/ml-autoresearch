@@ -19,6 +19,7 @@ from ml_autoresearch.smoke import INPUT_SPEC, OUTPUT_SPEC, _extract_mask_logits,
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 
 SYNTHETIC_FIXTURE_SEED = 20260502
+SAMPLING_POLICY_SEED = 20260531
 TRAIN_SAMPLES = 8
 VAL_SAMPLES = 4
 
@@ -50,11 +51,15 @@ def train_synthetic_fixture(
 ) -> dict[str, object]:
     """Train deterministic generated Contrail Mask fixture data with explicit mounted paths."""
 
-    train_loader_factory = lambda batch_size: DataLoader(  # noqa: E731 - local concise factory.
-        SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED), batch_size=batch_size, shuffle=False
+    train_loader_factory = lambda batch_size, sampling_policy: _data_loader_for_sampling(  # noqa: E731 - local concise factory.
+        SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED),
+        batch_size=batch_size,
+        sampling_policy=sampling_policy,
     )
-    val_loader_factory = lambda batch_size: DataLoader(  # noqa: E731
-        SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000), batch_size=batch_size, shuffle=False
+    val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
+        SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000),
+        batch_size=batch_size,
+        sampling_policy="sequential",
     )
     return _train_manifest_epochs_run(
         candidate_dir=candidate_dir,
@@ -107,11 +112,11 @@ def train_gvccs(
     samples = discover_gvccs_samples(data_root, split="train", max_samples=max_samples)
     split = deterministic_train_val_split(samples)
 
-    train_loader_factory = lambda batch_size: DataLoader(  # noqa: E731
-        GVCCSDataset(split.train), batch_size=batch_size, shuffle=False
+    train_loader_factory = lambda batch_size, sampling_policy: _data_loader_for_sampling(  # noqa: E731
+        GVCCSDataset(split.train), batch_size=batch_size, sampling_policy=sampling_policy
     )
-    val_loader_factory = lambda batch_size: DataLoader(  # noqa: E731
-        GVCCSDataset(split.val), batch_size=batch_size, shuffle=False
+    val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
+        GVCCSDataset(split.val), batch_size=batch_size, sampling_policy="sequential"
     )
     return _train_manifest_epochs_run(
         candidate_dir=candidate_dir,
@@ -156,6 +161,7 @@ def _train_manifest_epochs_run(
         torch.manual_seed(SYNTHETIC_FIXTURE_SEED)
         manifest = yaml.safe_load(resolved_manifest_path.read_text())
         training = manifest["training"]
+        sampling_policy = manifest.get("data", {}).get("sampling_policy", "sequential")
         if training["loss"] != "bce_dice":
             raise TrainingError(f"unsupported loss: {training['loss']}")
 
@@ -168,7 +174,7 @@ def _train_manifest_epochs_run(
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=float(training["learning_rate"]))
         batch_size = int(training["batch_size"])
-        train_loader = train_loader_factory(batch_size)
+        train_loader = train_loader_factory(batch_size, sampling_policy)
         val_loader = val_loader_factory(batch_size)
 
         metrics_path.write_text("")
@@ -227,6 +233,16 @@ def _train_manifest_epochs_run(
         if isinstance(exc, TrainingError):
             raise
         raise TrainingError(reason) from exc
+
+
+def _data_loader_for_sampling(dataset, *, batch_size: int, sampling_policy: str) -> DataLoader:
+    if sampling_policy == "sequential":
+        return DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    if sampling_policy == "deterministic_shuffle":
+        generator = torch.Generator()
+        generator.manual_seed(SAMPLING_POLICY_SEED)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True, generator=generator)
+    raise TrainingError(f"unsupported sampling policy: {sampling_policy}")
 
 
 def bce_dice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor) -> torch.Tensor:
