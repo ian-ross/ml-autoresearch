@@ -159,10 +159,12 @@ def _train_manifest_epochs_run(
         if training["loss"] != "bce_dice":
             raise TrainingError(f"unsupported loss: {training['loss']}")
 
+        device = _select_training_device()
         module = _import_candidate_model(candidate_dir)
         model = module.build_model(dict(INPUT_SPEC), dict(OUTPUT_SPEC))
         if not isinstance(model, torch.nn.Module):
             raise TrainingError("build_model must return a torch.nn.Module")
+        model = model.to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=float(training["learning_rate"]))
         batch_size = int(training["batch_size"])
@@ -178,6 +180,8 @@ def _train_manifest_epochs_run(
             train_loss_total = 0.0
             trained_samples = 0
             for batch_index, (inputs, targets) in enumerate(train_loader):
+                inputs = inputs.to(device)
+                targets = targets.to(device)
                 optimizer.zero_grad(set_to_none=True)
                 logits = _extract_mask_logits(model(inputs))[0]
                 loss = bce_dice_loss(logits, targets)
@@ -191,8 +195,9 @@ def _train_manifest_epochs_run(
                     lines.append("Wall-clock timeout requested by Harness; stopping at end-of-batch checkpoint.")
                     break
 
-            final = _evaluate(model, val_loader)
+            final = _evaluate(model, val_loader, device=device)
             final["epoch"] = epoch
+            final["hardware/device"] = device.type
             final["train/loss"] = train_loss_total / max(trained_samples, 1)
             if timeout_requested:
                 final["run/timeout_requested"] = True
@@ -233,18 +238,20 @@ def bce_dice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor) -> torch
     return bce + dice_loss
 
 
-def _evaluate(model: torch.nn.Module, val_loader: DataLoader) -> dict[str, float]:
+def _evaluate(model: torch.nn.Module, val_loader: DataLoader, *, device: torch.device) -> dict[str, float]:
     model.eval()
     total_loss = 0.0
     predictions: list[torch.Tensor] = []
     targets: list[torch.Tensor] = []
     with torch.no_grad():
         for inputs, target in val_loader:
+            inputs = inputs.to(device)
+            target = target.to(device)
             logits = _extract_mask_logits(model(inputs))[0]
             loss = bce_dice_loss(logits, target)
             total_loss += float(loss.item()) * inputs.shape[0]
-            predictions.append(torch.sigmoid(logits) >= 0.5)
-            targets.append(target >= 0.5)
+            predictions.append((torch.sigmoid(logits) >= 0.5).detach().cpu())
+            targets.append((target >= 0.5).detach().cpu())
     metrics = binary_segmentation_metrics(torch.cat(predictions), torch.cat(targets))
     return {
         "val/dice": metrics["dice"],
@@ -253,6 +260,10 @@ def _evaluate(model: torch.nn.Module, val_loader: DataLoader) -> dict[str, float
         "val/recall": metrics["recall"],
         "val/loss": total_loss / len(val_loader.dataset),
     }
+
+
+def _select_training_device() -> torch.device:
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def _append_jsonl(path: Path, payload: dict[str, object]) -> None:

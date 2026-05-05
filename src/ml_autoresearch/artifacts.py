@@ -34,11 +34,13 @@ def write_prediction_sample_artifacts(
 
     sample_records: list[dict[str, Any]] = []
     model.eval()
+    device = _model_device(model)
     seen = 0
     with torch.no_grad():
         for inputs, targets in data_loader:
-            logits = _extract_mask_logits(model(inputs))[0]
-            probabilities = torch.sigmoid(logits)
+            model_inputs = inputs.to(device)
+            logits = _extract_mask_logits(model(model_inputs))[0]
+            probabilities = torch.sigmoid(logits).detach().cpu()
             predictions = probabilities >= 0.5
             for item_index in range(inputs.shape[0]):
                 if seen >= max_samples:
@@ -84,6 +86,13 @@ def write_prediction_sample_artifacts(
     }
     (samples_dir / "samples.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return {"prediction_samples": "outputs/prediction_samples/samples.json"}
+
+
+def _model_device(model: torch.nn.Module) -> torch.device:
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return torch.device("cpu")
 
 
 def _source_image_path(dataset: object, index: int) -> str | None:

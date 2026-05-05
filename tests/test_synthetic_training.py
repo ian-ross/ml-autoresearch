@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from PIL import Image
+import torch
 
 from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture
 from ml_autoresearch.synthetic import SyntheticContrailDataset
@@ -107,3 +108,36 @@ def test_synthetic_fixture_training_honors_manifest_max_epochs(tmp_path: Path):
     final_val_record = [record for record in records if record["split"] == "val"][-1]
     assert final["epoch"] == 3
     assert final["val/loss"] == final_val_record["val/loss"]
+
+
+def test_synthetic_fixture_training_uses_cuda_when_available(tmp_path: Path, monkeypatch):
+    candidate = write_trainable_candidate(tmp_path, max_epochs=1)
+    moved_modules: list[str] = []
+    moved_tensors: list[str] = []
+
+    original_module_to = torch.nn.Module.to
+    original_tensor_to = torch.Tensor.to
+
+    def record_module_to(self, *args, **kwargs):
+        if args and str(args[0]).startswith("cuda"):
+            moved_modules.append(str(args[0]))
+            return self
+        return original_module_to(self, *args, **kwargs)
+
+    def record_tensor_to(self, *args, **kwargs):
+        if args and str(args[0]).startswith("cuda"):
+            moved_tensors.append(str(args[0]))
+            return self
+        return original_tensor_to(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.nn.Module, "to", record_module_to)
+    monkeypatch.setattr(torch.Tensor, "to", record_tensor_to)
+
+    run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs", max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
+    assert final["hardware/device"] == "cuda"
+    assert moved_modules
+    assert moved_tensors

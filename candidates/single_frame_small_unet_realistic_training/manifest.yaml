@@ -1,0 +1,10 @@
+name: single_frame_small_unet_realistic_training
+description: Small U-Net single-frame mask-only segmentation candidate with more realistic training budget.
+input_mode: single_frame_rgb
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 16
+  max_epochs: 30

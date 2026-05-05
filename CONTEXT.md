@@ -61,7 +61,7 @@ One execution attempt of a Candidate Experiment by the Candidate Experiment Runn
 _Avoid_: Experiment when referring only to execution
 
 **Result**:
-The metrics and artifacts produced by a Run.
+The metrics and artifacts produced by a Run, with final-epoch metrics distinguished from best-validation metrics.
 _Avoid_: Run when referring only to observed outputs
 
 **Candidate Experiment Runner**:
@@ -116,6 +116,26 @@ _Avoid_: Object-detection boundary, separate segmentation class
 The frame whose Contrail Mask a Candidate Experiment predicts.
 _Avoid_: Label frame, center image
 
+**Frame Sequence**:
+A temporally ordered group of GVCCS Dataset frames from the same camera scene, inferred by the Harness from timestamp-like filenames with 30-second inter-frame spacing.
+_Avoid_: Video when referring to inferred image-frame groups
+
+**Data Policy**:
+A Harness-owned set of choices controlling how data examples are selected, ordered, transformed, and presented to a Candidate Experiment.
+_Avoid_: Candidate data loader, arbitrary input pipeline
+
+**Sampling Policy**:
+A candidate-selectable, Harness-owned part of the Data Policy controlling training and validation example selection, ordering, and grouping, initially limited to deterministic shuffle and sequential order.
+_Avoid_: Custom sampler code, candidate data loader
+
+**Augmentation Policy**:
+A candidate-selectable, Harness-owned part of the Data Policy controlling approved transforms applied to selected training examples.
+_Avoid_: Custom augmentation code, candidate transforms
+
+**Prediction Sample Policy**:
+A Harness-owned, Run-selectable policy controlling which qualitative prediction examples are saved for Run inspection, initially including first-N and adjacent-plus-scattered sample selection with probability heatmaps.
+_Avoid_: Ad hoc screenshots, cherry-picked examples
+
 **Input Mode**:
 A Harness-owned choice of what image or video tensor is provided to the model for a Target Frame.
 _Avoid_: Candidate data loader, arbitrary input pipeline
@@ -136,8 +156,17 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Camera Domain Shift** is a known limitation of using the **GVCCS Dataset** for models likely to be tried on conventional ground-camera imagery.
 - Evaluation on non-GVCCS camera data is a separate exercise outside the initial **ML Autoresearch** loop.
 - The prediction target for **Ground-Camera Contrail Detection** is a **Contrail Mask** for a **Target Frame**.
+- A **Frame Sequence** groups temporally adjacent GVCCS **Target Frames** for sampling and qualitative diagnostics without implying that a single-frame Candidate Experiment receives temporal input.
+- For the **GVCCS Dataset**, consecutive frames within a **Frame Sequence** are exactly 30 seconds apart; any larger timestamp gap starts a different **Frame Sequence**.
 - **Line Target** and **Boundary Target** are optional **Auxiliary Targets** derived from the **Contrail Mask** by the **Harness**.
 - **Auxiliary Targets** are used for auxiliary training losses; primary evaluation remains based on the **Contrail Mask** prediction.
+- **Data Policy** includes **Sampling Policy**, **Augmentation Policy**, and qualitative **Prediction Sample Policy**.
+- **Sampling Policy** and **Augmentation Policy** are candidate-selectable only through Harness-owned allowlists, not custom candidate data-loading or transform code.
+- Candidate Experiments declare **Sampling Policy** under `data.sampling_policy` in the manifest; older manifests without it resolve to the previous sequential behavior for compatibility.
+- Initial **Sampling Policy** choices affect training example order; validation order remains stable for reproducible metrics and qualitative diagnostics.
+- **Prediction Sample Policy** is Harness-owned, selected at Run time rather than by Candidate Experiments, and affects qualitative Result artifacts, not model training.
+- The adjacent portion of the initial **Prediction Sample Policy** selects stride-1 consecutive **Target Frames** from validation **Frame Sequences** with non-empty **Contrail Masks**, spaced across eligible sequences.
+- The scattered portion of the initial **Prediction Sample Policy** is positive-biased while retaining a small negative slice to inspect false positives on empty **Contrail Masks**.
 - **Single-Frame RGB Input** and **Centered Temporal RGB Clip Input** are v1 **Input Modes** for **Ground-Camera Contrail Detection**.
 - **ML Autoresearch** works by sustaining a **Research Loop**.
 - A **Research Loop** explores a **Research Problem** through many **Candidate Experiments**.
@@ -152,8 +181,11 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - A **Candidate Experiment** contains one **Model Architecture**.
 - A **Candidate Experiment** may produce zero or more **Runs**.
 - A **Run** produces at most one **Result**.
+- A **Result** distinguishes final completed epoch metrics from best-validation metrics so research decisions do not confuse final model state with peak observed validation behavior.
+- For **Ground-Camera Contrail Detection**, the initial best-validation metric is validation Dice over the **Contrail Mask**.
+- Initial best-validation reporting does not imply checkpoint restoration, but best-epoch model artifact persistence is expected soon for evaluation beyond the original Run.
 - The **Initial Flexibility Envelope** is part of the **Candidate Experiment Contract** from the beginning.
-- The **Initial Flexibility Envelope** includes model architecture, input mode, output form, loss selection, bounded training knobs, augmentation/data policy, and pretrained weight requests.
+- The **Initial Flexibility Envelope** includes model architecture, input mode, output form, loss selection, bounded training knobs, candidate-selectable **Data Policy**, and pretrained weight requests.
 - **Wall-Clock Budget Policy** is intentionally adjustable and may start small to encourage many cheap architecture-search Runs.
 - The **Harness** owns training loops, data loading, validation, execution policy, artifact persistence, and approved parameterized variations.
 - The **Candidate Experiment Contract** can expose Harness-owned parameters for model architecture, input modes, output forms, losses, optimizer choices, training budgets, augmentation/data policy, and pretrained weight availability.
