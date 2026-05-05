@@ -12,11 +12,11 @@ from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data
 FIXTURE_ROOT = Path("tests/fixtures/gvccs_like")
 
 
-def write_trainable_candidate(root: Path) -> Path:
+def write_trainable_candidate(root: Path, *, max_epochs: int = 1) -> Path:
     candidate = root / "candidate"
     candidate.mkdir()
     (candidate / "manifest.yaml").write_text(
-        """
+        f"""
 name: trainable_candidate
 input_mode: single_frame_rgb
 output_form: mask_logits
@@ -25,7 +25,7 @@ training:
   optimizer: adamw
   learning_rate: 0.001
   batch_size: 2
-  max_epochs: 1
+  max_epochs: {max_epochs}
 """.strip()
         + "\n"
     )
@@ -105,6 +105,19 @@ def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):
         "host_data_path": str(FIXTURE_ROOT.resolve()),
         "container_data_path": "/data",
     }
+
+
+def test_run_candidate_with_gvccs_fixture_honors_manifest_max_epochs(tmp_path: Path):
+    candidate = write_trainable_candidate(tmp_path, max_epochs=2)
+
+    run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", FIXTURE_ROOT, max_samples=4, max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    records = [json.loads(line) for line in (run.run_dir / "outputs" / "metrics.jsonl").read_text().splitlines()]
+    assert sorted({record["epoch"] for record in records if record["split"] == "train"}) == [1, 2]
+    assert [record["epoch"] for record in records if record["split"] == "val"] == [1, 2]
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
+    assert final["epoch"] == 2
 
 
 def test_run_candidate_with_gvccs_data_validates_host_data_root_before_submission(tmp_path: Path):

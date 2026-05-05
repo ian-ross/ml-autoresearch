@@ -28,7 +28,7 @@ class TrainingError(RuntimeError):
 
 
 def train_synthetic_fixture_run(run_dir: str | Path, *, max_prediction_samples: int = 2) -> dict[str, object]:
-    """Train one epoch on deterministic generated Contrail Mask fixture data."""
+    """Train deterministic generated Contrail Mask fixture data for the resolved manifest budget."""
 
     path = Path(run_dir)
     return train_synthetic_fixture(
@@ -56,7 +56,7 @@ def train_synthetic_fixture(
     val_loader_factory = lambda batch_size: DataLoader(  # noqa: E731
         SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000), batch_size=batch_size, shuffle=False
     )
-    return _train_one_epoch_run(
+    return _train_manifest_epochs_run(
         candidate_dir=candidate_dir,
         resolved_manifest_path=resolved_manifest_path,
         outputs_dir=outputs_dir,
@@ -78,7 +78,7 @@ def train_gvccs_run(
     max_samples: int | None = None,
     max_prediction_samples: int = 2,
 ) -> dict[str, object]:
-    """Train one epoch on local GVCCS RGB image and binary Contrail Mask pairs."""
+    """Train local GVCCS RGB image and binary Contrail Mask pairs for the resolved manifest budget."""
 
     path = Path(run_dir)
     return train_gvccs(
@@ -113,7 +113,7 @@ def train_gvccs(
     val_loader_factory = lambda batch_size: DataLoader(  # noqa: E731
         GVCCSDataset(split.val), batch_size=batch_size, shuffle=False
     )
-    return _train_one_epoch_run(
+    return _train_manifest_epochs_run(
         candidate_dir=candidate_dir,
         resolved_manifest_path=resolved_manifest_path,
         outputs_dir=outputs_dir,
@@ -128,7 +128,7 @@ def train_gvccs(
     )
 
 
-def _train_one_epoch_run(
+def _train_manifest_epochs_run(
     *,
     candidate_dir: str | Path,
     resolved_manifest_path: str | Path,
@@ -170,28 +170,36 @@ def _train_one_epoch_run(
         val_loader = val_loader_factory(batch_size)
 
         metrics_path.write_text("")
-        model.train()
-        train_loss_total = 0.0
-        trained_samples = 0
+        max_epochs = int(training["max_epochs"])
         timeout_requested = False
-        for batch_index, (inputs, targets) in enumerate(train_loader):
-            optimizer.zero_grad(set_to_none=True)
-            logits = _extract_mask_logits(model(inputs))[0]
-            loss = bce_dice_loss(logits, targets)
-            loss.backward()
-            optimizer.step()
-            trained_samples += int(inputs.shape[0])
-            train_loss_total += float(loss.item()) * inputs.shape[0]
-            _append_jsonl(metrics_path, {"split": "train", "epoch": 1, "batch": batch_index, "loss": float(loss.item())})
-            if _timeout_requested():
-                timeout_requested = True
-                lines.append("Wall-clock timeout requested by Harness; stopping at end-of-batch checkpoint.")
+        final: dict[str, object] = {}
+        for epoch in range(1, max_epochs + 1):
+            model.train()
+            train_loss_total = 0.0
+            trained_samples = 0
+            for batch_index, (inputs, targets) in enumerate(train_loader):
+                optimizer.zero_grad(set_to_none=True)
+                logits = _extract_mask_logits(model(inputs))[0]
+                loss = bce_dice_loss(logits, targets)
+                loss.backward()
+                optimizer.step()
+                trained_samples += int(inputs.shape[0])
+                train_loss_total += float(loss.item()) * inputs.shape[0]
+                _append_jsonl(metrics_path, {"split": "train", "epoch": epoch, "batch": batch_index, "loss": float(loss.item())})
+                if _timeout_requested():
+                    timeout_requested = True
+                    lines.append("Wall-clock timeout requested by Harness; stopping at end-of-batch checkpoint.")
+                    break
+
+            final = _evaluate(model, val_loader)
+            final["epoch"] = epoch
+            final["train/loss"] = train_loss_total / max(trained_samples, 1)
+            if timeout_requested:
+                final["run/timeout_requested"] = True
+            _append_jsonl(metrics_path, {"split": "val", **final})
+            if timeout_requested:
                 break
 
-        final = _evaluate(model, val_loader)
-        final["train/loss"] = train_loss_total / max(trained_samples, 1)
-        if timeout_requested:
-            final["run/timeout_requested"] = True
         final["artifacts"] = write_prediction_sample_artifacts(
             run_dir=artifact_run_dir,
             model=model,
@@ -200,7 +208,6 @@ def _train_one_epoch_run(
             max_samples=max_prediction_samples,
         )
         final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
-        _append_jsonl(metrics_path, {"split": "val", "epoch": 1, **final})
         if timeout_requested:
             lines.append("Training exited cleanly after Harness timeout request.")
         else:
