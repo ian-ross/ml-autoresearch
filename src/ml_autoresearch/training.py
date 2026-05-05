@@ -164,6 +164,7 @@ def _train_manifest_epochs_run(
     log_path = outputs_dir / "logs" / "training.log"
     metrics_path = outputs_dir / "metrics.jsonl"
     final_metrics_path = outputs_dir / "final_metrics.json"
+    best_metrics_path = outputs_dir / "best_metrics.json"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [start_line]
 
@@ -191,6 +192,7 @@ def _train_manifest_epochs_run(
         max_epochs = int(training["max_epochs"])
         timeout_requested = False
         final: dict[str, object] = {}
+        validation_records: list[dict[str, object]] = []
         for epoch in range(1, max_epochs + 1):
             model.train()
             train_loss_total = 0.0
@@ -217,11 +219,15 @@ def _train_manifest_epochs_run(
             final["train/loss"] = train_loss_total / max(trained_samples, 1)
             if timeout_requested:
                 final["run/timeout_requested"] = True
-            _append_jsonl(metrics_path, {"split": "val", **final})
+            validation_record = {"split": "val", **final}
+            validation_records.append(dict(validation_record))
+            _append_jsonl(metrics_path, validation_record)
             if timeout_requested:
                 break
 
-        final["artifacts"] = write_prediction_sample_artifacts(
+        best_metrics = _best_validation_metrics(validation_records)
+        best_metrics_path.write_text(json.dumps(best_metrics, indent=2, sort_keys=True) + "\n")
+        artifacts = write_prediction_sample_artifacts(
             run_dir=artifact_run_dir,
             model=model,
             data_loader=val_loader,
@@ -229,6 +235,8 @@ def _train_manifest_epochs_run(
             max_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
         )
+        artifacts["best_metrics"] = "outputs/best_metrics.json"
+        final["artifacts"] = artifacts
         final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
         if timeout_requested:
             lines.append("Training exited cleanly after Harness timeout request.")
@@ -286,6 +294,21 @@ def _evaluate(model: torch.nn.Module, val_loader: DataLoader, *, device: torch.d
         "val/precision": metrics["precision"],
         "val/recall": metrics["recall"],
         "val/loss": total_loss / len(val_loader.dataset),
+    }
+
+
+def _best_validation_metrics(validation_records: list[dict[str, object]]) -> dict[str, object]:
+    if not validation_records:
+        raise TrainingError("cannot report best validation metrics without validation records")
+    metric_name = "val/dice"
+    selected = max(validation_records, key=lambda record: float(record[metric_name]))
+    metrics = {key: value for key, value in selected.items() if key != "split"}
+    return {
+        "epoch": selected["epoch"],
+        "selection_metric": metric_name,
+        "selection_mode": "max",
+        "selection_value": selected[metric_name],
+        "metrics": metrics,
     }
 
 

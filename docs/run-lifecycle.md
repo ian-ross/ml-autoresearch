@@ -39,7 +39,8 @@ runs/
     └── outputs/
         ├── model_summary.json              # after smoke test
         ├── metrics.jsonl                   # after training
-        ├── final_metrics.json              # after training
+        ├── final_metrics.json              # final completed epoch metrics after training
+        ├── best_metrics.json               # best validation epoch metrics selected by max val/dice
         ├── prediction_samples/             # after training, when generated
         └── logs/
             ├── validation.log
@@ -117,7 +118,7 @@ Docker-backed smoke tests, synthetic training, and GVCCS training launch contain
 - GPU access is disabled by default and can only be enabled by Harness-owned configuration;
 - environment variables are allowlisted explicitly by the Docker invocation.
 
-For Docker-backed training Runs with a Harness wall-clock budget, timeout handling is graceful first: the Harness writes `/scratch/ml_autoresearch_timeout_requested`, records the event in `outputs/logs/harness_timeout.log`, and allows a bounded grace period. The in-container Harness-owned training loop checks the sentinel at end-of-batch boundaries, evaluates the best available model state, writes `metrics.jsonl`, `final_metrics.json`, training logs, and supported artifacts, then exits cleanly. If the grace period expires, the Harness force-kills the container and records forced timeout failure in Harness-owned metadata.
+For Docker-backed training Runs with a Harness wall-clock budget, timeout handling is graceful first: the Harness writes `/scratch/ml_autoresearch_timeout_requested`, records the event in `outputs/logs/harness_timeout.log`, and allows a bounded grace period. The in-container Harness-owned training loop checks the sentinel at end-of-batch boundaries, evaluates the best available model state, writes `metrics.jsonl`, `final_metrics.json`, `best_metrics.json`, training logs, and supported artifacts, then exits cleanly. If the grace period expires, the Harness force-kills the container and records forced timeout failure in Harness-owned metadata.
 
 Run metadata remains authoritative for lifecycle state. Candidate Experiment code may write operation outputs under `/outputs`, but it cannot authoritatively set normal completion, graceful timeout completion, or forced timeout failure.
 

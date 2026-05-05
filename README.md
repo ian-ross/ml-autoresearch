@@ -191,7 +191,8 @@ run_metadata.json          Run status, timestamps, sources, dataset metadata, ar
 outputs/
   model_summary.json       model parameter summary
   metrics.jsonl            batch/epoch metric stream
-  final_metrics.json       final Result metrics, including val/dice
+  final_metrics.json       final completed epoch Result metrics
+  best_metrics.json        best validation epoch metrics selected by max val/dice
   prediction_samples/      qualitative PNG samples and samples.json
   logs/                    validation, smoke-test, and training logs
 ```

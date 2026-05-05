@@ -166,7 +166,8 @@ Every completed Run should produce enough artifacts for the Research Loop to com
 
 Required completed-Run artifacts:
 
-- `final_metrics.json` — final validation metrics and selected comparison metric.
+- `final_metrics.json` — final completed epoch validation metrics; this remains the final epoch Result view, not the best-validation summary.
+- `best_metrics.json` — best validation epoch selected by maximizing `val/dice`, including the selected epoch, selection metric name/value, and metrics from that validation epoch. This is reporting only and does not imply checkpoint restoration or best-epoch weight persistence.
 - `metrics.jsonl` — per-epoch or per-step metric history.
 - `model_summary.json` — parameter count, input/output contract, and useful model summary information.
 - `resolved_manifest.yaml` — fully resolved Candidate Experiment configuration after Harness defaults and validation.

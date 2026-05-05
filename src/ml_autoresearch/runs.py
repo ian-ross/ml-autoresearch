@@ -289,8 +289,13 @@ def get_best_runs(runs_root: str | Path, *, metric: str = "val/dice", limit: int
 
     ranked: list[dict[str, object]] = []
     for summary in list_runs(runs_root):
-        metrics = summary.get("metrics")
-        value = metrics.get(metric) if isinstance(metrics, dict) else None
+        best_metrics = summary.get("best_metrics")
+        best_metric_name = best_metrics.get("selection_metric") if isinstance(best_metrics, dict) else None
+        if isinstance(best_metrics, dict) and best_metric_name == metric:
+            value = best_metrics.get("selection_value")
+        else:
+            metrics = summary.get("metrics")
+            value = metrics.get(metric) if isinstance(metrics, dict) else None
         if summary.get("status") == RunStatus.COMPLETED.value and isinstance(value, int | float):
             ranked_summary = dict(summary)
             ranked_summary["rank_metric_name"] = metric
@@ -327,7 +332,15 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
     if "artifacts" in metadata:
         summary["artifacts"] = metadata["artifacts"]
 
-    final_metrics_path = _outputs_dir(run_dir) / "final_metrics.json"
+    outputs_dir = _outputs_dir(run_dir)
+    best_metrics_path = outputs_dir / "best_metrics.json"
+    if best_metrics_path.exists():
+        try:
+            summary["best_metrics"] = json.loads(best_metrics_path.read_text())
+        except Exception as exc:  # noqa: BLE001
+            summary["best_metrics_error"] = f"cannot read best_metrics.json: {exc}"
+
+    final_metrics_path = outputs_dir / "final_metrics.json"
     if final_metrics_path.exists():
         try:
             metrics = json.loads(final_metrics_path.read_text())
@@ -510,6 +523,7 @@ def _validate_synthetic_training_outputs(run_dir: Path) -> dict[str, object] | N
     required = [
         outputs_dir / "metrics.jsonl",
         outputs_dir / "final_metrics.json",
+        outputs_dir / "best_metrics.json",
         outputs_dir / "logs" / "training.log",
     ]
     for path in required:
@@ -524,6 +538,9 @@ def _validate_synthetic_training_outputs(run_dir: Path) -> dict[str, object] | N
         prediction_samples = artifacts.get("prediction_samples")
         if isinstance(prediction_samples, str) and not (run_dir / prediction_samples).exists():
             raise TrainingError(f"required synthetic training artifact is missing: {prediction_samples}")
+        best_metrics = artifacts.get("best_metrics")
+        if isinstance(best_metrics, str) and not (run_dir / best_metrics).exists():
+            raise TrainingError(f"required synthetic training artifact is missing: {best_metrics}")
         return artifacts
     return None
 

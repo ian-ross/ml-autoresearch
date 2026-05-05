@@ -6,7 +6,15 @@ from pathlib import Path
 from ml_autoresearch.runs import get_best_runs, get_run_summary, list_runs
 
 
-def write_run(runs_root: Path, run_id: str, status: str, dice: float | None = None, *, reason: str | None = None) -> Path:
+def write_run(
+    runs_root: Path,
+    run_id: str,
+    status: str,
+    dice: float | None = None,
+    *,
+    reason: str | None = None,
+    best_dice: float | None = None,
+) -> Path:
     run_dir = runs_root / run_id
     run_dir.mkdir(parents=True)
     metadata = {
@@ -24,6 +32,19 @@ def write_run(runs_root: Path, run_id: str, status: str, dice: float | None = No
         outputs_dir = run_dir / "outputs"
         outputs_dir.mkdir()
         (outputs_dir / "final_metrics.json").write_text(json.dumps({"val/dice": dice, "val/iou": dice / 2}) + "\n")
+        if best_dice is not None:
+            (outputs_dir / "best_metrics.json").write_text(
+                json.dumps(
+                    {
+                        "epoch": 1,
+                        "selection_metric": "val/dice",
+                        "selection_mode": "max",
+                        "selection_value": best_dice,
+                        "metrics": {"epoch": 1, "val/dice": best_dice, "val/iou": best_dice / 2},
+                    }
+                )
+                + "\n"
+            )
     return run_dir
 
 
@@ -57,14 +78,27 @@ def test_list_runs_summarizes_local_run_artifacts_and_reports_corrupt_runs(tmp_p
 
 def test_get_run_summary_reads_one_run_without_mlflow(tmp_path: Path):
     runs_root = tmp_path / "runs"
-    write_run(runs_root, "run_done", "completed", 0.82)
+    write_run(runs_root, "run_done", "completed", 0.82, best_dice=0.9)
 
     summary = get_run_summary(runs_root, "run_done")
 
     assert summary["run_id"] == "run_done"
     assert summary["status"] == "completed"
     assert summary["metrics"]["val/dice"] == 0.82
+    assert summary["best_metrics"]["selection_metric"] == "val/dice"
+    assert summary["best_metrics"]["selection_value"] == 0.9
     assert summary["run_dir"] == str(runs_root / "run_done")
+
+
+def test_get_best_runs_sorts_completed_runs_by_best_val_dice_when_available(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    write_run(runs_root, "run_high_final_low_best", "completed", 0.9, best_dice=0.3)
+    write_run(runs_root, "run_low_final_high_best", "completed", 0.2, best_dice=0.8)
+
+    best = get_best_runs(runs_root)
+
+    assert [summary["run_id"] for summary in best] == ["run_low_final_high_best", "run_high_final_low_best"]
+    assert [summary["rank_metric"] for summary in best] == [0.8, 0.3]
 
 
 def test_get_best_runs_sorts_completed_runs_by_val_dice_descending_and_skips_unrankable(tmp_path: Path):

@@ -6,7 +6,7 @@ import torch
 
 from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture
 from ml_autoresearch.synthetic import SyntheticContrailDataset
-from ml_autoresearch.training import _data_loader_for_sampling
+from ml_autoresearch.training import _best_validation_metrics, _data_loader_for_sampling
 
 
 def write_trainable_candidate(root: Path, *, max_epochs: int = 1) -> Path:
@@ -95,11 +95,19 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
     assert metadata["status"] == "completed"
     assert metadata["training_failure_reason"] is None
     assert metadata["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
+    assert metadata["artifacts"]["best_metrics"] == "outputs/best_metrics.json"
     assert (run_dir / "outputs" / "logs" / "training.log").read_text()
     assert (run_dir / "outputs" / "metrics.jsonl").read_text()
     final = json.loads((run_dir / "outputs" / "final_metrics.json").read_text())
     assert set(final) >= {"val/dice", "val/iou", "val/precision", "val/recall", "val/loss"}
     assert final["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
+    assert final["artifacts"]["best_metrics"] == "outputs/best_metrics.json"
+    best = json.loads((run_dir / "outputs" / "best_metrics.json").read_text())
+    assert best["selection_metric"] == "val/dice"
+    assert best["selection_mode"] == "max"
+    assert best["epoch"] == final["epoch"] == 1
+    assert best["selection_value"] == final["val/dice"]
+    assert best["metrics"]["val/dice"] == final["val/dice"]
 
     samples_dir = run_dir / "outputs" / "prediction_samples"
     samples = json.loads((samples_dir / "samples.json").read_text())
@@ -144,6 +152,22 @@ def test_synthetic_fixture_training_honors_manifest_max_epochs(tmp_path: Path):
     final_val_record = [record for record in records if record["split"] == "val"][-1]
     assert final["epoch"] == 3
     assert final["val/loss"] == final_val_record["val/loss"]
+
+
+def test_best_validation_metrics_selects_highest_dice_not_final_epoch():
+    best = _best_validation_metrics(
+        [
+            {"split": "val", "epoch": 1, "val/dice": 0.2, "val/iou": 0.1, "val/loss": 0.9},
+            {"split": "val", "epoch": 2, "val/dice": 0.8, "val/iou": 0.7, "val/loss": 0.4},
+            {"split": "val", "epoch": 3, "val/dice": 0.5, "val/iou": 0.3, "val/loss": 0.6},
+        ]
+    )
+
+    assert best["selection_metric"] == "val/dice"
+    assert best["selection_mode"] == "max"
+    assert best["epoch"] == 2
+    assert best["selection_value"] == 0.8
+    assert best["metrics"] == {"epoch": 2, "val/dice": 0.8, "val/iou": 0.7, "val/loss": 0.4}
 
 
 def test_synthetic_fixture_training_uses_cuda_when_available(tmp_path: Path, monkeypatch):
