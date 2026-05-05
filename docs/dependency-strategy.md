@@ -32,7 +32,13 @@ Host tests are CPU-only by design. They should not initialize or depend on the h
 
 ## Docker and cluster workflow
 
-Build the runner image once on a Docker-capable host or cluster node:
+Build the runner image once on a Docker-capable host or cluster node. Docker-backed Runs use `ml-autoresearch-runner:local` by default, and the preferred repeatable local workflow is:
+
+```bash
+make runner-image
+```
+
+The manual Docker command remains a valid fallback and builds the same default image:
 
 ```bash
 docker build -t ml-autoresearch-runner:local .

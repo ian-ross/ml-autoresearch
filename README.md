@@ -115,7 +115,13 @@ uv run ml-autoresearch run-candidate \
   --synthetic-fixture
 ```
 
-Build the pinned Docker runner image:
+Build the pinned Docker runner image. The Docker backend defaults to the local runner image tag `ml-autoresearch-runner:local`; the preferred repeatable local workflow is:
+
+```bash
+make runner-image
+```
+
+The manual Docker command remains a valid fallback and builds the same default image:
 
 ```bash
 docker build -t ml-autoresearch-runner:local .
