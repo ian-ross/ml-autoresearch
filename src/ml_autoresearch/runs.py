@@ -541,6 +541,9 @@ def _validate_synthetic_training_outputs(run_dir: Path) -> dict[str, object] | N
         best_metrics = artifacts.get("best_metrics")
         if isinstance(best_metrics, str) and not (run_dir / best_metrics).exists():
             raise TrainingError(f"required synthetic training artifact is missing: {best_metrics}")
+        best_epoch_model = artifacts.get("best_epoch_model")
+        if isinstance(best_epoch_model, str) and not (run_dir / best_epoch_model).exists():
+            raise TrainingError(f"required synthetic training artifact is missing: {best_epoch_model}")
         return artifacts
     return None
 

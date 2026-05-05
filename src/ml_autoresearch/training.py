@@ -165,6 +165,7 @@ def _train_manifest_epochs_run(
     metrics_path = outputs_dir / "metrics.jsonl"
     final_metrics_path = outputs_dir / "final_metrics.json"
     best_metrics_path = outputs_dir / "best_metrics.json"
+    best_epoch_model_path = outputs_dir / "models" / "best_epoch_model.pt"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [start_line]
 
@@ -193,6 +194,7 @@ def _train_manifest_epochs_run(
         timeout_requested = False
         final: dict[str, object] = {}
         validation_records: list[dict[str, object]] = []
+        best_validation_value: float | None = None
         for epoch in range(1, max_epochs + 1):
             model.train()
             train_loss_total = 0.0
@@ -221,11 +223,23 @@ def _train_manifest_epochs_run(
                 final["run/timeout_requested"] = True
             validation_record = {"split": "val", **final}
             validation_records.append(dict(validation_record))
+            validation_value = float(validation_record["val/dice"])
+            if best_validation_value is None or validation_value > best_validation_value:
+                best_validation_value = validation_value
+                _write_best_epoch_model_artifact(
+                    best_epoch_model_path,
+                    model=model,
+                    epoch=epoch,
+                    selection_metric="val/dice",
+                    selection_value=validation_value,
+                )
             _append_jsonl(metrics_path, validation_record)
             if timeout_requested:
                 break
 
-        best_metrics = _best_validation_metrics(validation_records)
+        best_metrics = _best_validation_metrics(
+            validation_records, model_artifact="outputs/models/best_epoch_model.pt"
+        )
         best_metrics_path.write_text(json.dumps(best_metrics, indent=2, sort_keys=True) + "\n")
         artifacts = write_prediction_sample_artifacts(
             run_dir=artifact_run_dir,
@@ -236,6 +250,7 @@ def _train_manifest_epochs_run(
             prediction_sample_policy=prediction_sample_policy,
         )
         artifacts["best_metrics"] = "outputs/best_metrics.json"
+        artifacts["best_epoch_model"] = "outputs/models/best_epoch_model.pt"
         final["artifacts"] = artifacts
         final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
         if timeout_requested:
@@ -297,19 +312,49 @@ def _evaluate(model: torch.nn.Module, val_loader: DataLoader, *, device: torch.d
     }
 
 
-def _best_validation_metrics(validation_records: list[dict[str, object]]) -> dict[str, object]:
+def _best_validation_metrics(
+    validation_records: list[dict[str, object]], *, model_artifact: str | None = None
+) -> dict[str, object]:
     if not validation_records:
         raise TrainingError("cannot report best validation metrics without validation records")
     metric_name = "val/dice"
     selected = max(validation_records, key=lambda record: float(record[metric_name]))
     metrics = {key: value for key, value in selected.items() if key != "split"}
-    return {
+    summary = {
         "epoch": selected["epoch"],
         "selection_metric": metric_name,
         "selection_mode": "max",
         "selection_value": selected[metric_name],
         "metrics": metrics,
     }
+    if model_artifact is not None:
+        summary["model_artifact"] = model_artifact
+    return summary
+
+
+def _write_best_epoch_model_artifact(
+    path: Path,
+    *,
+    model: torch.nn.Module,
+    epoch: int,
+    selection_metric: str,
+    selection_value: float,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "artifact_type": "best_epoch_model",
+            "epoch": epoch,
+            "selection_metric": selection_metric,
+            "selection_value": selection_value,
+            "model_state_dict": _cpu_state_dict(model),
+        },
+        path,
+    )
+
+
+def _cpu_state_dict(model: torch.nn.Module) -> dict[str, torch.Tensor]:
+    return {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
 
 
 def _select_training_device() -> torch.device:

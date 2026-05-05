@@ -193,6 +193,8 @@ outputs/
   metrics.jsonl            batch/epoch metric stream
   final_metrics.json       final completed epoch Result metrics
   best_metrics.json        best validation epoch metrics selected by max val/dice
+  models/best_epoch_model.pt
+                            Harness-owned weights for the best validation epoch
   prediction_samples/      qualitative PNG samples and samples.json
   logs/                    validation, smoke-test, and training logs
 ```
