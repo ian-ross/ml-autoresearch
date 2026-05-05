@@ -102,6 +102,8 @@ def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_pa
         "tests/fixtures/gvccs_like",
         "--max-samples",
         "4",
+        "--prediction-sample-policy",
+        "adjacent_and_scattered",
         "--backend",
         "native",
     )
@@ -110,4 +112,6 @@ def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_pa
     payload = json.loads(completed.stdout)
     assert payload["status"] == "completed"
     assert (runs_root / payload["run_id"] / "outputs" / "final_metrics.json").exists()
+    samples = json.loads((runs_root / payload["run_id"] / "outputs" / "prediction_samples" / "samples.json").read_text())
+    assert samples["prediction_sample_policy"] == "adjacent_and_scattered"
     assert "GVCCS" in (runs_root / payload["run_id"] / "outputs" / "logs" / "training.log").read_text()

@@ -92,6 +92,7 @@ def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):
     assert set(final) >= {"val/dice", "val/iou", "val/precision", "val/recall", "val/loss"}
     assert final["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
     samples = json.loads((run.run_dir / "outputs" / "prediction_samples" / "samples.json").read_text())
+    assert samples["prediction_sample_policy"] == "first_n"
     assert samples["sample_count"] == 1
     assert samples["max_sample_count"] == 1
     assert samples["samples"][0]["source_image_path"].endswith(".png")
@@ -104,6 +105,28 @@ def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):
         "id": "gvccs",
         "host_data_path": str(FIXTURE_ROOT.resolve()),
         "container_data_path": "/data",
+    }
+
+
+def test_run_candidate_with_gvccs_fixture_accepts_adjacent_and_scattered_prediction_sample_policy(tmp_path: Path):
+    candidate = write_trainable_candidate(tmp_path)
+
+    run = run_candidate_with_gvccs_data(
+        candidate,
+        tmp_path / "runs",
+        FIXTURE_ROOT,
+        max_samples=4,
+        max_prediction_samples=1,
+        prediction_sample_policy="adjacent_and_scattered",
+    )
+
+    assert run.status == RunStatus.COMPLETED
+    samples = json.loads((run.run_dir / "outputs" / "prediction_samples" / "samples.json").read_text())
+    assert samples["prediction_sample_policy"] == "adjacent_and_scattered"
+    assert samples["sample_count"] == 1
+    assert {sample["selection"]["selection_kind"] for sample in samples["samples"]} <= {
+        "adjacent_window",
+        "scattered_singleton",
     }
 
 

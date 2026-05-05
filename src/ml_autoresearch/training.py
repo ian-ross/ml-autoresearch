@@ -28,7 +28,9 @@ class TrainingError(RuntimeError):
     """Raised when Harness-owned training fails."""
 
 
-def train_synthetic_fixture_run(run_dir: str | Path, *, max_prediction_samples: int = 2) -> dict[str, object]:
+def train_synthetic_fixture_run(
+    run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n"
+) -> dict[str, object]:
     """Train deterministic generated Contrail Mask fixture data for the resolved manifest budget."""
 
     path = Path(run_dir)
@@ -38,6 +40,7 @@ def train_synthetic_fixture_run(run_dir: str | Path, *, max_prediction_samples: 
         outputs_dir=path / "outputs",
         artifact_run_dir=path,
         max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
     )
 
 
@@ -48,6 +51,7 @@ def train_synthetic_fixture(
     outputs_dir: str | Path,
     artifact_run_dir: str | Path,
     max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
 ) -> dict[str, object]:
     """Train deterministic generated Contrail Mask fixture data with explicit mounted paths."""
 
@@ -73,6 +77,7 @@ def train_synthetic_fixture(
         val_loader_factory=val_loader_factory,
         train_sample_count=TRAIN_SAMPLES,
         max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
     )
 
 
@@ -82,6 +87,7 @@ def train_gvccs_run(
     *,
     max_samples: int | None = None,
     max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
 ) -> dict[str, object]:
     """Train local GVCCS RGB image and binary Contrail Mask pairs for the resolved manifest budget."""
 
@@ -94,6 +100,7 @@ def train_gvccs_run(
         data_root=data_root,
         max_samples=max_samples,
         max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
     )
 
 
@@ -106,6 +113,7 @@ def train_gvccs(
     data_root: str | Path,
     max_samples: int | None = None,
     max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
 ) -> dict[str, object]:
     """Train GVCCS data with explicit Harness-controlled mounted paths."""
 
@@ -130,6 +138,7 @@ def train_gvccs(
         val_loader_factory=val_loader_factory,
         train_sample_count=len(split.train),
         max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
     )
 
 
@@ -146,6 +155,7 @@ def _train_manifest_epochs_run(
     val_loader_factory,
     train_sample_count: int,
     max_prediction_samples: int,
+    prediction_sample_policy: str,
 ) -> dict[str, object]:
     candidate_dir = Path(candidate_dir)
     resolved_manifest_path = Path(resolved_manifest_path)
@@ -217,6 +227,7 @@ def _train_manifest_epochs_run(
             data_loader=val_loader,
             split="val",
             max_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
         )
         final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
         if timeout_requested:

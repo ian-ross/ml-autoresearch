@@ -136,8 +136,11 @@ uv run ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root runs \
   --data-root /path/to/GVCCS \
-  --max-samples 8
+  --max-samples 8 \
+  --prediction-sample-policy adjacent_and_scattered
 ```
+
+Prediction Sample Policy is a Run-level Harness option, not a Candidate Experiment manifest option. Supported values are `first_n` (default) and `adjacent_and_scattered`.
 
 Docker GPU access is disabled by default. Before launching GPU-enabled Candidate Experiment training on the cluster, validate GPU visibility inside the same runner image used for candidate execution:
 

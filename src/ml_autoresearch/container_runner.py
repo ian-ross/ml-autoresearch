@@ -13,9 +13,11 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="operation", required=True)
     train_synthetic = subparsers.add_parser("train-synthetic")
     train_synthetic.add_argument("--max-prediction-samples", type=int, default=2)
+    train_synthetic.add_argument("--prediction-sample-policy", choices=["first_n", "adjacent_and_scattered"], default="first_n")
     train_gvccs_parser = subparsers.add_parser("train-gvccs")
     train_gvccs_parser.add_argument("--max-samples", type=int, default=None)
     train_gvccs_parser.add_argument("--max-prediction-samples", type=int, default=2)
+    train_gvccs_parser.add_argument("--prediction-sample-policy", choices=["first_n", "adjacent_and_scattered"], default="first_n")
     args = parser.parse_args()
 
     if args.operation == "train-synthetic":
@@ -25,6 +27,7 @@ def main() -> None:
             outputs_dir=Path("/outputs"),
             artifact_run_dir=Path("/"),
             max_prediction_samples=args.max_prediction_samples,
+            prediction_sample_policy=args.prediction_sample_policy,
         )
     elif args.operation == "train-gvccs":
         train_gvccs(
@@ -35,6 +38,7 @@ def main() -> None:
             data_root=Path("/data"),
             max_samples=args.max_samples,
             max_prediction_samples=args.max_prediction_samples,
+            prediction_sample_policy=args.prediction_sample_policy,
         )
 
 

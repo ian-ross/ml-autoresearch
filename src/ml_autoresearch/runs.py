@@ -45,6 +45,7 @@ def run_candidate_with_synthetic_fixture(
     runs_root: str | Path,
     *,
     max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
@@ -53,6 +54,7 @@ def run_candidate_with_synthetic_fixture(
         candidate_dir,
         runs_root,
         max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
         backend=backend,
     )
 
@@ -64,6 +66,7 @@ def run_candidate_with_gvccs_data(
     *,
     max_samples: int | None = None,
     max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
@@ -74,7 +77,11 @@ def run_candidate_with_gvccs_data(
         candidate_dir,
         runs_root,
         lambda run_dir: selected_backend.train_gvccs(
-            run_dir, data_path, max_samples=max_samples, max_prediction_samples=max_prediction_samples
+            run_dir,
+            data_path,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
         ),
         backend=selected_backend,
         dataset=_gvccs_dataset_metadata(data_path),
@@ -86,6 +93,7 @@ def _run_candidate_synthetic_training(
     runs_root: str | Path,
     *,
     max_prediction_samples: int,
+    prediction_sample_policy: str,
     backend: ExecutionBackend | None = None,
 ) -> RunSubmission:
     run = submit_candidate(candidate_dir, runs_root, backend=backend)
@@ -111,7 +119,11 @@ def _run_candidate_synthetic_training(
     selected_backend = backend or NativeBackend()
     training_result = None
     try:
-        training_result = selected_backend.train_synthetic(run.run_dir, max_prediction_samples=max_prediction_samples)
+        training_result = selected_backend.train_synthetic(
+            run.run_dir,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
         artifacts = _validate_synthetic_training_outputs(run.run_dir)
     except DockerOperationTimeoutError as exc:
         reason = str(exc)

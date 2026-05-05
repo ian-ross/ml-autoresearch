@@ -65,7 +65,9 @@ class ExecutionBackend(Protocol):
     def smoke_test(self, run_dir: str | Path) -> OperationResult:
         """Smoke-test the copied Candidate Experiment for a Run."""
 
-    def train_synthetic(self, run_dir: str | Path, *, max_prediction_samples: int = 2) -> OperationResult:
+    def train_synthetic(
+        self, run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n"
+    ) -> OperationResult:
         """Train the copied Candidate Experiment on deterministic synthetic fixture data."""
 
     def train_gvccs(
@@ -75,6 +77,7 @@ class ExecutionBackend(Protocol):
         *,
         max_samples: int | None = None,
         max_prediction_samples: int = 2,
+        prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
         """Train the copied Candidate Experiment on Harness-owned GVCCS data loading."""
 
@@ -96,8 +99,12 @@ class NativeBackend:
             output_spec=result.output_spec,
         )
 
-    def train_synthetic(self, run_dir: str | Path, *, max_prediction_samples: int = 2) -> OperationResult:
-        train_synthetic_fixture_run(run_dir, max_prediction_samples=max_prediction_samples)
+    def train_synthetic(
+        self, run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n"
+    ) -> OperationResult:
+        train_synthetic_fixture_run(
+            run_dir, max_prediction_samples=max_prediction_samples, prediction_sample_policy=prediction_sample_policy
+        )
         return OperationResult(backend=self.name, operation="train_synthetic")
 
     def train_gvccs(
@@ -107,8 +114,15 @@ class NativeBackend:
         *,
         max_samples: int | None = None,
         max_prediction_samples: int = 2,
+        prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
-        train_gvccs_run(run_dir, data_root, max_samples=max_samples, max_prediction_samples=max_prediction_samples)
+        train_gvccs_run(
+            run_dir,
+            data_root,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
         return OperationResult(backend=self.name, operation="train_gvccs")
 
 
@@ -136,7 +150,9 @@ class DockerBackend:
         self._run_operation(command, "Docker smoke test failed")
         return OperationResult(backend=self.name, operation="smoke_test", docker_image=self.docker_image)
 
-    def train_synthetic(self, run_dir: str | Path, *, max_prediction_samples: int = 2) -> OperationResult:
+    def train_synthetic(
+        self, run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n"
+    ) -> OperationResult:
         path = Path(run_dir)
         self._prepare_writable_paths(path)
         self._ensure_image_available()
@@ -145,6 +161,7 @@ class DockerBackend:
             "ml_autoresearch.container_runner",
             "train-synthetic",
             f"--max-prediction-samples={max_prediction_samples}",
+            f"--prediction-sample-policy={prediction_sample_policy}",
         )
         return self._run_training_operation(command, path, "Docker synthetic training failed", "train_synthetic")
 
@@ -155,6 +172,7 @@ class DockerBackend:
         *,
         max_samples: int | None = None,
         max_prediction_samples: int = 2,
+        prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
         path = Path(run_dir)
         data_path = self._validate_gvccs_data_root(data_root)
@@ -164,6 +182,7 @@ class DockerBackend:
         if max_samples is not None:
             args.append(f"--max-samples={max_samples}")
         args.append(f"--max-prediction-samples={max_prediction_samples}")
+        args.append(f"--prediction-sample-policy={prediction_sample_policy}")
         command = self._operation_command(path, "ml_autoresearch.container_runner", *args, data_root=data_path)
         return self._run_training_operation(command, path, "Docker GVCCS training failed", "train_gvccs")
 

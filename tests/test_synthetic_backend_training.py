@@ -101,7 +101,13 @@ def test_docker_backend_constructs_structurally_contained_synthetic_training_com
     assert docker_run[docker_run.index("--cpus") + 1] == "2"
     assert "--privileged" not in docker_run
     assert "--gpus" not in docker_run
-    assert docker_run[-4:] == ["-m", "ml_autoresearch.container_runner", "train-synthetic", "--max-prediction-samples=3"]
+    assert docker_run[-5:] == [
+        "-m",
+        "ml_autoresearch.container_runner",
+        "train-synthetic",
+        "--max-prediction-samples=3",
+        "--prediction-sample-policy=first_n",
+    ]
     joined = "\n".join(docker_run)
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
     assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined
@@ -119,7 +125,9 @@ class NoArtifactBackend:
         (Path(run_dir) / "outputs" / "logs" / "smoke_test.log").write_text("ok\n")
         return OperationResult(backend=self.name, operation="smoke_test")
 
-    def train_synthetic(self, run_dir: str | Path, *, max_prediction_samples: int = 2) -> OperationResult:
+    def train_synthetic(
+        self, run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n"
+    ) -> OperationResult:
         return OperationResult(backend=self.name, operation="train_synthetic")
 
 
@@ -155,19 +163,26 @@ def test_docker_backend_constructs_gvccs_training_command_with_read_only_data_mo
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    result = DockerBackend("custom:tag").train_gvccs(run_dir, data_root, max_samples=4, max_prediction_samples=1)
+    result = DockerBackend("custom:tag").train_gvccs(
+        run_dir,
+        data_root,
+        max_samples=4,
+        max_prediction_samples=1,
+        prediction_sample_policy="adjacent_and_scattered",
+    )
 
     assert result.backend == "docker"
     assert result.operation == "train_gvccs"
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
     assert calls[1] == ["docker", "info", "--format", "{{json .SecurityOptions}}"]
     docker_run = calls[2]
-    assert docker_run[-5:] == [
+    assert docker_run[-6:] == [
         "-m",
         "ml_autoresearch.container_runner",
         "train-gvccs",
         "--max-samples=4",
         "--max-prediction-samples=1",
+        "--prediction-sample-policy=adjacent_and_scattered",
     ]
     joined = "\n".join(docker_run)
     assert f"{data_root}:/data:ro,z" in joined

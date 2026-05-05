@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,8 @@ from torch.utils.data import Dataset
 IMAGE_SIZE = 128
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 DEFAULT_SPLIT_SEED = 20260502
+_FRAME_TIMESTAMP_PATTERN = re.compile(r"(\d{14})")
+_FRAME_SEQUENCE_STEP_SECONDS = 30
 
 
 class GVCCSDataError(ValueError):
@@ -114,6 +118,36 @@ def discover_gvccs_samples(data_root: str | Path, *, split: str = "train", max_s
     if not samples:
         raise GVCCSDataError(f"no GVCCS image/mask pairs discovered in {split_dir}")
     return samples
+
+
+def infer_frame_sequences(samples: list[GVCCSSample]) -> list[list[GVCCSSample]]:
+    """Infer GVCCS Frame Sequences from timestamp-like filenames.
+
+    Samples are sorted by the first 14-digit timestamp in the filename. A new
+    Frame Sequence starts when adjacent timestamps differ by more than 30 seconds.
+    """
+
+    timestamped = [(sample, _timestamp_from_filename(sample.image_path.name)) for sample in samples]
+    timestamped = [(sample, timestamp) for sample, timestamp in timestamped if timestamp is not None]
+    timestamped.sort(key=lambda item: (item[1], item[0].image_path.name))
+    sequences: list[list[GVCCSSample]] = []
+    previous_timestamp: datetime | None = None
+    for sample, timestamp in timestamped:
+        if previous_timestamp is None or (timestamp - previous_timestamp).total_seconds() > _FRAME_SEQUENCE_STEP_SECONDS:
+            sequences.append([])
+        sequences[-1].append(sample)
+        previous_timestamp = timestamp
+    return sequences
+
+
+def _timestamp_from_filename(filename: str) -> datetime | None:
+    match = _FRAME_TIMESTAMP_PATTERN.search(filename)
+    if match is None:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
 
 
 def deterministic_train_val_split(

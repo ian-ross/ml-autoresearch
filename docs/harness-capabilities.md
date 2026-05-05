@@ -171,7 +171,7 @@ Required completed-Run artifacts:
 - `model_summary.json` — parameter count, input/output contract, and useful model summary information.
 - `resolved_manifest.yaml` — fully resolved Candidate Experiment configuration after Harness defaults and validation.
 - `run_metadata.json` — dataset/split identifiers, Harness version, code/image digests, timestamps, resource limits, and Run status.
-- `prediction_samples/` — visual examples including input image or clip reference, ground truth mask, predicted mask, and overlay; include informative failures when possible.
+- `prediction_samples/` — visual examples including input image or clip reference, ground truth mask, predicted mask, and overlay; include informative failures when possible. Run-level Prediction Sample Policy may be `first_n` (default compatibility behavior) or `adjacent_and_scattered` for GVCCS validation diagnostics. `adjacent_and_scattered` infers Frame Sequences from timestamp-like filenames split on gaps greater than 30 seconds, selects stride-1 adjacent windows from positive validation sequences spaced across eligible sequences, and adds positive-biased scattered singleton samples while retaining a small negative slice.
 - `logs/` — validation, smoke-test, training, timeout, and future persistence logs.
 
 The current implementation writes operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root. GVCCS Runs record dataset id `gvccs`, the real host data path, and the container path `/data` in `run_metadata.json`.

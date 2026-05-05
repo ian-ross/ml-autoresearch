@@ -113,6 +113,10 @@ def run_candidate_command(
     synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated contrail data.")] = False,
     data_root: Annotated[Path | None, typer.Option("--data-root", help="Local GVCCS Dataset root.")] = None,
     max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of discovered GVCCS samples used.")] = None,
+    prediction_sample_policy: Annotated[
+        Literal["first_n", "adjacent_and_scattered"],
+        typer.Option("--prediction-sample-policy", help="Harness-owned qualitative Prediction Sample Policy."),
+    ] = "first_n",
     backend: Annotated[Literal["native", "docker"], typer.Option("--backend", help="Candidate Execution Boundary backend.")] = "docker",
     docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
     docker_enable_gpu: Annotated[
@@ -140,9 +144,18 @@ def run_candidate_command(
         raise typer.BadParameter("choose either --synthetic-fixture or --data-root, not both")
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     if synthetic_fixture:
-        run = run_candidate_with_synthetic_fixture(candidate, runs_root, backend=selected_backend)
+        run = run_candidate_with_synthetic_fixture(
+            candidate, runs_root, prediction_sample_policy=prediction_sample_policy, backend=selected_backend
+        )
     elif data_root is not None:
-        run = run_candidate_with_gvccs_data(candidate, runs_root, data_root, max_samples=max_samples, backend=selected_backend)
+        run = run_candidate_with_gvccs_data(
+            candidate,
+            runs_root,
+            data_root,
+            max_samples=max_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            backend=selected_backend,
+        )
     else:
         raise typer.BadParameter("provide --data-root /path/to/gvccs or --synthetic-fixture")
     _echo_run(run)
