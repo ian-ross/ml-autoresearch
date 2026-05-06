@@ -81,6 +81,15 @@ class ExecutionBackend(Protocol):
     ) -> OperationResult:
         """Train the copied Candidate Experiment on Harness-owned GVCCS data loading."""
 
+    def evaluate_run(
+        self,
+        run_dir: str | Path,
+        *,
+        data_root: str | Path | None = None,
+        max_artifact_samples: int = 12,
+    ) -> OperationResult:
+        """Evaluate a completed Run without retraining."""
+
 
 @dataclass(frozen=True)
 class NativeBackend:
@@ -124,6 +133,18 @@ class NativeBackend:
             prediction_sample_policy=prediction_sample_policy,
         )
         return OperationResult(backend=self.name, operation="train_gvccs")
+
+    def evaluate_run(
+        self,
+        run_dir: str | Path,
+        *,
+        data_root: str | Path | None = None,
+        max_artifact_samples: int = 12,
+    ) -> OperationResult:
+        from ml_autoresearch.evaluations import evaluate_run  # local import avoids a module cycle.
+
+        evaluate_run(run_dir, backend="native", data_root=data_root, max_artifact_samples=max_artifact_samples)
+        return OperationResult(backend=self.name, operation="evaluate_run")
 
 
 @dataclass(frozen=True)
@@ -186,6 +207,31 @@ class DockerBackend:
         command = self._operation_command(path, "ml_autoresearch.container_runner", *args, data_root=data_path)
         return self._run_training_operation(command, path, "Docker GVCCS training failed", "train_gvccs")
 
+    def evaluate_run(
+        self,
+        run_dir: str | Path,
+        *,
+        data_root: str | Path | None = None,
+        max_artifact_samples: int = 12,
+    ) -> OperationResult:
+        path = Path(run_dir)
+        data_path = self._evaluate_data_root(path, data_root)
+        self._prepare_evaluation_writable_paths(path)
+        self._ensure_image_available()
+        command = self._operation_command(
+            path,
+            "ml_autoresearch.container_runner",
+            "evaluate-run",
+            "--data-root=/data",
+            f"--max-artifact-samples={max_artifact_samples}",
+            "--backend=native",
+            data_root=data_path,
+            outputs_read_only=True,
+            evaluations_writable=True,
+        )
+        self._run_operation(command, "Docker evaluation failed")
+        return OperationResult(backend=self.name, operation="evaluate_run", docker_image=self.docker_image)
+
     def _prepare_writable_paths(self, path: Path) -> None:
         outputs = path / "outputs"
         logs = outputs / "logs"
@@ -194,6 +240,13 @@ class DockerBackend:
         if self.container_user is not None and self.container_user != self._host_user() and not self.rootless_container_root:
             os.chmod(outputs, 0o777)
             os.chmod(logs, 0o777)
+
+    def _prepare_evaluation_writable_paths(self, path: Path) -> None:
+        evaluations = path / "outputs" / "evaluations"
+        evaluations.mkdir(parents=True, exist_ok=True)
+        (path / "scratch").mkdir(parents=True, exist_ok=True)
+        if self.container_user is not None and self.container_user != self._host_user() and not self.rootless_container_root:
+            os.chmod(evaluations, 0o777)
 
     def _run_training_operation(
         self, command: list[str], run_dir: Path, failure_prefix: str, operation: str
@@ -281,6 +334,8 @@ class DockerBackend:
         module: str,
         *args: str,
         data_root: Path | None = None,
+        outputs_read_only: bool = False,
+        evaluations_writable: bool = False,
     ) -> list[str]:
         container_name = f"ml-autoresearch-{run_dir.name}-{uuid.uuid4().hex[:12]}"
         docker_is_rootless = self._docker_is_rootless() if self.container_user is None and not self.rootless_container_root else False
@@ -325,10 +380,12 @@ class DockerBackend:
             "--volume",
             f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z",
             "--volume",
-            f"{run_dir / 'outputs'}:/outputs:rw,z",
+            f"{run_dir / 'outputs'}:/outputs:{'ro' if outputs_read_only else 'rw'},z",
             "--mount",
             f"type=tmpfs,destination=/scratch,tmpfs-size={self.scratch_size},tmpfs-mode=1777",
         ]
+        if evaluations_writable:
+            command.extend(["--volume", f"{run_dir / 'outputs' / 'evaluations'}:/outputs/evaluations:rw,z"])
         if self.enable_gpu:
             command.extend(["--gpus", "all"])
         if data_root is not None:
@@ -361,6 +418,18 @@ class DockerBackend:
     @staticmethod
     def _host_user() -> str:
         return f"{os.getuid()}:{os.getgid()}"
+
+    def _evaluate_data_root(self, run_dir: Path, data_root: str | Path | None) -> Path:
+        if data_root is not None:
+            return self._validate_gvccs_data_root(data_root)
+        try:
+            metadata = json.loads((run_dir / "run_metadata.json").read_text())
+        except Exception as exc:  # noqa: BLE001 - Docker launch should fail clearly before importing candidate code.
+            raise RuntimeError(f"cannot read Run metadata for evaluation data root: {exc}") from exc
+        dataset = metadata.get("dataset")
+        if not isinstance(dataset, dict) or not isinstance(dataset.get("host_data_path"), str):
+            raise RuntimeError("Run metadata does not contain GVCCS data root; pass --data-root")
+        return self._validate_gvccs_data_root(str(dataset["host_data_path"]))
 
     def _validate_gvccs_data_root(self, data_root: str | Path) -> Path:
         path = Path(data_root)

@@ -68,6 +68,8 @@ def evaluate_run(
         if split != "val":
             raise EvaluationError("evaluate-run currently supports only --split val")
         metadata = _read_json(source_run_dir / "run_metadata.json")
+        if isinstance(base_metadata.get("source_run"), dict) and isinstance(metadata.get("run_id"), str):
+            base_metadata["source_run"]["run_id"] = metadata["run_id"]  # type: ignore[index]
         if metadata.get("status") != "completed":
             raise EvaluationError(f"source Run must be completed, got status: {metadata.get('status')}")
         resolved_data_root = _resolve_data_root(metadata, data_root)

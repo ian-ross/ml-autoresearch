@@ -220,21 +220,39 @@ def _echo_table(rows: list[dict[str, object]]) -> None:
 def evaluate_run_command(
     run: Annotated[Path, typer.Option("--run", help="Path to a completed source Run directory.")],
     split: Annotated[Literal["val"], typer.Option("--split", help="Run split to evaluate.")] = "val",
-    backend: Annotated[Literal["native"], typer.Option("--backend", help="Post-Run Evaluation backend.")] = "native",
+    backend: Annotated[Literal["native", "docker"], typer.Option("--backend", help="Post-Run Evaluation backend.")] = "docker",
     data_root: Annotated[Path | None, typer.Option("--data-root", help="Override GVCCS Dataset root from Run metadata.")] = None,
     max_artifact_samples: Annotated[
         int,
         typer.Option("--max-artifact-samples", help="Maximum selected diagnostic samples to write as visual artifacts."),
     ] = DEFAULT_MAX_ARTIFACT_SAMPLES,
+    docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
+    docker_enable_gpu: Annotated[
+        bool,
+        typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access by passing --gpus all to Docker evaluations."),
+    ] = False,
+    docker_user: Annotated[
+        str | None,
+        typer.Option("--docker-user", help="Container uid:gid for Docker evaluations."),
+    ] = None,
+    docker_rootless_container_root: Annotated[
+        bool,
+        typer.Option("--docker-rootless-container-root", help="Run as container root on rootless Docker to preserve output ownership."),
+    ] = False,
 ) -> None:
     """Evaluate a completed Run without retraining and write run-scoped artifacts."""
 
+    selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
-        result = evaluate_run(run, split=split, backend=backend, data_root=data_root, max_artifact_samples=max_artifact_samples)
-    except EvaluationError as exc:
+        if backend == "native":
+            result = evaluate_run(run, split=split, backend="native", data_root=data_root, max_artifact_samples=max_artifact_samples)
+            _echo_json({"evaluation_id": result.evaluation_id, "evaluation_dir": str(result.evaluation_dir), "status": result.status})
+            return
+        selected_backend.evaluate_run(run, data_root=data_root, max_artifact_samples=max_artifact_samples)
+    except (EvaluationError, RuntimeError) as exc:
         _echo_json({"status": "failed", "failure_reason": str(exc)})
         raise typer.Exit(1) from exc
-    _echo_json({"evaluation_id": result.evaluation_id, "evaluation_dir": str(result.evaluation_dir), "status": result.status})
+    _echo_json({"status": "completed", "backend": "docker", "run_dir": str(run)})
 
 
 @app.command("validate-docker-gpu")

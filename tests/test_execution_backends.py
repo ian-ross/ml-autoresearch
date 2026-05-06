@@ -218,3 +218,90 @@ def test_docker_backend_missing_image_fails_with_manual_build_command(tmp_path: 
 
     with pytest.raises(RuntimeError, match="docker build -t ml-autoresearch-runner:local ."):
         DockerBackend().smoke_test(tmp_path)
+
+
+def test_docker_backend_constructs_contained_evaluate_run_command_with_readonly_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    run_dir = tmp_path / "runs" / "run_1"
+    data_root = tmp_path / "gvccs"
+    data_root.mkdir(parents=True)
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "models").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "outputs" / "best_metrics.json").write_text('{"model_artifact": "outputs/models/best_epoch_model.pt"}\n')
+    (run_dir / "outputs" / "models" / "best_epoch_model.pt").write_text("checkpoint\n")
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps({"run_id": "run_1", "status": "completed", "dataset": {"host_data_path": str(data_root)}}) + "\n"
+    )
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        if command[:2] == ["docker", "info"]:
+            return subprocess.CompletedProcess(command, 0, '["name=seccomp,profile=builtin"]', "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = DockerBackend("custom:tag").evaluate_run(run_dir, max_artifact_samples=3)
+
+    assert result.backend == "docker"
+    assert result.operation == "evaluate_run"
+    assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
+    docker_run = calls[2]
+    assert docker_run[:3] == ["docker", "run", "--rm"]
+    assert docker_run[docker_run.index("--network") + 1] == "none"
+    assert "--read-only" in docker_run
+    assert docker_run[docker_run.index("--cap-drop") + 1] == "ALL"
+    assert docker_run[docker_run.index("--security-opt") + 1] == "no-new-privileges"
+    assert "--privileged" not in docker_run
+    joined = "\n".join(docker_run)
+    assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
+    assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined
+    assert f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z" in joined
+    assert f"{run_dir / 'outputs'}:/outputs:ro,z" in joined
+    assert f"{run_dir / 'outputs' / 'evaluations'}:/outputs/evaluations:rw,z" in joined
+    assert f"{data_root.resolve(strict=True)}:/data:ro,z" in joined
+    assert docker_run[-5:] == [
+        "ml_autoresearch.container_runner",
+        "evaluate-run",
+        "--data-root=/data",
+        "--max-artifact-samples=3",
+        "--backend=native",
+    ]
+
+
+def test_docker_backend_evaluate_run_data_root_override_is_validated_and_mounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    run_dir = tmp_path / "runs" / "run_1"
+    metadata_root = tmp_path / "metadata_gvccs"
+    override_root = tmp_path / "override_gvccs"
+    metadata_root.mkdir(parents=True)
+    override_root.mkdir(parents=True)
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "models").mkdir(parents=True)
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "outputs" / "best_metrics.json").write_text('{"model_artifact": "outputs/models/best_epoch_model.pt"}\n')
+    (run_dir / "outputs" / "models" / "best_epoch_model.pt").write_text("checkpoint\n")
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps({"run_id": "run_1", "status": "completed", "dataset": {"host_data_path": str(metadata_root)}}) + "\n"
+    )
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    DockerBackend("custom:tag", rootless_container_root=True).evaluate_run(run_dir, data_root=override_root)
+
+    docker_run = calls[1]
+    joined = "\n".join(docker_run)
+    assert f"{override_root.resolve(strict=True)}:/data:ro,z" in joined
+    assert f"{metadata_root.resolve(strict=True)}:/data:ro,z" not in joined
