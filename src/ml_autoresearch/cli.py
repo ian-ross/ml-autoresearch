@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 
 import typer
 
+from ml_autoresearch.evaluations import EvaluationError, evaluate_run
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.runs import (
     RunStatus,
@@ -213,6 +214,23 @@ def _echo_table(rows: list[dict[str, object]]) -> None:
         metrics = row.get("metrics")
         dice = metrics.get("val/dice") if isinstance(metrics, dict) else ""
         typer.echo(f"{row.get('run_id', '')}\t{row.get('status', '')}\t{dice}\t{row.get('reason', row.get('error', ''))}")
+
+
+@app.command("evaluate-run")
+def evaluate_run_command(
+    run: Annotated[Path, typer.Option("--run", help="Path to a completed source Run directory.")],
+    split: Annotated[Literal["val"], typer.Option("--split", help="Run split to evaluate.")] = "val",
+    backend: Annotated[Literal["native"], typer.Option("--backend", help="Post-Run Evaluation backend.")] = "native",
+    data_root: Annotated[Path | None, typer.Option("--data-root", help="Override GVCCS Dataset root from Run metadata.")] = None,
+) -> None:
+    """Evaluate a completed Run without retraining and write run-scoped artifacts."""
+
+    try:
+        result = evaluate_run(run, split=split, backend=backend, data_root=data_root)
+    except EvaluationError as exc:
+        _echo_json({"status": "failed", "failure_reason": str(exc)})
+        raise typer.Exit(1) from exc
+    _echo_json({"evaluation_id": result.evaluation_id, "evaluation_dir": str(result.evaluation_dir), "status": result.status})
 
 
 @app.command("validate-docker-gpu")
