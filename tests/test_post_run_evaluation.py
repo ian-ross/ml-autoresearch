@@ -3,7 +3,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ml_autoresearch.evaluations import evaluate_run
+import torch
+
+from ml_autoresearch.evaluations import _threshold_sweep_summary, evaluate_run
 from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data
 
 
@@ -66,12 +68,21 @@ def test_evaluate_run_api_writes_run_scoped_validation_artifacts(tmp_path: Path)
     assert metadata["backend"] == "native"
     assert metadata["threshold"] == 0.5
     assert metadata["model_artifact"] == "outputs/models/best_epoch_model.pt"
+    assert metadata["artifacts"]["threshold_sweep"] == "threshold_sweep.json"
 
     aggregate = json.loads((evaluation_dir / "aggregate_metrics.json").read_text())
     assert aggregate["split"] == "val"
     assert aggregate["threshold"] == 0.5
     assert aggregate["sample_count"] == 1
     assert set(aggregate["metrics"]) == {"dice", "iou", "precision", "recall"}
+
+    threshold_sweep = json.loads((evaluation_dir / "threshold_sweep.json").read_text())
+    assert threshold_sweep["thresholds"] == [round(index * 0.05, 2) for index in range(1, 20)]
+    assert threshold_sweep["default_threshold"] == 0.5
+    assert set(threshold_sweep["groups"]) == {"all_samples", "positive_mask_samples", "empty_mask_samples"}
+    assert len(threshold_sweep["groups"]["all_samples"]) == 19
+    assert set(threshold_sweep["groups"]["all_samples"][0]["metrics"]) == {"dice", "iou", "precision", "recall"}
+    assert set(threshold_sweep["best_threshold_by_dice"]) >= {"threshold", "dice"}
 
     records = [json.loads(line) for line in (evaluation_dir / "per_sample_metrics.jsonl").read_text().splitlines()]
     assert len(records) == 1
@@ -116,3 +127,35 @@ def test_evaluate_run_cli_uses_run_metadata_data_root_by_default(tmp_path: Path)
     assert (evaluation_dir / "evaluation_metadata.json").exists()
     assert (evaluation_dir / "aggregate_metrics.json").exists()
     assert (evaluation_dir / "per_sample_metrics.jsonl").exists()
+    assert (evaluation_dir / "threshold_sweep.json").exists()
+
+
+def test_threshold_sweep_summary_selects_best_threshold_and_separates_sample_groups():
+    probabilities = torch.tensor(
+        [
+            [[0.90, 0.80, 0.40, 0.10]],
+            [[0.60, 0.20, 0.04, 0.01]],
+        ]
+    ).unsqueeze(1)
+    targets = torch.tensor(
+        [
+            [[1.0, 1.0, 0.0, 0.0]],
+            [[0.0, 0.0, 0.0, 0.0]],
+        ]
+    ).unsqueeze(1)
+
+    summary = _threshold_sweep_summary(probabilities, targets)
+
+    assert summary["thresholds"] == [round(index * 0.05, 2) for index in range(1, 20)]
+    assert summary["default_threshold"] == 0.5
+    assert summary["best_threshold_by_dice"]["threshold"] == 0.65
+    assert summary["groups"]["all_samples"][0]["sample_count"] == 2
+    assert summary["groups"]["positive_mask_samples"][0]["sample_count"] == 1
+    assert summary["groups"]["empty_mask_samples"][0]["sample_count"] == 1
+
+    empty_by_threshold = {item["threshold"]: item for item in summary["groups"]["empty_mask_samples"]}
+    assert empty_by_threshold[0.05]["false_positive_pixels"] == 2
+    assert empty_by_threshold[0.5]["false_positive_pixels"] == 1
+    assert empty_by_threshold[0.65]["false_positive_pixels"] == 0
+    assert empty_by_threshold[0.05]["samples_with_false_positives"] == 1
+    assert empty_by_threshold[0.65]["samples_with_false_positives"] == 0

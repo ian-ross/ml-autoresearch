@@ -73,7 +73,7 @@ def evaluate_run(
         if not model_artifact_path.is_file():
             raise EvaluationError(f"model artifact is missing: {model_artifact}")
 
-        aggregate, per_sample_records = _evaluate_gvccs_validation_split(
+        aggregate, per_sample_records, threshold_sweep = _evaluate_gvccs_validation_split(
             run_dir=source_run_dir,
             data_root=resolved_data_root,
             model_artifact_path=model_artifact_path,
@@ -90,6 +90,7 @@ def evaluate_run(
         with (evaluation_dir / "per_sample_metrics.jsonl").open("w") as handle:
             for record in per_sample_records:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
+        (evaluation_dir / "threshold_sweep.json").write_text(json.dumps(threshold_sweep, indent=2, sort_keys=True) + "\n")
 
         completed_metadata = {
             **base_metadata,
@@ -100,6 +101,7 @@ def evaluate_run(
             "artifacts": {
                 "aggregate_metrics": "aggregate_metrics.json",
                 "per_sample_metrics": "per_sample_metrics.jsonl",
+                "threshold_sweep": "threshold_sweep.json",
             },
         }
         _write_metadata(evaluation_dir, completed_metadata)
@@ -125,7 +127,7 @@ def _evaluate_gvccs_validation_split(
     data_root: Path,
     model_artifact_path: Path,
     threshold: float,
-) -> tuple[dict[str, float], list[dict[str, object]]]:
+) -> tuple[dict[str, float], list[dict[str, object]], dict[str, object]]:
     manifest = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
     batch_size = int(manifest.get("training", {}).get("batch_size", 1))
     samples = discover_gvccs_samples(data_root, split="train")
@@ -146,6 +148,7 @@ def _evaluate_gvccs_validation_split(
     model.eval()
 
     all_predictions: list[torch.Tensor] = []
+    all_probabilities: list[torch.Tensor] = []
     all_targets: list[torch.Tensor] = []
     per_sample_records: list[dict[str, object]] = []
     with torch.no_grad():
@@ -154,9 +157,11 @@ def _evaluate_gvccs_validation_split(
             inputs = torch.stack([dataset[index][0] for index in batch_indices]).to(device)
             targets = torch.stack([dataset[index][1] for index in batch_indices]).to(device)
             logits = _extract_mask_logits(model(inputs))[0]
-            predictions = (torch.sigmoid(logits) >= threshold).detach().cpu()
+            probabilities = torch.sigmoid(logits).detach().cpu()
+            predictions = probabilities >= threshold
             target_masks = (targets >= 0.5).detach().cpu()
             all_predictions.append(predictions)
+            all_probabilities.append(probabilities)
             all_targets.append(target_masks)
             for offset, index in enumerate(batch_indices):
                 metrics = binary_segmentation_metrics(predictions[offset : offset + 1], target_masks[offset : offset + 1])
@@ -169,8 +174,96 @@ def _evaluate_gvccs_validation_split(
                         **metrics,
                     }
                 )
-    aggregate = binary_segmentation_metrics(torch.cat(all_predictions), torch.cat(all_targets))
-    return aggregate, per_sample_records
+    target_tensor = torch.cat(all_targets)
+    aggregate = binary_segmentation_metrics(torch.cat(all_predictions), target_tensor)
+    threshold_sweep = _threshold_sweep_summary(torch.cat(all_probabilities), target_tensor)
+    return aggregate, per_sample_records, threshold_sweep
+
+
+def _threshold_sweep_summary(probabilities: torch.Tensor, targets: torch.Tensor) -> dict[str, object]:
+    """Compute aggregate threshold diagnostics for Whole-Validation Failure Analysis."""
+
+    target_masks = targets.bool()
+    thresholds = [round(index * 0.05, 2) for index in range(1, 20)]
+    groups = {
+        "all_samples": torch.ones(target_masks.shape[0], dtype=torch.bool),
+        "positive_mask_samples": target_masks.flatten(start_dim=1).any(dim=1),
+        "empty_mask_samples": ~target_masks.flatten(start_dim=1).any(dim=1),
+    }
+    grouped_records: dict[str, list[dict[str, object]]] = {name: [] for name in groups}
+    best_record: dict[str, object] | None = None
+
+    for threshold in thresholds:
+        predicted_masks = probabilities >= threshold
+        all_record = _threshold_group_record(
+            threshold=threshold,
+            predicted_masks=predicted_masks,
+            target_masks=target_masks,
+            sample_selector=groups["all_samples"],
+            include_empty_false_positive_diagnostics=False,
+        )
+        grouped_records["all_samples"].append(all_record)
+        dice = float(all_record["metrics"]["dice"])
+        if best_record is None or dice > float(best_record["dice"]):
+            best_record = {"threshold": threshold, "dice": dice}
+
+        grouped_records["positive_mask_samples"].append(
+            _threshold_group_record(
+                threshold=threshold,
+                predicted_masks=predicted_masks,
+                target_masks=target_masks,
+                sample_selector=groups["positive_mask_samples"],
+                include_empty_false_positive_diagnostics=False,
+            )
+        )
+        grouped_records["empty_mask_samples"].append(
+            _threshold_group_record(
+                threshold=threshold,
+                predicted_masks=predicted_masks,
+                target_masks=target_masks,
+                sample_selector=groups["empty_mask_samples"],
+                include_empty_false_positive_diagnostics=True,
+            )
+        )
+
+    return {
+        "thresholds": thresholds,
+        "default_threshold": DEFAULT_EVALUATION_THRESHOLD,
+        "best_threshold_by_dice": best_record,
+        "groups": grouped_records,
+    }
+
+
+def _threshold_group_record(
+    *,
+    threshold: float,
+    predicted_masks: torch.Tensor,
+    target_masks: torch.Tensor,
+    sample_selector: torch.Tensor,
+    include_empty_false_positive_diagnostics: bool,
+) -> dict[str, object]:
+    selected_predictions = predicted_masks[sample_selector]
+    selected_targets = target_masks[sample_selector]
+    sample_count = int(selected_targets.shape[0])
+    if sample_count:
+        metrics = binary_segmentation_metrics(selected_predictions, selected_targets)
+    else:
+        metrics = {"dice": None, "iou": None, "precision": None, "recall": None}
+    record: dict[str, object] = {"threshold": threshold, "sample_count": sample_count, "metrics": metrics}
+    if include_empty_false_positive_diagnostics:
+        false_positive_pixels = int(selected_predictions.sum().item()) if sample_count else 0
+        total_pixels = int(selected_predictions.numel()) if sample_count else 0
+        samples_with_false_positives = (
+            int(selected_predictions.flatten(start_dim=1).any(dim=1).sum().item()) if sample_count else 0
+        )
+        record.update(
+            {
+                "false_positive_pixels": false_positive_pixels,
+                "false_positive_pixel_rate": false_positive_pixels / total_pixels if total_pixels else None,
+                "samples_with_false_positives": samples_with_false_positives,
+            }
+        )
+    return record
 
 
 def _model_artifact_from_best_metrics(run_dir: Path) -> str:
