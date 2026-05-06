@@ -88,6 +88,7 @@ def test_get_run_summary_reads_one_run_without_mlflow(tmp_path: Path):
     assert summary["best_metrics"]["selection_metric"] == "val/dice"
     assert summary["best_metrics"]["selection_value"] == 0.9
     assert summary["run_dir"] == str(runs_root / "run_done")
+    assert summary["evaluations"] == []
 
 
 def test_get_best_runs_sorts_completed_runs_by_best_val_dice_when_available(tmp_path: Path):
@@ -129,3 +130,107 @@ def test_observation_cli_json_commands_are_thin_over_local_artifacts(tmp_path: P
     assert [item["run_id"] for item in json.loads(listed.stdout)] == ["run_high", "run_low"]
     assert json.loads(summary.stdout)["metrics"]["val/dice"] == 0.9
     assert [item["run_id"] for item in json.loads(best.stdout)] == ["run_high", "run_low"]
+
+
+def write_evaluation(run_dir: Path, evaluation_id: str, metadata: dict[str, object] | str | None) -> Path:
+    evaluation_dir = run_dir / "outputs" / "evaluations" / evaluation_id
+    evaluation_dir.mkdir(parents=True)
+    if isinstance(metadata, dict):
+        (evaluation_dir / "evaluation_metadata.json").write_text(json.dumps(metadata) + "\n")
+    elif isinstance(metadata, str):
+        (evaluation_dir / "evaluation_metadata.json").write_text(metadata)
+    return evaluation_dir
+
+
+def test_get_run_summary_lists_completed_running_and_failed_evaluations(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    run_dir = write_run(runs_root, "run_done", "completed", 0.82)
+    write_evaluation(
+        run_dir,
+        "eval_20260506_010000_done",
+        {
+            "evaluation_id": "eval_20260506_010000_done",
+            "status": "completed",
+            "mode": "whole_validation_failure_analysis",
+            "started_at": "2026-05-06T01:00:00Z",
+            "completed_at": "2026-05-06T01:01:00Z",
+        },
+    )
+    write_evaluation(
+        run_dir,
+        "eval_20260506_020000_running",
+        {
+            "evaluation_id": "eval_20260506_020000_running",
+            "status": "running",
+            "mode": "whole_validation_failure_analysis",
+            "created_at": "2026-05-06T02:00:00Z",
+        },
+    )
+    write_evaluation(
+        run_dir,
+        "eval_20260506_030000_failed",
+        {
+            "evaluation_id": "eval_20260506_030000_failed",
+            "status": "failed",
+            "mode": "whole_validation_failure_analysis",
+            "started_at": "2026-05-06T03:00:00Z",
+            "failed_at": "2026-05-06T03:00:30Z",
+            "failure_reason": "model artifact is missing",
+        },
+    )
+
+    summary = get_run_summary(runs_root, "run_done")
+
+    evaluations = summary["evaluations"]
+    assert [item["evaluation_id"] for item in evaluations] == [
+        "eval_20260506_010000_done",
+        "eval_20260506_020000_running",
+        "eval_20260506_030000_failed",
+    ]
+    completed, running, failed = evaluations
+    assert completed == {
+        "evaluation_id": "eval_20260506_010000_done",
+        "status": "completed",
+        "mode": "whole_validation_failure_analysis",
+        "path": str(run_dir / "outputs" / "evaluations" / "eval_20260506_010000_done"),
+        "created_at": "2026-05-06T01:00:00Z",
+        "completed_at": "2026-05-06T01:01:00Z",
+    }
+    assert running["status"] == "running"
+    assert running["created_at"] == "2026-05-06T02:00:00Z"
+    assert "completed_at" not in running
+    assert failed["status"] == "failed"
+    assert failed["failure_reason"] == "model artifact is missing"
+    assert failed["completed_at"] == "2026-05-06T03:00:30Z"
+
+
+def test_get_run_summary_reports_missing_and_corrupt_evaluation_metadata(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    run_dir = write_run(runs_root, "run_done", "completed", 0.82)
+    write_evaluation(run_dir, "eval_missing_metadata", None)
+    write_evaluation(run_dir, "eval_corrupt_metadata", "not json")
+
+    summary = get_run_summary(runs_root, "run_done")
+
+    evaluations = {item["evaluation_id"]: item for item in summary["evaluations"]}
+    assert evaluations["eval_missing_metadata"]["status"] == "missing_metadata"
+    assert "evaluation_metadata.json is missing" in evaluations["eval_missing_metadata"]["error"]
+    assert evaluations["eval_corrupt_metadata"]["status"] == "corrupt"
+    assert "cannot read evaluation_metadata.json" in evaluations["eval_corrupt_metadata"]["error"]
+
+
+def test_get_best_runs_ignores_post_run_evaluation_metrics(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    low = write_run(runs_root, "run_low", "completed", 0.2)
+    write_run(runs_root, "run_high", "completed", 0.9)
+    eval_dir = write_evaluation(
+        low,
+        "eval_20260506_010000_done",
+        {"evaluation_id": "eval_20260506_010000_done", "status": "completed", "mode": "whole_validation_failure_analysis"},
+    )
+    (eval_dir / "aggregate_metrics.json").write_text(json.dumps({"metrics": {"dice": 0.99}}) + "\n")
+
+    best = get_best_runs(runs_root)
+
+    assert [summary["run_id"] for summary in best] == ["run_high", "run_low"]
+    assert [summary["rank_metric"] for summary in best] == [0.9, 0.2]

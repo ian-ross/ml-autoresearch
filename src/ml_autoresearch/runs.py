@@ -325,6 +325,7 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
         "created_at": metadata.get("created_at"),
         "updated_at": metadata.get("updated_at"),
         "candidate_source": metadata.get("candidate_source"),
+        "evaluations": _read_evaluation_summaries(run_dir),
     }
     reason = metadata.get("rejection_reason") or metadata.get("smoke_failure_reason") or metadata.get("training_failure_reason")
     if reason is not None:
@@ -351,6 +352,58 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
             summary["metrics_error"] = f"cannot read final_metrics.json: {exc}"
     elif status == RunStatus.COMPLETED.value:
         summary["metrics_error"] = "final_metrics.json is missing"
+    return summary
+
+
+def _read_evaluation_summaries(run_dir: Path) -> list[dict[str, object]]:
+    evaluations_dir = _outputs_dir(run_dir) / "evaluations"
+    if not evaluations_dir.is_dir():
+        return []
+    return [_read_evaluation_summary_dir(evaluation_dir) for evaluation_dir in sorted(evaluations_dir.iterdir()) if evaluation_dir.is_dir()]
+
+
+def _read_evaluation_summary_dir(evaluation_dir: Path) -> dict[str, object]:
+    metadata_path = evaluation_dir / "evaluation_metadata.json"
+    if not metadata_path.exists():
+        return {
+            "evaluation_id": evaluation_dir.name,
+            "path": str(evaluation_dir),
+            "status": "missing_metadata",
+            "error": "evaluation_metadata.json is missing",
+        }
+    try:
+        metadata = json.loads(metadata_path.read_text())
+    except Exception as exc:  # noqa: BLE001 - observation should not corrupt the whole Run summary.
+        return {
+            "evaluation_id": evaluation_dir.name,
+            "path": str(evaluation_dir),
+            "status": "corrupt",
+            "error": f"cannot read evaluation_metadata.json: {exc}",
+        }
+    if not isinstance(metadata, dict):
+        return {
+            "evaluation_id": evaluation_dir.name,
+            "path": str(evaluation_dir),
+            "status": "corrupt",
+            "error": "evaluation_metadata.json is not a JSON object",
+        }
+
+    evaluation_id = metadata.get("evaluation_id") if isinstance(metadata.get("evaluation_id"), str) else evaluation_dir.name
+    summary: dict[str, object] = {
+        "evaluation_id": evaluation_id,
+        "status": metadata.get("status", "unknown"),
+        "mode": metadata.get("mode"),
+        "path": str(evaluation_dir),
+    }
+    created_at = metadata.get("created_at") or metadata.get("started_at")
+    if created_at is not None:
+        summary["created_at"] = created_at
+    completed_at = metadata.get("completed_at") or metadata.get("failed_at")
+    if completed_at is not None:
+        summary["completed_at"] = completed_at
+    failure_reason = metadata.get("failure_reason")
+    if failure_reason is not None:
+        summary["failure_reason"] = failure_reason
     return summary
 
 
