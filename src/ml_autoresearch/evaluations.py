@@ -13,11 +13,13 @@ from typing import Literal
 import torch
 import yaml
 
+from ml_autoresearch.artifacts import _save_mask_tensor, _save_overlay, _save_probability_heatmap, _save_rgb_tensor
 from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.smoke import INPUT_SPEC, OUTPUT_SPEC, _extract_mask_logits, _import_candidate_model
 
 DEFAULT_EVALUATION_THRESHOLD = 0.5
+DEFAULT_MAX_ARTIFACT_SAMPLES = 12
 
 
 class EvaluationError(RuntimeError):
@@ -39,6 +41,7 @@ def evaluate_run(
     backend: Literal["native"] = "native",
     data_root: str | Path | None = None,
     threshold: float = DEFAULT_EVALUATION_THRESHOLD,
+    max_artifact_samples: int = DEFAULT_MAX_ARTIFACT_SAMPLES,
 ) -> EvaluationResult:
     """Run native Whole-Validation Failure Analysis for a completed Run without retraining."""
 
@@ -73,11 +76,15 @@ def evaluate_run(
         if not model_artifact_path.is_file():
             raise EvaluationError(f"model artifact is missing: {model_artifact}")
 
-        aggregate, per_sample_records, threshold_sweep = _evaluate_gvccs_validation_split(
+        if max_artifact_samples < 1:
+            raise EvaluationError("max_artifact_samples must be at least 1")
+        aggregate, per_sample_records, threshold_sweep, diagnostic_manifest = _evaluate_gvccs_validation_split(
             run_dir=source_run_dir,
             data_root=resolved_data_root,
             model_artifact_path=model_artifact_path,
             threshold=threshold,
+            evaluation_dir=evaluation_dir,
+            max_artifact_samples=max_artifact_samples,
         )
         aggregate_payload = {
             "evaluation_id": evaluation_id,
@@ -91,6 +98,9 @@ def evaluate_run(
             for record in per_sample_records:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
         (evaluation_dir / "threshold_sweep.json").write_text(json.dumps(threshold_sweep, indent=2, sort_keys=True) + "\n")
+        diagnostics_dir = evaluation_dir / "diagnostic_samples"
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        (diagnostics_dir / "samples.json").write_text(json.dumps(diagnostic_manifest, indent=2, sort_keys=True) + "\n")
 
         completed_metadata = {
             **base_metadata,
@@ -102,6 +112,7 @@ def evaluate_run(
                 "aggregate_metrics": "aggregate_metrics.json",
                 "per_sample_metrics": "per_sample_metrics.jsonl",
                 "threshold_sweep": "threshold_sweep.json",
+                "diagnostic_samples": "diagnostic_samples/samples.json",
             },
         }
         _write_metadata(evaluation_dir, completed_metadata)
@@ -127,7 +138,9 @@ def _evaluate_gvccs_validation_split(
     data_root: Path,
     model_artifact_path: Path,
     threshold: float,
-) -> tuple[dict[str, float], list[dict[str, object]], dict[str, object]]:
+    evaluation_dir: Path,
+    max_artifact_samples: int,
+) -> tuple[dict[str, float], list[dict[str, object]], dict[str, object], dict[str, object]]:
     manifest = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
     batch_size = int(manifest.get("training", {}).get("batch_size", 1))
     samples = discover_gvccs_samples(data_root, split="train")
@@ -147,6 +160,7 @@ def _evaluate_gvccs_validation_split(
     model = model.to(device)
     model.eval()
 
+    all_inputs: list[torch.Tensor] = []
     all_predictions: list[torch.Tensor] = []
     all_probabilities: list[torch.Tensor] = []
     all_targets: list[torch.Tensor] = []
@@ -160,24 +174,192 @@ def _evaluate_gvccs_validation_split(
             probabilities = torch.sigmoid(logits).detach().cpu()
             predictions = probabilities >= threshold
             target_masks = (targets >= 0.5).detach().cpu()
+            all_inputs.append(inputs.detach().cpu())
             all_predictions.append(predictions)
             all_probabilities.append(probabilities)
             all_targets.append(target_masks)
             for offset, index in enumerate(batch_indices):
-                metrics = binary_segmentation_metrics(predictions[offset : offset + 1], target_masks[offset : offset + 1])
+                sample_prediction = predictions[offset : offset + 1]
+                sample_target = target_masks[offset : offset + 1]
+                metrics = binary_segmentation_metrics(sample_prediction, sample_target)
                 sample = dataset.samples[index]
                 per_sample_records.append(
                     {
                         "sample_id": f"val/{index:06d}",
+                        "dataset_index": index,
                         "image_id": sample.image_id,
                         "image_path": str(sample.image_path),
                         **metrics,
+                        **_confusion_counts(sample_prediction, sample_target),
                     }
                 )
+    input_tensor = torch.cat(all_inputs)
+    prediction_tensor = torch.cat(all_predictions)
+    probability_tensor = torch.cat(all_probabilities)
     target_tensor = torch.cat(all_targets)
-    aggregate = binary_segmentation_metrics(torch.cat(all_predictions), target_tensor)
-    threshold_sweep = _threshold_sweep_summary(torch.cat(all_probabilities), target_tensor)
-    return aggregate, per_sample_records, threshold_sweep
+    aggregate = binary_segmentation_metrics(prediction_tensor, target_tensor)
+    threshold_sweep = _threshold_sweep_summary(probability_tensor, target_tensor)
+    diagnostic_manifest = _write_diagnostic_sample_artifacts(
+        evaluation_dir=evaluation_dir,
+        dataset=dataset,
+        inputs=input_tensor,
+        probabilities=probability_tensor,
+        predictions=prediction_tensor,
+        targets=target_tensor,
+        per_sample_records=per_sample_records,
+        threshold=threshold,
+        max_artifact_samples=max_artifact_samples,
+    )
+    return aggregate, per_sample_records, threshold_sweep, diagnostic_manifest
+
+
+def _confusion_counts(predicted_mask: torch.Tensor, target_mask: torch.Tensor) -> dict[str, int]:
+    pred = predicted_mask.bool()
+    target = target_mask.bool()
+    return {
+        "positive_pixel_count": int(target.sum().item()),
+        "predicted_positive_pixel_count": int(pred.sum().item()),
+        "true_positive_pixels": int(torch.logical_and(pred, target).sum().item()),
+        "false_positive_pixels": int(torch.logical_and(pred, ~target).sum().item()),
+        "false_negative_pixels": int(torch.logical_and(~pred, target).sum().item()),
+    }
+
+
+def _write_diagnostic_sample_artifacts(
+    *,
+    evaluation_dir: Path,
+    dataset: GVCCSDataset,
+    inputs: torch.Tensor,
+    probabilities: torch.Tensor,
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    per_sample_records: list[dict[str, object]],
+    threshold: float,
+    max_artifact_samples: int,
+) -> dict[str, object]:
+    diagnostics_dir = evaluation_dir / "diagnostic_samples"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    selections = _select_failure_bucket_indices(per_sample_records, max_artifact_samples=max_artifact_samples)
+    samples: list[dict[str, object]] = []
+    for artifact_index, selection in enumerate(selections):
+        dataset_index = int(selection["dataset_index"])
+        prefix = f"sample_{artifact_index:03d}"
+        paths = {
+            "input": f"{prefix}_input.png",
+            "ground_truth": f"{prefix}_ground_truth.png",
+            "prediction": f"{prefix}_prediction.png",
+            "overlay": f"{prefix}_overlay.png",
+            "probability_heatmap": f"{prefix}_probability_heatmap.png",
+        }
+        image = inputs[dataset_index].detach().cpu().clamp(0.0, 1.0)
+        target = targets[dataset_index].detach().cpu().bool()
+        prediction = predictions[dataset_index].detach().cpu().bool()
+        probability = probabilities[dataset_index].detach().cpu()
+        _save_rgb_tensor(diagnostics_dir / paths["input"], image)
+        _save_mask_tensor(diagnostics_dir / paths["ground_truth"], target)
+        _save_mask_tensor(diagnostics_dir / paths["prediction"], prediction)
+        _save_overlay(diagnostics_dir / paths["overlay"], image, target, prediction)
+        _save_probability_heatmap(diagnostics_dir / paths["probability_heatmap"], probability)
+
+        source = dataset.samples[dataset_index]
+        samples.append(
+            {
+                "sample_id": f"val/{dataset_index:06d}",
+                "dataset_index": dataset_index,
+                "source_image_path": str(source.image_path),
+                "threshold": threshold,
+                "metrics": {
+                    "dice": selection["dice"],
+                    "iou": selection["iou"],
+                    "precision": selection["precision"],
+                    "recall": selection["recall"],
+                },
+                "positive_pixel_count": selection["positive_pixel_count"],
+                "predicted_positive_pixel_count": selection["predicted_positive_pixel_count"],
+                "true_positive_pixels": selection["true_positive_pixels"],
+                "false_positive_pixels": selection["false_positive_pixels"],
+                "false_negative_pixels": selection["false_negative_pixels"],
+                "bucket_memberships": selection["bucket_memberships"],
+                "paths": paths,
+            }
+        )
+    return {
+        "status": "completed",
+        "split": "val",
+        "threshold": threshold,
+        "sample_count": len(samples),
+        "max_artifact_samples": max_artifact_samples,
+        "buckets": [
+            "worst_by_dice",
+            "best_by_dice",
+            "false_positive_heavy",
+            "false_negative_heavy",
+            "empty_mask_false_positives",
+            "missed_positive_masks",
+        ],
+        "samples": samples,
+    }
+
+
+def _select_failure_bucket_indices(
+    per_sample_records: list[dict[str, object]], *, max_artifact_samples: int
+) -> list[dict[str, object]]:
+    if max_artifact_samples < 1:
+        raise EvaluationError("max_artifact_samples must be at least 1")
+
+    memberships: dict[int, set[str]] = {}
+
+    def add(record: dict[str, object], bucket: str) -> None:
+        index = int(record["dataset_index"])
+        memberships.setdefault(index, set()).add(bucket)
+
+    records = list(per_sample_records)
+    positives = [record for record in records if int(record.get("positive_pixel_count", 0)) > 0]
+    empty = [record for record in records if int(record.get("positive_pixel_count", 0)) == 0]
+    predicted_positive = [record for record in records if int(record.get("predicted_positive_pixel_count", 0)) > 0]
+    bucket_count = 6
+    per_bucket_limit = max(1, max_artifact_samples // bucket_count)
+
+    for record in sorted(records, key=lambda item: (float(item.get("dice", 0.0)), int(item["dataset_index"])))[:per_bucket_limit]:
+        add(record, "worst_by_dice")
+    for record in sorted(records, key=lambda item: (-float(item.get("dice", 0.0)), int(item["dataset_index"])))[:per_bucket_limit]:
+        add(record, "best_by_dice")
+    for record in sorted(
+        [record for record in predicted_positive if int(record.get("false_positive_pixels", 0)) > 0],
+        key=lambda item: (-int(item.get("false_positive_pixels", 0)), int(item["dataset_index"])),
+    )[:per_bucket_limit]:
+        add(record, "false_positive_heavy")
+    for record in sorted(
+        [record for record in positives if int(record.get("false_negative_pixels", 0)) > 0],
+        key=lambda item: (-int(item.get("false_negative_pixels", 0)), int(item["dataset_index"])),
+    )[:per_bucket_limit]:
+        add(record, "false_negative_heavy")
+    for record in sorted(
+        [record for record in empty if int(record.get("false_positive_pixels", 0)) > 0],
+        key=lambda item: (-int(item.get("false_positive_pixels", 0)), int(item["dataset_index"])),
+    )[:per_bucket_limit]:
+        add(record, "empty_mask_false_positives")
+    for record in sorted(
+        [record for record in positives if int(record.get("predicted_positive_pixel_count", 0)) == 0],
+        key=lambda item: (-int(item.get("false_negative_pixels", 0)), int(item["dataset_index"])),
+    )[:per_bucket_limit]:
+        add(record, "missed_positive_masks")
+
+    by_index = {int(record["dataset_index"]): record for record in records}
+    ordered_indices = sorted(
+        memberships,
+        key=lambda index: (
+            -len(memberships[index]),
+            float(by_index[index].get("dice", 0.0)),
+            index,
+        ),
+    )[:max_artifact_samples]
+    selected: list[dict[str, object]] = []
+    for index in ordered_indices:
+        selected_record = dict(by_index[index])
+        selected_record["bucket_memberships"] = sorted(memberships[index])
+        selected.append(selected_record)
+    return selected
 
 
 def _threshold_sweep_summary(probabilities: torch.Tensor, targets: torch.Tensor) -> dict[str, object]:
