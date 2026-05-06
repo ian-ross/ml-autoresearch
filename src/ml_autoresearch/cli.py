@@ -78,9 +78,22 @@ def _daemonize_current_run_candidate(runs_root: Path) -> None:
     """Re-exec the current run-candidate command in a detached child process."""
 
     daemon_logs = runs_root / "daemon_logs"
-    daemon_logs.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     log_path = daemon_logs / f"run_candidate_{timestamp}.log"
+    _daemonize_current_command(log_path)
+
+
+def _daemonize_current_evaluate_run(run_dir: Path) -> None:
+    """Re-exec the current evaluate-run command in a detached child process."""
+
+    daemon_logs = run_dir / "outputs" / "evaluation_daemon_logs"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    log_path = daemon_logs / f"evaluate_run_{timestamp}.log"
+    _daemonize_current_command(log_path)
+
+
+def _daemonize_current_command(log_path: Path) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     child_args = [arg for arg in sys.argv[1:] if arg != "--daemonize"]
     command = [sys.executable, "-m", "ml_autoresearch.cli", *child_args]
     with log_path.open("ab") as log_file, Path(os.devnull).open("rb") as stdin:
@@ -239,9 +252,16 @@ def evaluate_run_command(
         bool,
         typer.Option("--docker-rootless-container-root", help="Run as container root on rootless Docker to preserve output ownership."),
     ] = False,
+    daemonize: Annotated[
+        bool,
+        typer.Option("--daemonize", help="Start the Post-Run Evaluation in a detached background process and return immediately."),
+    ] = False,
 ) -> None:
     """Evaluate a completed Run without retraining and write run-scoped artifacts."""
 
+    if daemonize:
+        _daemonize_current_evaluate_run(run)
+        return
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
         if backend == "native":

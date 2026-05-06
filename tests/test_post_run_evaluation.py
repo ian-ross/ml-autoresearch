@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import torch
@@ -241,3 +242,51 @@ def test_threshold_sweep_summary_selects_best_threshold_and_separates_sample_gro
     assert empty_by_threshold[0.65]["false_positive_pixels"] == 0
     assert empty_by_threshold[0.05]["samples_with_false_positives"] == 1
     assert empty_by_threshold[0.65]["samples_with_false_positives"] == 0
+
+
+def test_evaluate_run_cli_can_daemonize_native_evaluation(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    run = run_candidate_with_gvccs_data(candidate, runs_root, "tests/fixtures/gvccs_like", max_samples=4)
+    assert run.status == RunStatus.COMPLETED
+
+    completed = run_cli(
+        "evaluate-run",
+        "--run",
+        str(run.run_dir),
+        "--split",
+        "val",
+        "--backend",
+        "native",
+        "--max-artifact-samples",
+        "1",
+        "--daemonize",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "daemonized"
+    assert payload["pid"] > 0
+    log_path = Path(payload["log_path"])
+    assert log_path.parent == run.run_dir / "outputs" / "evaluation_daemon_logs"
+    assert log_path.name.startswith("evaluate_run_")
+    assert log_path.exists()
+    assert "--daemonize" not in payload["command"]
+    assert "--backend" in payload["command"]
+    assert "native" in payload["command"]
+    assert "--max-artifact-samples" in payload["command"]
+    assert "1" in payload["command"]
+
+    deadline = time.time() + 20
+    metadata_paths: list[Path] = []
+    while time.time() < deadline:
+        metadata_paths = sorted((run.run_dir / "outputs" / "evaluations").glob("eval_*/evaluation_metadata.json"))
+        if metadata_paths:
+            metadata = json.loads(metadata_paths[-1].read_text())
+            if metadata["status"] in {"completed", "failed"}:
+                break
+        time.sleep(0.25)
+    assert metadata_paths
+    metadata = json.loads(metadata_paths[-1].read_text())
+    assert metadata["status"] == "completed"
+    assert (metadata_paths[-1].parent / "aggregate_metrics.json").exists()
