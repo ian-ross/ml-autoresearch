@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -86,6 +87,63 @@ def test_run_candidate_cli_synthetic_fixture_trains_and_prints_json(tmp_path: Pa
     assert payload["status"] == "completed"
     assert (runs_root / payload["run_id"] / "outputs" / "final_metrics.json").exists()
     assert (runs_root / payload["run_id"] / "outputs" / "logs" / "training.log").exists()
+
+
+def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    completed = run_cli(
+        "run-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--synthetic-fixture",
+        "--max-prediction-samples",
+        "3",
+        "--backend",
+        "native",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    samples = json.loads((runs_root / payload["run_id"] / "outputs" / "prediction_samples" / "samples.json").read_text())
+    assert samples["max_sample_count"] == 3
+    assert samples["sample_count"] == 3
+
+
+def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    completed = run_cli(
+        "run-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--synthetic-fixture",
+        "--backend",
+        "native",
+        "--daemonize",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "daemonized"
+    log_path = Path(payload["log_path"])
+    assert log_path.exists()
+
+    deadline = time.time() + 20
+    completed_runs = []
+    while time.time() < deadline:
+        completed_runs = [p for p in runs_root.glob("run_*/outputs/final_metrics.json")]
+        if completed_runs:
+            break
+        time.sleep(0.25)
+    assert completed_runs
+    assert payload["pid"] > 0
 
 
 def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_path: Path):

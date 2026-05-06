@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -69,6 +73,27 @@ def _echo_run(run) -> None:
     )
 
 
+def _daemonize_current_run_candidate(runs_root: Path) -> None:
+    """Re-exec the current run-candidate command in a detached child process."""
+
+    daemon_logs = runs_root / "daemon_logs"
+    daemon_logs.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    log_path = daemon_logs / f"run_candidate_{timestamp}.log"
+    child_args = [arg for arg in sys.argv[1:] if arg != "--daemonize"]
+    command = [sys.executable, "-m", "ml_autoresearch.cli", *child_args]
+    with log_path.open("ab") as log_file, Path(os.devnull).open("rb") as stdin:
+        process = subprocess.Popen(
+            command,
+            stdin=stdin,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+        )
+    _echo_json({"status": "daemonized", "pid": process.pid, "log_path": str(log_path), "command": command})
+
+
 @app.command("submit-candidate")
 def submit_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
@@ -113,6 +138,10 @@ def run_candidate_command(
     synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated contrail data.")] = False,
     data_root: Annotated[Path | None, typer.Option("--data-root", help="Local GVCCS Dataset root.")] = None,
     max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of discovered GVCCS samples used.")] = None,
+    max_prediction_samples: Annotated[
+        int,
+        typer.Option("--max-prediction-samples", help="Maximum number of qualitative prediction samples to write."),
+    ] = 2,
     prediction_sample_policy: Annotated[
         Literal["first_n", "adjacent_and_scattered"],
         typer.Option("--prediction-sample-policy", help="Harness-owned qualitative Prediction Sample Policy."),
@@ -137,15 +166,26 @@ def run_candidate_command(
             help="Force rootless Docker ownership mode: run as container root, which maps to the invoking host user and preserves output ownership.",
         ),
     ] = False,
+    daemonize: Annotated[
+        bool,
+        typer.Option("--daemonize", help="Start the Candidate Experiment Run in a detached background process and return immediately."),
+    ] = False,
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
 
     if synthetic_fixture and data_root is not None:
         raise typer.BadParameter("choose either --synthetic-fixture or --data-root, not both")
+    if daemonize:
+        _daemonize_current_run_candidate(runs_root)
+        return
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     if synthetic_fixture:
         run = run_candidate_with_synthetic_fixture(
-            candidate, runs_root, prediction_sample_policy=prediction_sample_policy, backend=selected_backend
+            candidate,
+            runs_root,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            backend=selected_backend,
         )
     elif data_root is not None:
         run = run_candidate_with_gvccs_data(
@@ -153,6 +193,7 @@ def run_candidate_command(
             runs_root,
             data_root,
             max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
             backend=selected_backend,
         )
