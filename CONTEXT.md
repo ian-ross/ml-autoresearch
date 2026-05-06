@@ -64,6 +64,10 @@ _Avoid_: Experiment when referring only to execution
 The metrics and artifacts produced by a Run, with final-epoch metrics distinguished from best-validation metrics.
 _Avoid_: Run when referring only to observed outputs
 
+**Post-Run Evaluation**:
+A Harness-owned evaluation pass that reloads a completed Run's copied Candidate Experiment and persisted model artifact to compute additional metrics or diagnostic artifacts without retraining.
+_Avoid_: New Run, Candidate Experiment, ad hoc inference script
+
 **Candidate Experiment Runner**:
 The trusted subsystem that validates, executes, and records agent-proposed Candidate Experiments without exposing host secrets, datasets, Docker, or GPU control to the agent.
 _Avoid_: Pi runner, Docker runner, contrail runner
@@ -181,6 +185,8 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - A **Candidate Experiment** contains one **Model Architecture**.
 - A **Candidate Experiment** may produce zero or more **Runs**.
 - A **Run** produces at most one **Result**.
+- A completed **Run** may have zero or more **Post-Run Evaluations**.
+- A **Post-Run Evaluation** uses the completed **Run**'s copied **Candidate Experiment**, **Resolved Manifest**, and persisted model artifact rather than retraining or creating a new **Candidate Experiment**.
 - A **Result** distinguishes final completed epoch metrics from best-validation metrics so research decisions do not confuse final model state with peak observed validation behavior.
 - For **Ground-Camera Contrail Detection**, the initial best-validation metric is validation Dice over the **Contrail Mask**.
 - Initial best-validation reporting does not imply checkpoint restoration, but best-epoch model artifact persistence is expected soon for evaluation beyond the original Run.
@@ -195,6 +201,12 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - Candidate Experiments must not download pretrained weights at runtime or reference arbitrary checkpoint paths.
 - Candidate Experiment code runs without network access inside the **Candidate Execution Boundary**.
 - Candidate Experiment code writes outputs only to the run-specific output directory; the **Harness** persists approved artifacts to MLflow.
+- **Post-Run Evaluation** artifacts are stored under the original **Run** at `outputs/evaluations/` so their provenance remains attached to the completed **Run** they evaluate.
+- The first **Post-Run Evaluation** mode is Whole-Validation Failure Analysis: it runs inference over the validation split, writes per-sample metrics for all evaluated samples, and writes bounded diagnostic artifacts for selected best, worst, false-positive-heavy, and false-negative-heavy cases by default.
+- A **Post-Run Evaluation** uses the original **Run**'s **Resolved Manifest** as authoritative for model and data contract choices, while allowing Harness-owned diagnostic overrides such as thresholds, evaluation batch size, and artifact count.
+- Whole-Validation Failure Analysis uses a default threshold sweep from `0.05` to `0.95` in `0.05` increments, while keeping `0.5` as the default binary-mask threshold.
+- Whole-Validation Failure Analysis initially saves bounded diagnostic artifacts for `worst_by_dice`, `best_by_dice`, `false_positive_heavy`, `false_negative_heavy`, `empty_mask_false_positives`, and `missed_positive_masks` buckets.
+- A **Post-Run Evaluation** has an Evaluation ID of the form `eval_YYYYMMDD_HHMMSS_<suffix>` and records its own lifecycle status (`running`, `completed`, or `failed`) without changing the parent **Run** status.
 - The agent may have MLflow read access and normal pi-enclave network access constrained by Gondolin policy.
 - The **Agent Control Boundary** constrains what the agent can directly access.
 - The **Candidate Execution Boundary** constrains what Candidate Experiment code can do during a Run.
