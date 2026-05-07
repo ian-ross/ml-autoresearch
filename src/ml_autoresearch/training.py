@@ -15,7 +15,7 @@ import yaml
 from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
-from ml_autoresearch.smoke import INPUT_SPEC, OUTPUT_SPEC, _extract_mask_logits, _import_candidate_model
+from ml_autoresearch.smoke import INPUT_SPEC, _extract_expected_outputs, _import_candidate_model, output_spec_from_resolved_manifest
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 
 SYNTHETIC_FIXTURE_SEED = 20260502
@@ -176,10 +176,12 @@ def _train_manifest_epochs_run(
         sampling_policy = manifest.get("data", {}).get("sampling_policy", "sequential")
         if training["loss"] != "bce_dice":
             raise TrainingError(f"unsupported loss: {training['loss']}")
+        auxiliary_targets = manifest.get("auxiliary_targets", [])
+        output_spec = output_spec_from_resolved_manifest(resolved_manifest_path)
 
         device = _select_training_device()
         module = _import_candidate_model(candidate_dir)
-        model = module.build_model(dict(INPUT_SPEC), dict(OUTPUT_SPEC))
+        model = module.build_model(dict(INPUT_SPEC), dict(output_spec))
         if not isinstance(model, torch.nn.Module):
             raise TrainingError("build_model must return a torch.nn.Module")
         model = model.to(device)
@@ -198,27 +200,46 @@ def _train_manifest_epochs_run(
         for epoch in range(1, max_epochs + 1):
             model.train()
             train_loss_total = 0.0
+            train_mask_loss_total = 0.0
+            train_aux_loss_totals: dict[str, float] = {}
             trained_samples = 0
             for batch_index, (inputs, targets) in enumerate(train_loader):
                 inputs = inputs.to(device)
                 targets = targets.to(device)
                 optimizer.zero_grad(set_to_none=True)
-                logits = _extract_mask_logits(model(inputs))[0]
-                loss = bce_dice_loss(logits, targets)
+                outputs = _extract_expected_outputs(model(inputs), output_spec)
+                logits = outputs["mask_logits"]
+                mask_loss = bce_dice_loss(logits, targets)
+                auxiliary_losses = _auxiliary_losses(outputs, targets, auxiliary_targets)
+                loss = mask_loss + sum(auxiliary_losses.values())
                 loss.backward()
                 optimizer.step()
                 trained_samples += int(inputs.shape[0])
                 train_loss_total += float(loss.item()) * inputs.shape[0]
-                _append_jsonl(metrics_path, {"split": "train", "epoch": epoch, "batch": batch_index, "loss": float(loss.item())})
+                train_mask_loss_total += float(mask_loss.item()) * inputs.shape[0]
+                for name, auxiliary_loss in auxiliary_losses.items():
+                    train_aux_loss_totals[name] = train_aux_loss_totals.get(name, 0.0) + float(auxiliary_loss.item()) * inputs.shape[0]
+                batch_record = {
+                    "split": "train",
+                    "epoch": epoch,
+                    "batch": batch_index,
+                    "loss": float(loss.item()),
+                    "mask_loss": float(mask_loss.item()),
+                }
+                batch_record.update({f"aux/{name}_loss": float(value.item()) for name, value in auxiliary_losses.items()})
+                _append_jsonl(metrics_path, batch_record)
                 if _timeout_requested():
                     timeout_requested = True
                     lines.append("Wall-clock timeout requested by Harness; stopping at end-of-batch checkpoint.")
                     break
 
-            final = _evaluate(model, val_loader, device=device)
+            final = _evaluate(model, val_loader, device=device, output_spec=output_spec, auxiliary_targets=auxiliary_targets)
             final["epoch"] = epoch
             final["hardware/device"] = device.type
             final["train/loss"] = train_loss_total / max(trained_samples, 1)
+            final["train/mask_loss"] = train_mask_loss_total / max(trained_samples, 1)
+            for name, total in train_aux_loss_totals.items():
+                final[f"train/aux/{name}_loss"] = total / max(trained_samples, 1)
             if timeout_requested:
                 final["run/timeout_requested"] = True
             validation_record = {"split": "val", **final}
@@ -248,6 +269,7 @@ def _train_manifest_epochs_run(
             split="val",
             max_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
+            output_spec=output_spec,
         )
         artifacts["best_metrics"] = "outputs/best_metrics.json"
         artifacts["best_epoch_model"] = "outputs/models/best_epoch_model.pt"
@@ -288,28 +310,75 @@ def bce_dice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor) -> torch
     return bce + dice_loss
 
 
-def _evaluate(model: torch.nn.Module, val_loader: DataLoader, *, device: torch.device) -> dict[str, float]:
+def derive_line_target_v1(target_mask: torch.Tensor) -> torch.Tensor:
+    """Derive the v1 Harness-owned Line Target as a small tolerance band around positives."""
+
+    return F.max_pool2d(target_mask.float(), kernel_size=3, stride=1, padding=1).clamp(0.0, 1.0)
+
+
+def weighted_bce_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    positive_weight = torch.tensor(4.0, dtype=logits.dtype, device=logits.device)
+    return F.binary_cross_entropy_with_logits(logits, target, pos_weight=positive_weight)
+
+
+def _auxiliary_losses(
+    outputs: dict[str, torch.Tensor], target_mask: torch.Tensor, auxiliary_targets: list[dict[str, object]]
+) -> dict[str, torch.Tensor]:
+    losses: dict[str, torch.Tensor] = {}
+    for target in auxiliary_targets:
+        if target.get("name") != "line" or target.get("loss") != "weighted_bce":
+            raise TrainingError(f"unsupported auxiliary target in resolved manifest: {target}")
+        line_target = derive_line_target_v1(target_mask)
+        weight = float(target["weight"])
+        losses["line"] = weight * weighted_bce_loss(outputs[str(target["output"])], line_target)
+    return losses
+
+
+def _evaluate(
+    model: torch.nn.Module,
+    val_loader: DataLoader,
+    *,
+    device: torch.device,
+    output_spec: dict[str, object] | None = None,
+    auxiliary_targets: list[dict[str, object]] | None = None,
+) -> dict[str, float]:
     model.eval()
+    total_mask_loss = 0.0
     total_loss = 0.0
+    auxiliary_loss_totals: dict[str, float] = {}
     predictions: list[torch.Tensor] = []
     targets: list[torch.Tensor] = []
+    output_spec = output_spec or {"form": "mask_logits", "shape": [1, 128, 128]}
+    auxiliary_targets = auxiliary_targets or []
     with torch.no_grad():
         for inputs, target in val_loader:
             inputs = inputs.to(device)
             target = target.to(device)
-            logits = _extract_mask_logits(model(inputs))[0]
-            loss = bce_dice_loss(logits, target)
-            total_loss += float(loss.item()) * inputs.shape[0]
+            outputs = _extract_expected_outputs(model(inputs), output_spec)
+            logits = outputs["mask_logits"]
+            mask_loss = bce_dice_loss(logits, target)
+            auxiliary_losses = _auxiliary_losses(outputs, target, auxiliary_targets)
+            batch_total_loss = mask_loss + sum(auxiliary_losses.values())
+            total_mask_loss += float(mask_loss.item()) * inputs.shape[0]
+            total_loss += float(batch_total_loss.item()) * inputs.shape[0]
+            for name, auxiliary_loss in auxiliary_losses.items():
+                auxiliary_loss_totals[name] = auxiliary_loss_totals.get(name, 0.0) + float(auxiliary_loss.item()) * inputs.shape[0]
             predictions.append((torch.sigmoid(logits) >= 0.5).detach().cpu())
             targets.append((target >= 0.5).detach().cpu())
     metrics = binary_segmentation_metrics(torch.cat(predictions), torch.cat(targets))
-    return {
+    sample_count = len(val_loader.dataset)
+    result = {
         "val/dice": metrics["dice"],
         "val/iou": metrics["iou"],
         "val/precision": metrics["precision"],
         "val/recall": metrics["recall"],
-        "val/loss": total_loss / len(val_loader.dataset),
+        "val/loss": total_mask_loss / sample_count,
     }
+    if auxiliary_loss_totals:
+        for name, total in auxiliary_loss_totals.items():
+            result[f"val/aux/{name}_loss"] = total / sample_count
+        result["val/total_loss"] = total_loss / sample_count
+    return result
 
 
 def _best_validation_metrics(

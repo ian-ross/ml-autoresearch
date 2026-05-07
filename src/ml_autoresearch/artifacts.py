@@ -24,6 +24,7 @@ def write_prediction_sample_artifacts(
     split: str,
     max_samples: int = 2,
     prediction_sample_policy: str = "first_n",
+    output_spec: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Write bounded qualitative Contrail Mask prediction samples for a Run."""
 
@@ -51,7 +52,7 @@ def write_prediction_sample_artifacts(
             dataset_index = int(selection["dataset_index"])
             inputs, target = data_loader.dataset[dataset_index]
             model_inputs = inputs.unsqueeze(0).to(device)
-            logits = _extract_mask_logits(model(model_inputs))[0]
+            logits = _extract_mask_logits(model(model_inputs), output_spec)[0]
             probabilities = torch.sigmoid(logits).detach().cpu()[0]
             prediction = probabilities >= 0.5
 

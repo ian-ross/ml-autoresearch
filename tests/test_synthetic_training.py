@@ -216,3 +216,63 @@ def test_synthetic_fixture_training_uses_cuda_when_available(tmp_path: Path, mon
     assert final["hardware/device"] == "cuda"
     assert moved_modules
     assert moved_tensors
+
+
+def write_line_aux_trainable_candidate(root: Path) -> Path:
+    candidate = root / "candidate"
+    candidate.mkdir()
+    (candidate / "manifest.yaml").write_text(
+        """
+name: line_aux_trainable_candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: line
+    output: line_logits
+    loss: weighted_bce
+    weight: 0.25
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+    (candidate / "model.py").write_text(
+        "from torch import nn\n"
+        "class Tiny(nn.Module):\n"
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.encoder = nn.Sequential(nn.Conv2d(3, 4, 3, padding=1), nn.ReLU())\n"
+        "        self.mask = nn.Conv2d(4, 1, 1)\n"
+        "        self.line = nn.Conv2d(4, 1, 1)\n"
+        "    def forward(self, x):\n"
+        "        features = self.encoder(x)\n"
+        "        return {'mask_logits': self.mask(features), 'line_logits': self.line(features)}\n"
+        "def build_model(input_spec, output_spec):\n"
+        "    return Tiny()\n"
+    )
+    return candidate
+
+
+def test_line_auxiliary_training_records_primary_auxiliary_and_total_losses(tmp_path: Path):
+    candidate = write_line_aux_trainable_candidate(tmp_path)
+
+    run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs", max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    records = [json.loads(line) for line in (run.run_dir / "outputs" / "metrics.jsonl").read_text().splitlines()]
+    train_record = next(record for record in records if record["split"] == "train")
+    assert set(train_record) >= {"loss", "mask_loss", "aux/line_loss"}
+    val_record = next(record for record in records if record["split"] == "val")
+    assert set(val_record) >= {"val/loss", "val/aux/line_loss", "val/total_loss"}
+    assert val_record["val/total_loss"] >= val_record["val/loss"]
+
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
+    assert set(final) >= {"train/loss", "train/mask_loss", "train/aux/line_loss", "val/aux/line_loss", "val/total_loss"}
+    assert final["val/loss"] == val_record["val/loss"]
+    assert final["val/total_loss"] == val_record["val/total_loss"]
+    samples = json.loads((run.run_dir / "outputs" / "prediction_samples" / "samples.json").read_text())
+    assert samples["status"] == "completed"

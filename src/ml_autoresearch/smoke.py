@@ -174,9 +174,9 @@ def _extract_mask_logits(raw_output: object, output_spec: dict[str, object] | No
 
 
 def _validate_output_tensor(name: str, tensor: torch.Tensor) -> None:
-    expected_shape = tuple(SYNTHETIC_TARGET_SHAPE)
-    if tuple(tensor.shape) != expected_shape:
-        raise SmokeTestError(f"bad output shape for '{name}': {list(tensor.shape)}; expected {list(expected_shape)}")
+    expected_tail = tuple(SYNTHETIC_TARGET_SHAPE[1:])
+    if tensor.ndim != 4 or tuple(tensor.shape[1:]) != expected_tail:
+        raise SmokeTestError(f"bad output shape for '{name}': {list(tensor.shape)}; expected [B, {expected_tail[0]}, {expected_tail[1]}, {expected_tail[2]}]")
     if not torch.is_floating_point(tensor):
         raise SmokeTestError(f"bad output dtype for '{name}': {tensor.dtype}; expected floating point logits")
 
