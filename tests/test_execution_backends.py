@@ -305,3 +305,52 @@ def test_docker_backend_evaluate_run_data_root_override_is_validated_and_mounted
     joined = "\n".join(docker_run)
     assert f"{override_root.resolve(strict=True)}:/data:ro,z" in joined
     assert f"{metadata_root.resolve(strict=True)}:/data:ro,z" not in joined
+
+
+def test_container_smoke_uses_mounted_resolved_manifest_for_output_spec(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import ml_autoresearch.container_smoke as container_smoke
+
+    candidate_dir = tmp_path / "candidate"
+    outputs_dir = tmp_path / "outputs"
+    resolved_manifest = tmp_path / "resolved_manifest.yaml"
+    candidate_dir.mkdir()
+    outputs_dir.mkdir()
+    resolved_manifest.write_text(
+        """
+name: line_aux
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: line
+    output: line_logits
+    loss: weighted_bce
+    weight: 0.25
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+    calls = []
+
+    def fake_smoke_test_candidate(candidate_arg, outputs_arg, *, output_spec=None):
+        calls.append((candidate_arg, outputs_arg, output_spec))
+
+    monkeypatch.setattr(container_smoke, "smoke_test_candidate", fake_smoke_test_candidate)
+
+    container_smoke.smoke_test_container(candidate_dir, outputs_dir, resolved_manifest)
+
+    assert calls == [
+        (
+            candidate_dir,
+            outputs_dir,
+            {
+                "form": "mask_logits",
+                "shape": [1, 128, 128],
+                "auxiliary_outputs": [{"target": "line", "name": "line_logits", "shape": [1, 128, 128]}],
+            },
+        )
+    ]
