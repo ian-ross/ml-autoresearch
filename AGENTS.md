@@ -16,6 +16,10 @@ This is a single-context repo: root `CONTEXT.md` plus root `docs/adr/` when pres
 
 Always use test-driven development when it makes sense.
 
+### Experiment index maintenance
+
+Update `EXPERIMENT_INDEX.md` whenever a new Candidate Experiment is introduced or a new Research Note is written.
+
 ### GitHub AI attribution
 
 All AI-generated GitHub issues, issue comments, pull request bodies, pull request comments, pull request reviews, and review comments must be clearly attributed. See `docs/agents/github-attribution.md`.

@@ -4,6 +4,8 @@ This document describes the currently implemented local Candidate Experiment sou
 
 The current tracer-bullet implementation supports Single-Frame RGB Input, mask-only output, `bce_dice`, and `adamw`. Broader v1 contract surface such as temporal inputs, auxiliary heads, additional losses, and pretrained weight requests is documented as planned capability in `docs/harness-capabilities.md` and `docs/top-level-plan.md`.
 
+The next agreed extension is per-pixel Auxiliary Target support, recorded in `docs/adr/0005-per-pixel-auxiliary-targets-in-the-candidate-experiment-contract.md`. Until that implementation lands, the current code still rejects auxiliary outputs and manifest fields.
+
 ## Minimal layout
 
 ```text

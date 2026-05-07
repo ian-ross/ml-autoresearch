@@ -2,6 +2,8 @@
 
 Research Notes are lightweight Markdown records for Human-Guided Research Iterations. They are the current input layer for the Research Loop: humans and agents review prior Results, constraints, and notes before writing the next Experiment Proposal.
 
+When writing a new Research Note, also update the top-level Experiment Index at `EXPERIMENT_INDEX.md`.
+
 A Research Note may describe one Run or compare multiple Runs. It should reference Run IDs and local artifact paths rather than duplicating raw logs or metrics.
 
 Future richer reporting, such as LaTeX experiment reports and current-status summaries, may be generated from or informed by these notes.

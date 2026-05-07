@@ -105,8 +105,8 @@ A binary semantic segmentation label marking each pixel as contrail or non-contr
 _Avoid_: Classification label, detection box
 
 **Auxiliary Target**:
-A Harness-derived per-pixel training target used for an auxiliary loss, not a separate primary prediction target.
-_Avoid_: Primary label, end-user prediction
+A Harness-derived per-pixel training target used for an auxiliary loss, not a separate primary prediction target. An Auxiliary Target is judged by whether it is suitably conditioned to guide training for the Research Problem; it does not need to be a semantically pure transformation such as an exact skeleton or exact boundary.
+_Avoid_: Primary label, end-user prediction, exact annotation
 
 **Line Target**:
 An Auxiliary Target derived from the Contrail Mask to emphasize thin centerline-like contrail structure.
