@@ -45,6 +45,7 @@ def test_valid_candidate_directory_returns_normalized_manifest(tmp_path: Path):
     assert manifest.training.batch_size == 2
     assert manifest.training.max_epochs == 1
     assert manifest.data.sampling_policy == "sequential"
+    assert manifest.auxiliary_targets == []
 
 
 def test_missing_required_manifest_field_is_rejected(tmp_path: Path):
@@ -234,3 +235,104 @@ training:
     message = str(excinfo.value)
     assert "data_root" in message
     assert "mounts" in message
+
+
+def test_candidate_manifest_accepts_line_auxiliary_target(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: line_aux
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: line
+    output: line_logits
+    loss: weighted_bce
+    weight: 0.25
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    manifest = validate_candidate_directory(candidate)
+
+    assert len(manifest.auxiliary_targets) == 1
+    auxiliary = manifest.auxiliary_targets[0]
+    assert auxiliary.name == "line"
+    assert auxiliary.output == "line_logits"
+    assert auxiliary.loss == "weighted_bce"
+    assert auxiliary.weight == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("name", "boundary"),
+        ("output", "wrong_logits"),
+        ("loss", "bce_dice"),
+    ],
+)
+def test_invalid_auxiliary_target_values_are_rejected(tmp_path: Path, field: str, value: str):
+    candidate = write_valid_candidate(tmp_path)
+    auxiliary = {"name": "line", "output": "line_logits", "loss": "weighted_bce", "weight": 0.25}
+    auxiliary[field] = value
+    (candidate / "manifest.yaml").write_text(
+        """
+name: broken_aux
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: {name}
+    output: {output}
+    loss: {loss}
+    weight: {weight}
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".format(**auxiliary).strip()
+        + "\n"
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate)
+
+    message = str(excinfo.value)
+    assert f"auxiliary_targets.0.{field}" in message
+    assert value in message
+
+
+@pytest.mark.parametrize("weight", [-0.01, 1.01])
+def test_auxiliary_target_weight_bounds_are_checked(tmp_path: Path, weight: float):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        f"""
+name: broken_aux
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: line
+    output: line_logits
+    loss: weighted_bce
+    weight: {weight}
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate)
+
+    assert "auxiliary_targets.0.weight" in str(excinfo.value)

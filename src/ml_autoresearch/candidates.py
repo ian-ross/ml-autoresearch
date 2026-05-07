@@ -29,6 +29,15 @@ class DataManifest(BaseModel):
     sampling_policy: Literal["sequential", "deterministic_shuffle"] = "sequential"
 
 
+class AuxiliaryTargetManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Literal["line"]
+    output: Literal["line_logits"]
+    loss: Literal["weighted_bce"]
+    weight: float = Field(ge=0.0, le=1.0)
+
+
 class CandidateManifest(BaseModel):
     """Normalized v1 Candidate Experiment source manifest."""
 
@@ -38,6 +47,7 @@ class CandidateManifest(BaseModel):
     description: str | None = None
     input_mode: Literal["single_frame_rgb"]
     output_form: Literal["mask_logits"]
+    auxiliary_targets: list[AuxiliaryTargetManifest] = Field(default_factory=list)
     data: DataManifest = Field(default_factory=DataManifest)
     training: TrainingManifest
 
