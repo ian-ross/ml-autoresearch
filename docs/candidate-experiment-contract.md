@@ -2,9 +2,9 @@
 
 This document describes the currently implemented local Candidate Experiment source contract. A Candidate Experiment is submitted as a local directory, not as an archive.
 
-The current tracer-bullet implementation supports Single-Frame RGB Input, mask-only output, `bce_dice`, and `adamw`. Broader v1 contract surface such as temporal inputs, auxiliary heads, additional losses, and pretrained weight requests is documented as planned capability in `docs/harness-capabilities.md` and `docs/top-level-plan.md`.
+The current tracer-bullet implementation supports Single-Frame RGB Input, mask-only primary output, optional Harness-derived per-pixel Line Target auxiliary output, `bce_dice`, auxiliary `weighted_bce`, and `adamw`. Broader v1 contract surface such as temporal inputs, additional auxiliary targets, additional losses, and pretrained weight requests is documented as planned capability in `docs/harness-capabilities.md` and `docs/top-level-plan.md`.
 
-The next agreed extension is per-pixel Auxiliary Target support, recorded in `docs/adr/0005-per-pixel-auxiliary-targets-in-the-candidate-experiment-contract.md`. Until that implementation lands, the current code still rejects auxiliary outputs and manifest fields.
+Per-pixel Auxiliary Target support is recorded in `docs/adr/0005-per-pixel-auxiliary-targets-in-the-candidate-experiment-contract.md`. The first implemented public surface is the Line Target only.
 
 ## Minimal layout
 
@@ -55,6 +55,28 @@ Rejected:
 - notebooks
 - dataset files
 - arbitrary config blobs
+
+## Auxiliary targets
+
+Candidate manifests may request the first Harness-owned per-pixel Auxiliary Target:
+
+```yaml
+auxiliary_targets:
+  - name: line
+    output: line_logits
+    loss: weighted_bce
+    weight: 0.25
+```
+
+Rules for the initial surface:
+
+- `auxiliary_targets` defaults to `[]`.
+- The only allowed target name is `line`.
+- `line` requires `output: line_logits`.
+- The only allowed auxiliary loss is `weighted_bce`.
+- `weight` must be between `0.0` and `1.0`.
+- Auxiliary-output models must return exactly `mask_logits` and requested auxiliary output keys; tensor shorthand remains valid only for mask-only candidates.
+- Primary validation comparison remains based on Contrail Mask metrics, especially `val/dice`.
 
 ## Data policy
 
