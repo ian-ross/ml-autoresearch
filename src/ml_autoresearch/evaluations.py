@@ -16,7 +16,7 @@ import yaml
 from ml_autoresearch.artifacts import _save_mask_tensor, _save_overlay, _save_probability_heatmap, _save_rgb_tensor
 from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
-from ml_autoresearch.smoke import INPUT_SPEC, OUTPUT_SPEC, _extract_mask_logits, _import_candidate_model
+from ml_autoresearch.smoke import INPUT_SPEC, _extract_mask_logits, _import_candidate_model, output_spec_from_resolved_manifest
 
 DEFAULT_EVALUATION_THRESHOLD = 0.5
 DEFAULT_MAX_ARTIFACT_SAMPLES = 12
@@ -145,13 +145,14 @@ def _evaluate_gvccs_validation_split(
 ) -> tuple[dict[str, float], list[dict[str, object]], dict[str, object], dict[str, object]]:
     manifest = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
     batch_size = int(manifest.get("training", {}).get("batch_size", 1))
+    output_spec = output_spec_from_resolved_manifest(run_dir / "resolved_manifest.yaml")
     samples = discover_gvccs_samples(data_root, split="train")
     val_samples = deterministic_train_val_split(samples).val
     dataset = GVCCSDataset(val_samples)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     module = _import_candidate_model(run_dir / "candidate")
-    model = module.build_model(dict(INPUT_SPEC), dict(OUTPUT_SPEC))
+    model = module.build_model(dict(INPUT_SPEC), dict(output_spec))
     if not isinstance(model, torch.nn.Module):
         raise EvaluationError("build_model must return a torch.nn.Module")
     checkpoint = torch.load(model_artifact_path, map_location=device, weights_only=True)
@@ -172,7 +173,7 @@ def _evaluate_gvccs_validation_split(
             batch_indices = list(range(start, min(start + batch_size, len(dataset))))
             inputs = torch.stack([dataset[index][0] for index in batch_indices]).to(device)
             targets = torch.stack([dataset[index][1] for index in batch_indices]).to(device)
-            logits = _extract_mask_logits(model(inputs))[0]
+            logits = _extract_mask_logits(model(inputs), output_spec)[0]
             probabilities = torch.sigmoid(logits).detach().cpu()
             predictions = probabilities >= threshold
             target_masks = (targets >= 0.5).detach().cpu()

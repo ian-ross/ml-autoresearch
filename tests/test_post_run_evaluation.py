@@ -290,3 +290,58 @@ def test_evaluate_run_cli_can_daemonize_native_evaluation(tmp_path: Path):
     metadata = json.loads(metadata_paths[-1].read_text())
     assert metadata["status"] == "completed"
     assert (metadata_paths[-1].parent / "aggregate_metrics.json").exists()
+
+
+def write_line_aux_candidate(root: Path) -> Path:
+    candidate = root / "line_aux_candidate"
+    candidate.mkdir()
+    (candidate / "manifest.yaml").write_text(
+        """
+name: line_aux_candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: line
+    output: line_logits
+    loss: weighted_bce
+    weight: 0.25
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+    (candidate / "model.py").write_text(
+        "from torch import nn\n"
+        "class Tiny(nn.Module):\n"
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.encoder = nn.Sequential(nn.Conv2d(3, 4, 3, padding=1), nn.ReLU())\n"
+        "        self.mask = nn.Conv2d(4, 1, 1)\n"
+        "        self.line = nn.Conv2d(4, 1, 1)\n"
+        "    def forward(self, x):\n"
+        "        features = self.encoder(x)\n"
+        "        return {'mask_logits': self.mask(features), 'line_logits': self.line(features)}\n"
+        "def build_model(input_spec, output_spec):\n"
+        "    assert output_spec['auxiliary_outputs'][0]['name'] == 'line_logits'\n"
+        "    return Tiny()\n"
+    )
+    return candidate
+
+
+def test_evaluate_run_tolerates_auxiliary_outputs_and_reports_primary_metrics(tmp_path: Path):
+    candidate = write_line_aux_candidate(tmp_path)
+    run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", "tests/fixtures/gvccs_like", max_samples=4)
+    assert run.status == RunStatus.COMPLETED
+
+    result = evaluate_run(
+        run.run_dir, split="val", backend="native", data_root="tests/fixtures/gvccs_like", max_artifact_samples=1
+    )
+
+    aggregate = json.loads((result.evaluation_dir / "aggregate_metrics.json").read_text())
+    assert aggregate["split"] == "val"
+    assert set(aggregate["metrics"]) == {"dice", "iou", "precision", "recall"}
+    assert (result.evaluation_dir / "diagnostic_samples" / "samples.json").exists()
