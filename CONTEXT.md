@@ -9,8 +9,12 @@ A safe agent-assisted research system for proposing, running, evaluating, and it
 _Avoid_: Contrail runner, Docker runner, Pi runner
 
 **Research Problem**:
-A target ML problem that ML Autoresearch explores through Candidate Experiments, including its data modality, prediction target, evaluation metrics, and constraints.
+A target ML problem that ML Autoresearch explores through Candidate Experiments, including its data modality, prediction target, evaluation metrics, augmentation semantics, and constraints.
 _Avoid_: Task, use case, project
+
+**Research Problem Repository**:
+A future trusted package boundary for Research Problem-specific definitions such as dataset adapters, input modes, prediction targets, metrics, augmentation policies, auxiliary targets, allowed losses, reporting templates, and figure selectors, separated from reusable ML Autoresearch infrastructure after the proving-ground loop matures.
+_Avoid_: Fork of the Harness, candidate repository, candidate-provided plugin
 
 **Research Loop**:
 The closed cycle in which Candidate Experiments are proposed, the system runs them, Results are evaluated, and the next Candidate Experiment is informed by prior Results. In early Human-Guided Research Iterations, humans may make proposal decisions before the Pi-agent proposal loop is automated.
@@ -20,17 +24,61 @@ _Avoid_: Pipeline when referring to the iterative research cycle
 An early Research Loop iteration where a human chooses or edits the next Candidate Experiment, uses the Harness to run it, and inspects Results before deciding the next step. This bridges the completed tracer-bullet Harness and a later autonomous Pi-agent proposal loop.
 _Avoid_: Manual testing when referring to learning-oriented research iteration
 
+**Autonomous Research Iteration**:
+A Research Loop iteration where the agent reviews prior Results and Research Notes, proposes and implements one Candidate Experiment or a bounded Experiment Batch within the Candidate Experiment Contract, submits Runs, observes Results, writes a Research Note, and chooses the next step without changing the Research Problem or Harness policy.
+_Avoid_: Fully autonomous science, unrestricted agent control
+
+**Autoresearch Skill Set**:
+A hierarchical set of focused agent skills with progressive disclosure, where a campaign-manager skill orchestrates proposal, candidate implementation, Run observation, failure classification, Evaluation Requests, Research Notes with figures, Research Ledger updates, Capability Requests, Campaign Reports, and pause decisions.
+_Avoid_: Monolithic prompt, implicit agent workflow
+
+**Autonomy Smoke Loop**:
+A short autonomous run using the current narrow Candidate Experiment Contract to test disciplined autonomous behavior, including proposals, contract compliance, bounded repairs, failure classification, Research Notes with figure provenance, Research Ledger events, Capability Requests, Campaign Reports, and pause behavior before broader contract expansion.
+_Avoid_: Production autonomy, multi-week campaign, metric-improvement gate
+
+**Experiment Batch**:
+A bounded set of related Candidate Experiments proposed together to compare independent variants under one research hypothesis.
+_Avoid_: Unbounded search, sweep when the variants are not tied to a single hypothesis
+
+**Research Progress**:
+Sustained Research Loop value, combining best validated Result improvement with hypothesis-driven reduction of uncertainty about which model families, input modes, losses, data policies, and training policies merit further investment.
+_Avoid_: Leaderboard-only optimization, metric paperclip maximization
+
+**Capability Request**:
+A structured, human-gated request from the agent to expand Harness-owned contract surface, approved resources, or operational policy when current capabilities block useful Research Progress; Harness changes happen only in a separate human-supervised process outside the autonomous loop.
+_Avoid_: Self-approved contract change, arbitrary candidate authority, covert workaround
+
 **Research Note**:
-A lightweight, human- and agent-readable record of what a Run or comparison tested, what Result it produced, what qualitative behavior was observed, and what decision follows from it. Early Research Notes may be manually written Markdown; later reporting may derive richer LaTeX experiment reports and current-status summaries from the same information.
+A human- and agent-readable record of what a Run or comparison tested, what Result it produced, what qualitative behavior was observed, which provenance-tracked figures illustrate the behavior, and what decision follows from it.
 _Avoid_: Log file, paper, raw metrics dump
 
+**Research Figure**:
+A human-readable visual artifact embedded in or referenced by a Research Note, with explicit provenance linking it to the Run or Post-Run Evaluation artifacts it summarizes.
+_Avoid_: Untraceable screenshot, cherry-picked image without source
+
+**Research Ledger**:
+An append-only structured research-memory event log recording proposals, Candidate Experiments, Runs, Results, Research Notes, decisions, failed attempts, contract features used, and pending Capability Requests across the Research Loop.
+_Avoid_: Raw metrics dump, human-only notebook, mutable spreadsheet as canonical memory
+
 **Experiment Proposal**:
-A short rationale for the next Candidate Experiment, written before code generation, that states the hypothesis, expected effect, implementation sketch, constraints, and comparison target. The proposal is the bridge between reviewing prior Research Notes and generating Candidate Experiment code for the Harness.
+A short rationale for the next Candidate Experiment or Experiment Batch, written before code generation, that states the hypothesis, expected effect, implementation sketch, constraints, declared comparison target, and success criteria. The proposal is the bridge between reviewing prior Research Notes and generating Candidate Experiment code for the Harness.
 _Avoid_: Candidate Experiment when referring only to the rationale before runnable code exists
+
+**Candidate README**:
+A Candidate Experiment document written with the implementation to summarize the Model Architecture, manifest choices, contract assumptions, and known limitations.
+_Avoid_: Experiment Proposal, Research Note
+
+**Comparison Target**:
+The declared baseline or control that a Candidate Experiment or Experiment Batch is primarily intended to compare against, which may be the global best Run, a family baseline, or a direct parent Run.
+_Avoid_: Implicit leaderboard-only baseline
 
 **Candidate Experiment**:
 An agent-proposed, runnable ML research package containing the model architecture and allowed configuration needed for the runner to evaluate one research idea.
 _Avoid_: Candidate, architecture, package, submission when referring to the whole unit
+
+**Repair Candidate**:
+A distinct Candidate Experiment version created to fix a candidate bug in an earlier submitted Candidate Experiment while preserving repair lineage and auditability.
+_Avoid_: Overwritten candidate, silent resubmission
 
 **Candidate Experiment Contract**:
 The allowlisted interface through which a Candidate Experiment can express research variation without receiving unsafe authority over training, data loading, filesystem access, network access, Docker, or MLflow writes.
@@ -40,9 +88,37 @@ _Avoid_: Free-form plugin API, arbitrary experiment code
 The v1 set of research variations exposed by the Candidate Experiment Contract: model architecture, input mode, output form, loss selection, bounded training knobs, augmentation/data policy, and pretrained weight requests.
 _Avoid_: Minimal contract when that implies low research expressiveness
 
+**Capability Slice**:
+A small, Harness-owned expansion of the Candidate Experiment Contract that unlocks a meaningful family of Candidate Experiments without granting broad new candidate authority.
+_Avoid_: Grab-bag feature, arbitrary plugin surface
+
 **Wall-Clock Budget Policy**:
 The Harness-owned policy limiting Run duration, expected to be adjustable so early research can prefer many cheap experiments before longer training runs.
 _Avoid_: Fixed training duration baked into Candidate Experiments
+
+**Research Campaign**:
+A bounded autonomous research effort made of many Autonomous Research Iterations, governed by campaign-level, batch-level, and per-Run budgets plus pause conditions and reporting cadence.
+_Avoid_: Unbounded agent session, single Run
+
+**Campaign Pause Condition**:
+A Harness-owned condition that pauses an autonomous Research Campaign for human review, such as budget exhaustion, repeated failures, stalled Research Progress, too many pending Capability Requests, storage risk, or scheduled check-in.
+_Avoid_: Agent whim, silent campaign termination
+
+**Campaign Report**:
+A human-readable status artifact for a Research Campaign, produced on a fixed cadence or in response to events such as pause conditions, significant improvements, repeated failures, or high-priority Capability Requests.
+_Avoid_: Raw run log, metric dump without interpretation
+
+**Resource Budget Policy**:
+The Harness-owned policy constraining compute resources for Runs and Research Campaigns, including GPU assignment, CPU memory, shared memory, process limits, concurrency, model/training bounds that reduce GPU out-of-memory risk, and bounded retry behavior after resource failures.
+_Avoid_: Candidate-selected hardware access, best-effort resource use
+
+**Resource Failure**:
+A Run failure caused by exhausting Harness-governed compute resources, such as GPU memory, CPU memory, shared memory, process limits, or wall-clock budget.
+_Avoid_: Model-quality failure, validation metric regression
+
+**Run Failure Classification**:
+A post-failure label distinguishing candidate bugs, contract violations, Resource Failures, Harness failures, and bad research results so the autonomous loop can choose the correct next action.
+_Avoid_: Generic failed status without cause
 
 **Resolved Manifest**:
 The Harness-owned record of the Candidate Experiment manifest after validation, normalization, and Harness defaults have been applied for a specific Run.
@@ -56,6 +132,10 @@ _Avoid_: Candidate code, agent code
 The neural network design inside a Candidate Experiment.
 _Avoid_: Candidate experiment when referring only to the network design
 
+**Architecture Helper**:
+A Candidate Experiment helper module that defines layers, blocks, or model-composition code used by the Model Architecture without performing data loading, training, loss computation, evaluation, artifact writing, filesystem or environment inspection, subprocess execution, networking, or dependency management.
+_Avoid_: General helper, utility module when it can smuggle non-architecture behavior
+
 **Run**:
 One execution attempt of a Candidate Experiment by the Candidate Experiment Runner.
 _Avoid_: Experiment when referring only to execution
@@ -67,6 +147,10 @@ _Avoid_: Run when referring only to observed outputs
 **Post-Run Evaluation**:
 A Harness-owned evaluation pass that reloads a completed Run's copied Candidate Experiment and persisted model artifact to compute additional metrics or diagnostic artifacts without retraining.
 _Avoid_: New Run, Candidate Experiment, ad hoc inference script
+
+**Evaluation Request**:
+A lightweight pre-evaluation record stating the target Run, approved Post-Run Evaluation mode, diagnostic question, expected decision impact, bounded diagnostic parameters, and artifact or resource budget.
+_Avoid_: Experiment Proposal, ad hoc diagnostic command
 
 **Candidate Experiment Runner**:
 The trusted subsystem that validates, executes, and records agent-proposed Candidate Experiments without exposing host secrets, datasets, Docker, or GPU control to the agent.
@@ -89,12 +173,24 @@ A request from the agent to add a new Approved Weight Artifact, including source
 _Avoid_: Runtime weight download, candidate-managed checkpoint fetch
 
 **Ground-Camera Contrail Detection**:
-The initial Research Problem for ML Autoresearch, focused on binary semantic segmentation of contrail pixels vs non-contrail pixels in ground-camera imagery.
+The initial Research Problem and infrastructure proving ground for ML Autoresearch, focused on binary semantic segmentation of contrail pixels vs non-contrail pixels in ground-camera imagery.
 _Avoid_: The project, the product
+
+**Satellite Contrail Detection**:
+A future Research Problem for ML Autoresearch, expected to reuse the autoresearch infrastructure after it is proven on Ground-Camera Contrail Detection.
+_Avoid_: Current GVCCS Research Problem
 
 **GVCCS Dataset**:
 The whole-sky-camera training dataset for the Ground-Camera Contrail Detection Research Problem, published at https://zenodo.org/records/16612390.
 _Avoid_: Contrail dataset when a specific dataset identity is needed
+
+**Working Validation Split**:
+An agent-visible validation split used for iterative Research Loop feedback and model comparison during autonomous exploration.
+_Avoid_: Final test set, locked evaluation
+
+**Locked Evaluation Split**:
+A human-gated evaluation split withheld from autonomous iteration and used for milestone checks to reduce validation overfitting risk.
+_Avoid_: Working validation, agent-visible leaderboard
 
 **Camera Domain Shift**:
 The expected distribution difference between GVCCS whole-sky-camera training data and likely downstream conventional ground-camera imagery.
@@ -133,8 +229,8 @@ A candidate-selectable, Harness-owned part of the Data Policy controlling traini
 _Avoid_: Custom sampler code, candidate data loader
 
 **Augmentation Policy**:
-A candidate-selectable, Harness-owned part of the Data Policy controlling approved transforms applied to selected training examples.
-_Avoid_: Custom augmentation code, candidate transforms
+A Research Problem-owned, candidate-selectable part of the Data Policy controlling approved Harness-executed transforms applied to selected training examples.
+_Avoid_: Custom augmentation code, candidate transforms, system-wide augmentation assumption
 
 **Prediction Sample Policy**:
 A Harness-owned, Run-selectable policy controlling which qualitative prediction examples are saved for Run inspection, initially including first-N and adjacent-plus-scattered sample selection with probability heatmaps.
@@ -156,6 +252,8 @@ _Avoid_: Video-level prediction, arbitrary video segment
 
 - **ML Autoresearch** explores one or more **Research Problems**.
 - **Ground-Camera Contrail Detection** is the first **Research Problem** for **ML Autoresearch**.
+- **Ground-Camera Contrail Detection** is used to prove the autoresearch infrastructure before applying it to future Research Problems such as **Satellite Contrail Detection**.
+- Mature **Research Problem** definitions are expected to move into trusted **Research Problem Repositories** that register problem-specific capabilities with reusable ML Autoresearch infrastructure.
 - **Ground-Camera Contrail Detection** uses the **GVCCS Dataset** for training.
 - **Camera Domain Shift** is a known limitation of using the **GVCCS Dataset** for models likely to be tried on conventional ground-camera imagery.
 - Evaluation on non-GVCCS camera data is a separate exercise outside the initial **ML Autoresearch** loop.
@@ -165,7 +263,8 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Line Target** and **Boundary Target** are optional **Auxiliary Targets** derived from the **Contrail Mask** by the **Harness**.
 - **Auxiliary Targets** are used for auxiliary training losses; primary evaluation remains based on the **Contrail Mask** prediction.
 - **Data Policy** includes **Sampling Policy**, **Augmentation Policy**, and qualitative **Prediction Sample Policy**.
-- **Sampling Policy** and **Augmentation Policy** are candidate-selectable only through Harness-owned allowlists, not custom candidate data-loading or transform code.
+- **Sampling Policy** and **Augmentation Policy** are candidate-selectable only through Harness-executed allowlists, not custom candidate data-loading or transform code.
+- **Augmentation Policy** choices are scoped to a **Research Problem** because valid transforms depend on data modality and dataset semantics.
 - Candidate Experiments declare **Sampling Policy** under `data.sampling_policy` in the manifest; older manifests without it resolve to the previous sequential behavior for compatibility.
 - Initial **Sampling Policy** choices affect training example order; validation order remains stable for reproducible metrics and qualitative diagnostics.
 - **Prediction Sample Policy** is Harness-owned, selected at Run time rather than by Candidate Experiments, and affects qualitative Result artifacts, not model training.
@@ -174,27 +273,64 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Single-Frame RGB Input** and **Centered Temporal RGB Clip Input** are v1 **Input Modes** for **Ground-Camera Contrail Detection**.
 - **ML Autoresearch** works by sustaining a **Research Loop**.
 - A **Research Loop** explores a **Research Problem** through many **Candidate Experiments**.
-- **Human-Guided Research Iterations** are early **Research Loop** iterations used before the autonomous Pi-agent proposal loop is implemented.
-- A **Research Note** records the observed outcome and decision from a **Run** or comparison of **Runs**.
-- An **Experiment Proposal** uses prior **Research Notes** and constraints to justify the next **Candidate Experiment** before runnable code is generated.
+- **Human-Guided Research Iterations** are early **Research Loop** iterations used before **Autonomous Research Iterations** are implemented.
+- **Autonomous Research Iterations** allow the agent to conduct Candidate Experiment proposal, implementation, submission, observation, note-writing, and next-step selection within fixed Harness and Research Problem boundaries.
+- An **Autoresearch Skill Set** should use focused skills with progressive disclosure, orchestrated by a campaign-manager skill rather than one monolithic prompt.
+- An **Autonomy Smoke Loop** uses the current narrow **Candidate Experiment Contract** to test autonomous behavior and whether the agent creates **Capability Requests** instead of attempting covert workarounds.
+- An **Autonomous Research Iteration** normally proposes one **Candidate Experiment**, but may propose an **Experiment Batch** when parallel variants are bounded and tied to one research hypothesis.
+- An **Experiment Batch** is limited by Harness policy for maximum parallel submissions.
+- **Research Progress** is judged by both best validated Result improvement and hypothesis-driven exploration, not by leaderboard improvement alone.
+- Stalled **Research Progress** is assessed by a combination of metric plateau and structured agent self-assessment about recent hypothesis value, repetition, and blocked next steps.
+- A **Research Campaign** is governed by hierarchical budgets, including campaign-level, batch-level, and per-Run limits.
+- A **Research Campaign** pauses for human review when a **Campaign Pause Condition** is reached.
+- A **Research Campaign** produces **Campaign Reports** on fixed cadence and in response to important events.
+- **Resource Budget Policy** is Harness-owned and includes GPU assignment, CPU memory, shared memory, process limits, concurrency, model/training bounds that reduce GPU out-of-memory risk, and bounded retry behavior after **Resource Failures**.
+- A GPU out-of-memory error is a **Resource Failure**; the Harness may perform bounded retry with a smaller effective batch size before failing the Run with a clear resource failure reason.
+- When the Harness lowers batch size after a **Resource Failure**, the **Resolved Manifest** or Run metadata records both requested and effective batch size so Result comparisons remain interpretable.
+- After a failed Run, the autonomous loop records a **Run Failure Classification** before deciding whether to fix the candidate, create a Capability Request, propose a smaller variant, pause for human review, or treat the outcome as research evidence.
+- During an **Autonomous Research Iteration**, the agent may use existing **Candidate Experiment Contract** choices but must create a human-gated **Capability Request** before expanding Harness-owned contract surface, approved resources, or operational policy.
+- During autonomous operation, the agent may create Candidate Experiments, Research Notes, Research Ledger updates, Research Figures, and Capability Requests; it must not modify Harness code, tests, or trusted infrastructure docs.
+- A **Research Ledger** is the structured research memory for the autonomous loop, while **Research Notes** provide human-readable interpretation.
+- The initial **Research Ledger** storage format is append-only `research-ledger.jsonl`.
+- **Research Ledger** events are appended through a Harness-owned command or API rather than direct agent file writes.
+- Initial **Research Ledger** event types include proposal created, candidate created or submitted, Run started or completed or failed, Research Note written, Capability Request created, Campaign Report written, and Research Campaign paused.
+- Later **Research Ledger** event types may include Research Figure created, resource retry, comparison recorded, and budget updated.
+- A **Research Note** records the observed outcome, qualitative **Research Figures**, and decision from a **Run** or comparison of **Runs**.
+- A **Research Figure** must record provenance through source Run IDs or Post-Run Evaluation IDs and source artifact paths.
+- An **Experiment Proposal** uses prior **Research Notes**, the **Research Ledger**, and constraints to justify the next **Candidate Experiment** before runnable code is generated.
+- Each **Autonomous Research Iteration** requires an **Experiment Proposal** before Candidate Experiment code is generated or submitted.
+- Each **Experiment Proposal** is stored with its Candidate Experiment source and indexed by the **Research Ledger**.
+- A **Candidate README** summarizes implementation details and is distinct from the pre-implementation **Experiment Proposal** and the post-Run **Research Note**.
+- Each **Experiment Proposal** declares a **Comparison Target** and success criteria; global-best comparison is still reported but is not always the primary control.
 - **ML Autoresearch** uses a **Candidate Experiment Runner** to execute agent-proposed **Candidate Experiments** safely.
 - A **Research Problem** is explored through many **Candidate Experiments**.
 - A **Candidate Experiment** conforms to a **Candidate Experiment Contract**.
+- A submitted **Candidate Experiment** is not overwritten; bug fixes are submitted as **Repair Candidates** with distinct source and repair lineage.
+- Initial autonomous policy allows at most two **Repair Candidates** per original proposal before the agent abandons the line, writes a Research Note, creates a Capability Request, or pauses as appropriate.
+- A **Repair Candidate** preserves the original hypothesis and Comparison Target; changes to the scientific idea require a new Experiment Proposal and Candidate Experiment lineage.
 - A **Candidate Experiment** may have a **Resolved Manifest** for each accepted **Run**.
 - A **Resolved Manifest** records what the **Harness** actually ran, not just what the Candidate Experiment requested.
 - A **Candidate Experiment** contains one **Model Architecture**.
+- Candidate helper code is limited to **Architecture Helpers** used by the **Model Architecture**.
 - A **Candidate Experiment** may produce zero or more **Runs**.
 - A **Run** produces at most one **Result**.
 - A completed **Run** may have zero or more **Post-Run Evaluations**.
+- During autonomous operation, the agent may invoke approved, bounded, Harness-owned **Post-Run Evaluations** on prior Runs without creating new Candidate Experiments.
+- During autonomous operation, each **Post-Run Evaluation** requires an **Evaluation Request** before execution.
+- An **Evaluation Request** may choose bounded Harness-approved diagnostic parameters such as thresholds, threshold sweep bounds, evaluation batch size, artifact counts, and failure buckets.
 - A **Post-Run Evaluation** uses the completed **Run**'s copied **Candidate Experiment**, **Resolved Manifest**, and persisted model artifact rather than retraining or creating a new **Candidate Experiment**.
 - A **Result** distinguishes final completed epoch metrics from best-validation metrics so research decisions do not confuse final model state with peak observed validation behavior.
-- For **Ground-Camera Contrail Detection**, the initial best-validation metric is validation Dice over the **Contrail Mask**.
+- For **Ground-Camera Contrail Detection**, the initial best-validation metric is Dice over the **Contrail Mask** on the **Working Validation Split**.
+- Autonomous exploration uses the **Working Validation Split** for iteration, while **Locked Evaluation Split** access is reserved for human-gated milestone checks.
+- **Locked Evaluation Split** Results may be summarized to the agent in Campaign Reports after human-triggered milestone checks, but access frequency remains limited to reduce overfitting risk.
 - Initial best-validation reporting does not imply checkpoint restoration, but best-epoch model artifact persistence is expected soon for evaluation beyond the original Run.
 - The **Initial Flexibility Envelope** is part of the **Candidate Experiment Contract** from the beginning.
 - The **Initial Flexibility Envelope** includes model architecture, input mode, output form, loss selection, bounded training knobs, candidate-selectable **Data Policy**, and pretrained weight requests.
 - **Wall-Clock Budget Policy** is intentionally adjustable and may start small to encourage many cheap architecture-search Runs.
 - The **Harness** owns training loops, data loading, validation, execution policy, artifact persistence, and approved parameterized variations.
 - The **Candidate Experiment Contract** can expose Harness-owned parameters for model architecture, input modes, output forms, losses, optimizer choices, training budgets, augmentation/data policy, and pretrained weight availability.
+- The **Candidate Experiment Contract** should expand through **Capability Slices** that unlock meaningful experiment families while preserving Harness ownership.
+- Expected near-term **Capability Slice** priority is Augmentation Policy first, then additional losses plus scheduler or early stopping support, then Boundary Target, Temporal Input, and Approved Pretrained Encoders.
 - The **Candidate Experiment Contract** never grants arbitrary filesystem access, network access, Docker access, dataset-path control, MLflow write access, custom training-loop authority, or custom data-loading authority.
 - Candidate Experiments may reference **Approved Weight Artifacts** by stable identifier only.
 - A **Pretrained Weight Request** may produce an **Approved Weight Artifact** after manual audit.
