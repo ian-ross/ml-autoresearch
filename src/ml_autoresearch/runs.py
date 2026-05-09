@@ -15,6 +15,7 @@ import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
+from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
 from ml_autoresearch.smoke import SmokeTestError
 from ml_autoresearch.gvccs import GVCCSDataError
 from ml_autoresearch.training import TrainingError
@@ -47,6 +48,7 @@ def run_candidate_with_synthetic_fixture(
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
 
@@ -56,6 +58,7 @@ def run_candidate_with_synthetic_fixture(
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
+        ledger_path=ledger_path,
     )
 
 
@@ -68,6 +71,7 @@ def run_candidate_with_gvccs_data(
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
 
@@ -85,6 +89,7 @@ def run_candidate_with_gvccs_data(
         ),
         backend=selected_backend,
         dataset=_gvccs_dataset_metadata(data_path),
+        ledger_path=ledger_path,
     )
 
 
@@ -95,14 +100,22 @@ def _run_candidate_synthetic_training(
     max_prediction_samples: int,
     prediction_sample_policy: str,
     backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
 ) -> RunSubmission:
-    run = submit_candidate(candidate_dir, runs_root, backend=backend)
+    resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
+    run = submit_candidate(candidate_dir, runs_root, backend=backend, ledger_path=resolved_ledger_path)
     if run.status != RunStatus.ACCEPTED:
         return run
 
     metadata = _read_metadata(run.run_dir)
     created_at = str(metadata["created_at"])
     candidate_source = Path(str(metadata["candidate_source"]["path"]))
+    candidate_id = _candidate_id_from_run_dir(run.run_dir)
+    record_research_event(
+        "run_started",
+        {"run_id": run.run_id, "candidate_id": candidate_id},
+        ledger_path=resolved_ledger_path,
+    )
     execution_backend_metadata = metadata.get("execution_backend")
     _write_metadata(
         run.run_dir,
@@ -140,6 +153,7 @@ def _run_candidate_synthetic_training(
             execution_backend=execution_backend_metadata,
             training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
         )
+        _record_run_failed(resolved_ledger_path, run.run_id, reason)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
     except (TrainingError, RuntimeError) as exc:
         reason = str(exc)
@@ -155,6 +169,7 @@ def _run_candidate_synthetic_training(
             training_failure_reason=reason,
             execution_backend=execution_backend_metadata,
         )
+        _record_run_failed(resolved_ledger_path, run.run_id, reason)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
 
     _write_metadata(
@@ -171,6 +186,7 @@ def _run_candidate_synthetic_training(
         execution_backend=execution_backend_metadata,
         training_lifecycle=_training_lifecycle_from_result(training_result),
     )
+    _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 
@@ -181,14 +197,22 @@ def _run_candidate_training(
     *,
     backend: ExecutionBackend | None = None,
     dataset: dict[str, object] | None = None,
+    ledger_path: str | Path | None = None,
 ) -> RunSubmission:
-    run = submit_candidate(candidate_dir, runs_root, backend=backend)
+    resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
+    run = submit_candidate(candidate_dir, runs_root, backend=backend, ledger_path=resolved_ledger_path)
     if run.status != RunStatus.ACCEPTED:
         return run
 
     metadata = _read_metadata(run.run_dir)
     created_at = str(metadata["created_at"])
     candidate_source = Path(str(metadata["candidate_source"]["path"]))
+    candidate_id = _candidate_id_from_run_dir(run.run_dir)
+    record_research_event(
+        "run_started",
+        {"run_id": run.run_id, "candidate_id": candidate_id},
+        ledger_path=resolved_ledger_path,
+    )
     _write_metadata(
         run.run_dir,
         run_id=run.run_id,
@@ -221,6 +245,7 @@ def _run_candidate_training(
             dataset=dataset,
             training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
         )
+        _record_run_failed(resolved_ledger_path, run.run_id, reason)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
     except (TrainingError, RuntimeError, GVCCSDataError) as exc:
         reason = str(exc)
@@ -238,6 +263,7 @@ def _run_candidate_training(
             execution_backend=metadata.get("execution_backend"),
             dataset=dataset,
         )
+        _record_run_failed(resolved_ledger_path, run.run_id, reason)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
 
     _write_metadata(
@@ -255,6 +281,7 @@ def _run_candidate_training(
         dataset=dataset,
         training_lifecycle=_training_lifecycle_from_result(training_result),
     )
+    _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 
@@ -407,7 +434,13 @@ def _read_evaluation_summary_dir(evaluation_dir: Path) -> dict[str, object]:
     return summary
 
 
-def submit_candidate(candidate_dir: str | Path, runs_root: str | Path, *, backend: ExecutionBackend | None = None) -> RunSubmission:
+def submit_candidate(
+    candidate_dir: str | Path,
+    runs_root: str | Path,
+    *,
+    backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
+) -> RunSubmission:
     """Submit a local Candidate Experiment directory and create a Run record.
 
     Validation and smoke failures are represented as rejected/smoke_failed Runs
@@ -491,11 +524,45 @@ def submit_candidate(candidate_dir: str | Path, runs_root: str | Path, *, backen
         training_failure_reason=None,
         execution_backend=execution_backend_metadata,
     )
+    record_research_event(
+        "candidate_submitted",
+        {"candidate_id": manifest.name, "run_id": run_id},
+        ledger_path=_resolve_ledger_path(runs_root, ledger_path),
+    )
     return RunSubmission(run_id, run_dir, RunStatus.ACCEPTED)
 
 
 def _outputs_dir(run_dir: Path) -> Path:
     return run_dir / "outputs"
+
+
+def _resolve_ledger_path(runs_root: str | Path, ledger_path: str | Path | None) -> Path:
+    if ledger_path is not None:
+        return Path(ledger_path)
+    return Path(runs_root).parent / CANONICAL_RESEARCH_LEDGER
+
+
+def _candidate_id_from_run_dir(run_dir: Path) -> str:
+    manifest_path = run_dir / "resolved_manifest.yaml"
+    data = yaml.safe_load(manifest_path.read_text())
+    return str(data["name"])
+
+
+def _record_run_completed(ledger_path: Path, run_id: str, run_dir: Path) -> None:
+    metrics_path = run_dir / "outputs" / "final_metrics.json"
+    record_research_event(
+        "run_completed",
+        {"run_id": run_id, "metrics_path": str(metrics_path)},
+        ledger_path=ledger_path,
+    )
+
+
+def _record_run_failed(ledger_path: Path, run_id: str, reason: str) -> None:
+    record_research_event(
+        "run_failed",
+        {"run_id": run_id, "error": reason or "unknown failure"},
+        ledger_path=ledger_path,
+    )
 
 
 def _validate_host_data_root(data_root: str | Path) -> Path:

@@ -100,6 +100,15 @@ ml-autoresearch record-research-event \
   --field candidate_id=candidate_abc
 ```
 
+## Run lifecycle emission
+
+The Run lifecycle inside `ml_autoresearch.runs` automatically emits Research Ledger events through the same validated `record_research_event` API as the CLI:
+
+- `submit_candidate` records a `candidate_submitted` event when a Candidate Experiment is accepted (validation and smoke test pass). Rejected and smoke-failed Runs do not produce a `candidate_submitted` event.
+- `run_candidate_with_synthetic_fixture` and `run_candidate_with_gvccs_data` record `run_started` once training begins, then either `run_completed` (with the final-metrics artifact path) or `run_failed` (with the failure reason) when the Run terminates.
+
+By default, lifecycle events are appended to `<runs_root>/../research-ledger.jsonl`, which places the ledger at the campaign workspace root next to the local `runs/` artifact tree. Pass `--ledger-path` to `submit-candidate` and `run-candidate`, or the `ledger_path` keyword argument to the API, to override the destination (for example in tests).
+
 Later event types may include:
 
 - `research_figure_created`
