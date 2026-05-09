@@ -47,6 +47,26 @@ def test_record_research_event_supports_candidate_linkage_for_proposal_created(t
     assert rows[0]["candidate_id"] == "candidate-xyz"
 
 
+def test_record_research_event_supports_candidate_linkage_for_candidate_created(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    event = record_research_event(
+        "candidate_created",
+        {
+            "candidate_id": "candidate-xyz",
+            "candidate_path": "candidates/ledger_lifecycle_candidate",
+            "proposal_id": "proposal-001",
+        },
+        ledger_path=ledger,
+    )
+
+    assert event["candidate_id"] == "candidate-xyz"
+    assert event["candidate_path"] == "candidates/ledger_lifecycle_candidate"
+    assert event["proposal_id"] == "proposal-001"
+    rows = read_jsonl(ledger)
+    assert rows[0]["candidate_path"] == "candidates/ledger_lifecycle_candidate"
+
+
 def test_record_research_event_rejects_invalid_schema_without_corrupting_ledger(tmp_path: Path):
     ledger = tmp_path / "research-ledger.jsonl"
     record_research_event(

@@ -502,6 +502,7 @@ def submit_candidate(
     proposal_path = source / "PROPOSAL.md"
     if proposal_path.is_file():
         _record_proposal_created_event(proposal_path, manifest.name, resolved_ledger_path=resolved_ledger_path)
+    _record_candidate_created_event(source, manifest.name, proposal_id=manifest.name if proposal_path.is_file() else None, resolved_ledger_path=resolved_ledger_path)
     shutil.copytree(source, run_dir / "candidate")
     _write_yaml(run_dir / "resolved_manifest.yaml", manifest.model_dump(mode="json"))
     _write_metadata(
@@ -581,6 +582,22 @@ def _record_proposal_created_event(proposal_path: Path, candidate_id: str, *, re
         },
         ledger_path=resolved_ledger_path,
     )
+
+
+def _record_candidate_created_event(
+    candidate_path: Path,
+    candidate_id: str,
+    *,
+    resolved_ledger_path: Path,
+    proposal_id: str | None = None,
+) -> None:
+    fields: dict[str, str] = {
+        "candidate_id": candidate_id,
+        "candidate_path": str(candidate_path),
+    }
+    if proposal_id is not None:
+        fields["proposal_id"] = proposal_id
+    record_research_event("candidate_created", fields, ledger_path=resolved_ledger_path)
 
 
 def _record_run_completed(ledger_path: Path, run_id: str, run_dir: Path) -> None:
