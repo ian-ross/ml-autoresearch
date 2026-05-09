@@ -1,5 +1,7 @@
 # ML Autoresearch
 
+Research campaign events are recorded in the canonical append-only `research-ledger.jsonl` file through the Harness-owned `record-research-event` CLI/API. See `docs/design/autonomous-research-campaign-plan.md`.
+
 ML Autoresearch is a safe agent-assisted research system for proposing, running, evaluating, and iterating on ML model architecture experiments.
 
 The first Research Problem is **Ground-Camera Contrail Detection**: binary semantic segmentation of contrail pixels from ground-camera imagery using the GVCCS Dataset. The system is designed so future Research Problems can reuse the same Harness, Candidate Experiment Contract, Run lifecycle, and observation commands.

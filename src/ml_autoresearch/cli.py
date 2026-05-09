@@ -14,6 +14,7 @@ import typer
 
 from ml_autoresearch.evaluations import DEFAULT_MAX_ARTIFACT_SAMPLES, EvaluationError, evaluate_run
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
+from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.runs import (
     RunStatus,
     get_best_runs,
@@ -72,6 +73,40 @@ def _echo_run(run) -> None:
             "rejection_reason": run.rejection_reason,
         }
     )
+
+
+def _parse_event_fields(fields: list[str]) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for field in fields:
+        if "=" not in field:
+            raise typer.BadParameter("event fields must be KEY=VALUE")
+        key, value = field.split("=", 1)
+        if not key:
+            raise typer.BadParameter("event field keys must be non-empty")
+        parsed[key] = value
+    return parsed
+
+
+@app.command("record-research-event")
+def record_research_event_command(
+    event_type: Annotated[str, typer.Option(help="Research Ledger event type to record.")],
+    ledger_path: Annotated[
+        Path,
+        typer.Option(help="Append-only Research Ledger JSONL path."),
+    ] = Path(CANONICAL_RESEARCH_LEDGER),
+    field: Annotated[
+        list[str] | None,
+        typer.Option("--field", help="Event field as KEY=VALUE. Repeat for multiple fields."),
+    ] = None,
+) -> None:
+    """Validate and append one structured event to research-ledger.jsonl."""
+
+    try:
+        event = record_research_event(event_type, _parse_event_fields(field or []), ledger_path=ledger_path)
+    except ResearchLedgerError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    _echo_json(event)
 
 
 def _daemonize_current_run_candidate(runs_root: Path) -> None:

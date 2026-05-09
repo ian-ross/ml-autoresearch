@@ -74,7 +74,9 @@ Stalled Research Progress is assessed using both metric plateau and structured s
 
 ## Research memory and reporting
 
-The initial Research Ledger is an append-only `research-ledger.jsonl` event log. The agent must append events through a Harness-owned command or API rather than editing the file directly.
+The Research Ledger is the canonical append-only record of campaign activity. When Harness-owned automation or an agent records campaign events, it must use `ml-autoresearch record-research-event` or the `record_research_event` API rather than editing `research-ledger.jsonl` directly.
+
+The canonical ledger file is `research-ledger.jsonl` at the repository or campaign workspace root. Each line is one validated JSON event with a Harness-generated `created_at` timestamp.
 
 Initial event types:
 
@@ -88,6 +90,15 @@ Initial event types:
 - `capability_request_created`
 - `campaign_report_written`
 - `campaign_paused`
+
+Example:
+
+```bash
+ml-autoresearch record-research-event \
+  --event-type run_started \
+  --field run_id=run_123 \
+  --field candidate_id=candidate_abc
+```
 
 Later event types may include:
 
