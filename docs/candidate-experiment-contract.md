@@ -44,6 +44,7 @@ Allowed:
 
 - additional `.py` helper files
 - `README.md`
+- `PROPOSAL.md` (required in autonomous execution mode)
 
 Rejected:
 
@@ -77,6 +78,22 @@ Rules for the initial surface:
 - `weight` must be between `0.0` and `1.0`.
 - Auxiliary-output models must return exactly `mask_logits` and requested auxiliary output keys; tensor shorthand remains valid only for mask-only candidates.
 - Primary validation comparison remains based on Contrail Mask metrics, especially `val/dice`.
+
+## Experiment Proposal contract
+
+`run-candidate` with `--require-proposal/--no-require-proposal` records a mandatory `PROPOSAL.md` in autonomous mode.
+The `PROPOSAL.md` must include these required sections or metadata keys:
+
+- `Hypothesis`
+- `Comparison Target`
+- `Expected Effect`
+- `Implementation Sketch`
+- `Contract Features Used`
+- `Budget Requested`
+- `Success Criteria`
+- `Fallback/Next Decision`
+
+A proposal copied with the Candidate Experiment can contain additional narrative and implementation detail.
 
 ## Data policy
 

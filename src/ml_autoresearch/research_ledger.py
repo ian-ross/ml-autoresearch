@@ -28,6 +28,7 @@ class ProposalCreated(_LedgerEvent):
     event_type: Literal["proposal_created"] = "proposal_created"
     proposal_id: str = Field(min_length=1)
     proposal_path: str = Field(min_length=1)
+    candidate_id: str | None = Field(default=None, min_length=1)
 
 
 class CandidateCreated(_LedgerEvent):

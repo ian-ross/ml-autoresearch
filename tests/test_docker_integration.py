@@ -63,6 +63,7 @@ def test_docker_synthetic_research_loop_runs_in_real_container(tmp_path: Path):
             "--synthetic-fixture",
             "--docker-image",
             INTEGRATION_IMAGE,
+            "--no-require-proposal",
         ],
         timeout=600,
     )
@@ -129,6 +130,7 @@ def test_docker_gvccs_like_fixture_training_runs_in_real_container(tmp_path: Pat
             "4",
             "--docker-image",
             INTEGRATION_IMAGE,
+            "--no-require-proposal",
         ],
         timeout=600,
     )

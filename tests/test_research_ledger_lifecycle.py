@@ -19,7 +19,7 @@ from ml_autoresearch.runs import (
 )
 
 
-def write_trainable_candidate(root: Path, *, max_epochs: int = 1) -> Path:
+def write_trainable_candidate(root: Path, *, max_epochs: int = 1, with_proposal: bool = False) -> Path:
     candidate = root / "candidate"
     candidate.mkdir()
     (candidate / "manifest.yaml").write_text(
@@ -47,6 +47,34 @@ training:
         "def build_model(input_spec, output_spec):\n"
         "    return Tiny()\n"
     )
+    if with_proposal:
+        (candidate / "PROPOSAL.md").write_text(
+            """\
+## Hypothesis
+Test model improves recall.
+
+## Comparison Target
+Compare against previous best baseline.
+
+## Expected Effect
+Increase Dice on the validation set.
+
+## Implementation Sketch
+Keep current architecture and only add extra block.
+
+## Contract Features Used
+Single-frame input, mask_logits output, synthetic dataset.
+
+## Budget Requested
+1 synthetic training hour.
+
+## Success Criteria
+Higher val/dice than control.
+
+## Fallback/Next Decision
+Try alternate seed if run fails.
+"""
+        )
     return candidate
 
 
@@ -104,6 +132,38 @@ def test_submit_candidate_records_candidate_submitted_event(tmp_path: Path) -> N
     assert event["created_at"].endswith("Z")
 
 
+def test_submit_candidate_records_proposal_created_event_when_proposal_is_present(tmp_path: Path) -> None:
+    candidate = write_trainable_candidate(tmp_path, with_proposal=True)
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    run = submit_candidate(candidate, runs_root, ledger_path=ledger)
+
+    assert run.status == RunStatus.ACCEPTED
+    rows = read_jsonl(ledger)
+    assert len(rows) == 2
+    proposal_event, candidate_event = rows
+    assert proposal_event["event_type"] == "proposal_created"
+    assert proposal_event["proposal_id"] == "ledger_lifecycle_candidate"
+    assert proposal_event["candidate_id"] == "ledger_lifecycle_candidate"
+    assert proposal_event["proposal_path"].endswith("PROPOSAL.md")
+    assert candidate_event["event_type"] == "candidate_submitted"
+    assert candidate_event["run_id"] == run.run_id
+
+    assert (run.run_dir / "candidate" / "PROPOSAL.md").is_file()
+
+
+def test_submit_candidate_rejects_missing_proposal_when_required(tmp_path: Path) -> None:
+    candidate = write_trainable_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    run = submit_candidate(candidate, runs_root, ledger_path=ledger, require_proposal=True)
+
+    assert run.status == RunStatus.REJECTED
+    assert not ledger.exists()
+
+
 def test_submit_candidate_does_not_record_event_when_rejected(tmp_path: Path) -> None:
     candidate = write_invalid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
@@ -150,6 +210,44 @@ def test_run_candidate_with_synthetic_fixture_emits_full_lifecycle_events(tmp_pa
     metrics_path = Path(completed["metrics_path"])
     assert metrics_path.is_file()
     assert metrics_path == run.run_dir / "outputs" / "final_metrics.json"
+
+
+def test_run_candidate_with_synthetic_fixture_records_proposal_event_when_required(tmp_path: Path) -> None:
+    candidate = write_trainable_candidate(tmp_path, with_proposal=True)
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    run = run_candidate_with_synthetic_fixture(
+        candidate,
+        runs_root,
+        ledger_path=ledger,
+        require_proposal=True,
+    )
+
+    assert run.status == RunStatus.COMPLETED
+    rows = read_jsonl(ledger)
+    types = [event["event_type"] for event in rows]
+    assert types == ["proposal_created", "candidate_submitted", "run_started", "run_completed"]
+    assert rows[0]["candidate_id"] == "ledger_lifecycle_candidate"
+    assert rows[0]["proposal_path"].endswith("PROPOSAL.md")
+    assert (run.run_dir / "candidate" / "PROPOSAL.md").is_file()
+
+
+def test_run_candidate_with_synthetic_fixture_rejects_missing_proposal_when_required(tmp_path: Path) -> None:
+    candidate = write_trainable_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    run = run_candidate_with_synthetic_fixture(
+        candidate,
+        runs_root,
+        ledger_path=ledger,
+        require_proposal=True,
+    )
+
+    assert run.status == RunStatus.REJECTED
+    assert not ledger.exists()
+    assert "PROPOSAL.md" in (run.rejection_reason or "")
 
 
 def test_run_candidate_with_synthetic_fixture_records_run_failed_on_training_error(

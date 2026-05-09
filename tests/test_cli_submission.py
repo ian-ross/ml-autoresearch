@@ -36,6 +36,38 @@ training:
     return candidate
 
 
+def write_valid_candidate_with_proposal(root: Path) -> Path:
+    candidate = write_valid_candidate(root)
+    (candidate / "PROPOSAL.md").write_text(
+        """\
+## Hypothesis
+This candidate should reduce false positives.
+
+## Comparison Target
+Compare against existing baseline run.
+
+## Expected Effect
+Improve val/dice.
+
+## Implementation Sketch
+Add one extra residual block.
+
+## Contract Features Used
+single_frame_rgb input, mask_logits output, bce_dice loss.
+
+## Budget Requested
+One run on synthetic fixture.
+
+## Success Criteria
+Increase val/dice by 0.01.
+
+## Fallback/Next Decision
+Keep baseline if no gain.
+"""
+    )
+    return candidate
+
+
 def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "ml_autoresearch.cli", *args],
@@ -74,8 +106,22 @@ def test_submit_candidate_cli_exits_nonzero_for_rejected_candidate(tmp_path: Pat
     assert (runs_root / payload["run_id"] / "run_metadata.json").exists()
 
 
-def test_run_candidate_cli_synthetic_fixture_trains_and_prints_json(tmp_path: Path):
+def test_run_candidate_cli_rejects_missing_proposal_in_autonomous_mode(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    completed = run_cli(
+        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--synthetic-fixture", "--backend", "native"
+    )
+
+    assert completed.returncode == 1, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "rejected"
+    assert "PROPOSAL.md" in payload["rejection_reason"]
+
+
+def test_run_candidate_cli_synthetic_fixture_trains_with_proposal_when_autonomous_and_accepts_by_default(tmp_path: Path):
+    candidate = write_valid_candidate_with_proposal(tmp_path)
     runs_root = tmp_path / "runs"
 
     completed = run_cli(
@@ -104,6 +150,7 @@ def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
         "3",
         "--backend",
         "native",
+        "--no-require-proposal",
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -127,6 +174,7 @@ def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
         "--backend",
         "native",
         "--daemonize",
+        "--no-require-proposal",
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -164,6 +212,7 @@ def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_pa
         "adjacent_and_scattered",
         "--backend",
         "native",
+        "--no-require-proposal",
     )
 
     assert completed.returncode == 0, completed.stderr

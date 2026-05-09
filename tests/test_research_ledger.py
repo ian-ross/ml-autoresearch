@@ -29,6 +29,24 @@ def test_record_research_event_appends_valid_event_to_canonical_ledger(tmp_path:
     assert event["created_at"].endswith("Z")
 
 
+def test_record_research_event_supports_candidate_linkage_for_proposal_created(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    event = record_research_event(
+        "proposal_created",
+        {
+            "proposal_id": "proposal-001",
+            "proposal_path": "proposals/proposal-001.md",
+            "candidate_id": "candidate-xyz",
+        },
+        ledger_path=ledger,
+    )
+
+    assert event["candidate_id"] == "candidate-xyz"
+    rows = read_jsonl(ledger)
+    assert rows[0]["candidate_id"] == "candidate-xyz"
+
+
 def test_record_research_event_rejects_invalid_schema_without_corrupting_ledger(tmp_path: Path):
     ledger = tmp_path / "research-ledger.jsonl"
     record_research_event(
