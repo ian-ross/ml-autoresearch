@@ -167,6 +167,10 @@ def submit_candidate_command(
             help="Force rootless Docker ownership mode: run as container root, which maps to the invoking host user and preserves output ownership.",
         ),
     ] = False,
+    ledger_path: Annotated[
+        Path | None,
+        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to runs_root sibling research-ledger.jsonl."),
+    ] = None,
 ) -> None:
     """Validate a local Candidate Experiment and create a Run."""
 
@@ -174,6 +178,7 @@ def submit_candidate_command(
         candidate,
         runs_root,
         backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root),
+        ledger_path=ledger_path,
     )
     _echo_run(run)
     if run.status in {RunStatus.REJECTED, RunStatus.SMOKE_FAILED}:
@@ -219,6 +224,10 @@ def run_candidate_command(
         bool,
         typer.Option("--daemonize", help="Start the Candidate Experiment Run in a detached background process and return immediately."),
     ] = False,
+    ledger_path: Annotated[
+        Path | None,
+        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to runs_root sibling research-ledger.jsonl."),
+    ] = None,
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
 
@@ -235,6 +244,7 @@ def run_candidate_command(
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
             backend=selected_backend,
+            ledger_path=ledger_path,
         )
     elif data_root is not None:
         run = run_candidate_with_gvccs_data(
@@ -245,6 +255,7 @@ def run_candidate_command(
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
             backend=selected_backend,
+            ledger_path=ledger_path,
         )
     else:
         raise typer.BadParameter("provide --data-root /path/to/gvccs or --synthetic-fixture")
