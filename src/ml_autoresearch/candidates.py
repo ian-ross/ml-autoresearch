@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -52,7 +53,7 @@ class CandidateManifest(BaseModel):
     training: TrainingManifest
 
 
-_ALLOWED_FILENAMES = {"manifest.yaml", "model.py", "README.md"}
+_ALLOWED_FILENAMES = {"manifest.yaml", "model.py", "README.md", "PROPOSAL.md"}
 _ALLOWED_SUFFIXES = {".py"}
 _FORBIDDEN_SUFFIXES = {
     ".sh",
@@ -75,12 +76,30 @@ _FORBIDDEN_SUFFIXES = {
     ".npz",
 }
 
+_REQUIRED_PROPOSAL_SECTION_TITLES = (
+    "hypothesis",
+    "comparison target",
+    "expected effect",
+    "implementation sketch",
+    "contract features used",
+    "budget requested",
+    "success criteria",
+    "fallback next decision",
+)
 
-def validate_candidate_directory(candidate_dir: str | Path) -> CandidateManifest:
+_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(?P<heading>.+?)\s*$")
+_METADATA_RE = re.compile(r"^\s*([^:#\n][^:]*)\s*:\s*(.+?)\s*$")
+
+
+def validate_candidate_directory(candidate_dir: str | Path, *, require_proposal: bool = False) -> CandidateManifest:
     """Validate a local Candidate Experiment directory and return its manifest.
 
     Issue 1 validates only the source contract. It does not import or execute
     candidate Python code.
+
+    Args:
+        require_proposal: Require a local ``PROPOSAL.md`` file that contains the
+            required pre-code Experiment Proposal sections.
     """
 
     path = Path(candidate_dir)
@@ -91,6 +110,8 @@ def validate_candidate_directory(candidate_dir: str | Path) -> CandidateManifest
 
     _validate_required_files(path)
     _validate_file_allowlist(path)
+    if require_proposal:
+        _validate_proposal_file(path / "PROPOSAL.md")
     return _load_manifest(path / "manifest.yaml")
 
 
@@ -118,6 +139,53 @@ def _validate_file_allowlist(path: Path) -> None:
         if item.suffix in _ALLOWED_SUFFIXES:
             continue
         raise CandidateValidationError(f"forbidden candidate file: {relative}")
+
+
+def _validate_proposal_file(path: Path) -> None:
+    if not path.is_file():
+        raise CandidateValidationError("autonomous-mode requires a candidate-local PROPOSAL.md")
+
+    try:
+        text = path.read_text()
+    except OSError as exc:
+        raise CandidateValidationError(f"cannot read PROPOSAL.md: {exc}") from exc
+
+    found = _proposal_sections_present(text)
+    missing = [section for section in _REQUIRED_PROPOSAL_SECTION_TITLES if section not in found]
+    if missing:
+        raise CandidateValidationError(
+            "PROPOSAL.md is missing required sections or metadata: " + ", ".join(_humanize_section(section) for section in missing)
+        )
+
+
+def _normalize_section_name(value: str) -> str:
+    tokenized = re.sub(r"[^a-z0-9]+", " ", value.lower())
+    return " ".join(tokenized.split())
+
+
+def _humanize_section(section: str) -> str:
+    return section.replace("/", " ").replace("_", " ").replace("  ", " ").title()
+
+
+def _proposal_sections_present(text: str) -> set[str]:
+    found: set[str] = set()
+    for line in text.splitlines():
+        heading_match = _HEADING_RE.match(line)
+        metadata_match = _METADATA_RE.match(line)
+
+        if heading_match:
+            found.update(_match_required_sections(heading_match.group("heading")))
+        if metadata_match:
+            key, value = metadata_match.groups()
+            if value.strip():
+                found.update(_match_required_sections(key))
+
+    return found
+
+
+def _match_required_sections(text: str) -> set[str]:
+    normalized = _normalize_section_name(text)
+    return {required for required in _REQUIRED_PROPOSAL_SECTION_TITLES if required in normalized}
 
 
 def _load_manifest(path: Path) -> CandidateManifest:

@@ -49,6 +49,7 @@ def run_candidate_with_synthetic_fixture(
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
     ledger_path: str | Path | None = None,
+    require_proposal: bool = False,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
 
@@ -59,6 +60,7 @@ def run_candidate_with_synthetic_fixture(
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
         ledger_path=ledger_path,
+        require_proposal=require_proposal,
     )
 
 
@@ -72,6 +74,7 @@ def run_candidate_with_gvccs_data(
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
     ledger_path: str | Path | None = None,
+    require_proposal: bool = False,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
 
@@ -90,6 +93,7 @@ def run_candidate_with_gvccs_data(
         backend=selected_backend,
         dataset=_gvccs_dataset_metadata(data_path),
         ledger_path=ledger_path,
+        require_proposal=require_proposal,
     )
 
 
@@ -101,9 +105,16 @@ def _run_candidate_synthetic_training(
     prediction_sample_policy: str,
     backend: ExecutionBackend | None = None,
     ledger_path: str | Path | None = None,
+    require_proposal: bool = False,
 ) -> RunSubmission:
     resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
-    run = submit_candidate(candidate_dir, runs_root, backend=backend, ledger_path=resolved_ledger_path)
+    run = submit_candidate(
+        candidate_dir,
+        runs_root,
+        backend=backend,
+        ledger_path=resolved_ledger_path,
+        require_proposal=require_proposal,
+    )
     if run.status != RunStatus.ACCEPTED:
         return run
 
@@ -198,9 +209,16 @@ def _run_candidate_training(
     backend: ExecutionBackend | None = None,
     dataset: dict[str, object] | None = None,
     ledger_path: str | Path | None = None,
+    require_proposal: bool = False,
 ) -> RunSubmission:
     resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
-    run = submit_candidate(candidate_dir, runs_root, backend=backend, ledger_path=resolved_ledger_path)
+    run = submit_candidate(
+        candidate_dir,
+        runs_root,
+        backend=backend,
+        ledger_path=resolved_ledger_path,
+        require_proposal=require_proposal,
+    )
     if run.status != RunStatus.ACCEPTED:
         return run
 
@@ -440,6 +458,7 @@ def submit_candidate(
     *,
     backend: ExecutionBackend | None = None,
     ledger_path: str | Path | None = None,
+    require_proposal: bool = False,
 ) -> RunSubmission:
     """Submit a local Candidate Experiment directory and create a Run record.
 
@@ -451,6 +470,7 @@ def submit_candidate(
     execution_backend = backend or NativeBackend()
     execution_backend_metadata = backend_metadata(execution_backend)
     root = Path(runs_root)
+    resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
     run_id = _generate_run_id(root)
     run_dir = root / run_id
     logs_dir = _outputs_dir(run_dir) / "logs"
@@ -460,7 +480,7 @@ def submit_candidate(
     created_at = _now_iso()
 
     try:
-        manifest = validate_candidate_directory(source)
+        manifest = validate_candidate_directory(source, require_proposal=require_proposal)
     except CandidateValidationError as exc:
         reason = str(exc)
         validation_log.write_text(f"Candidate validation failed: {reason}\n")
@@ -479,6 +499,9 @@ def submit_candidate(
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason)
 
     validation_log.write_text("Candidate validation accepted.\n")
+    proposal_path = source / "PROPOSAL.md"
+    if proposal_path.is_file():
+        _record_proposal_created_event(proposal_path, manifest.name, resolved_ledger_path=resolved_ledger_path)
     shutil.copytree(source, run_dir / "candidate")
     _write_yaml(run_dir / "resolved_manifest.yaml", manifest.model_dump(mode="json"))
     _write_metadata(
@@ -527,7 +550,7 @@ def submit_candidate(
     record_research_event(
         "candidate_submitted",
         {"candidate_id": manifest.name, "run_id": run_id},
-        ledger_path=_resolve_ledger_path(runs_root, ledger_path),
+        ledger_path=resolved_ledger_path,
     )
     return RunSubmission(run_id, run_dir, RunStatus.ACCEPTED)
 
@@ -546,6 +569,18 @@ def _candidate_id_from_run_dir(run_dir: Path) -> str:
     manifest_path = run_dir / "resolved_manifest.yaml"
     data = yaml.safe_load(manifest_path.read_text())
     return str(data["name"])
+
+
+def _record_proposal_created_event(proposal_path: Path, candidate_id: str, *, resolved_ledger_path: Path) -> None:
+    record_research_event(
+        "proposal_created",
+        {
+            "proposal_id": candidate_id,
+            "proposal_path": str(proposal_path),
+            "candidate_id": candidate_id,
+        },
+        ledger_path=resolved_ledger_path,
+    )
 
 
 def _record_run_completed(ledger_path: Path, run_id: str, run_dir: Path) -> None:

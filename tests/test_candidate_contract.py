@@ -30,6 +30,38 @@ training:
     return candidate
 
 
+def write_valid_proposal(path: Path) -> None:
+    path.write_text(
+        """\
+# Proposal
+
+## Hypothesis
+A simpler model should improve recall by reducing overfitting.
+
+## Comparison Target
+Compare against prior single-frame baseline by final val/dice.
+
+## Expected Effect
+Expected to increase val/dice and reduce false positives.
+
+## Implementation Sketch
+Adjust backbone depth and add residual skip.
+
+## Contract Features Used
+single_frame_rgb input, mask_logits output, bce_dice loss.
+
+## Budget Requested
+2h of compute plus one training run.
+
+## Success Criteria
+Increase val/dice by 0.05.
+
+## Fallback/Next Decision
+If failed, keep current best backbone and move to augmentation policy sweep.
+"""
+    )
+
+
 def test_valid_candidate_directory_returns_normalized_manifest(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
 
@@ -46,6 +78,46 @@ def test_valid_candidate_directory_returns_normalized_manifest(tmp_path: Path):
     assert manifest.training.max_epochs == 1
     assert manifest.data.sampling_policy == "sequential"
     assert manifest.auxiliary_targets == []
+
+
+def test_candidate_directory_accepts_valid_proposal_in_proposal_required_mode(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    write_valid_proposal(candidate / "PROPOSAL.md")
+
+    manifest = validate_candidate_directory(candidate, require_proposal=True)
+
+    assert manifest.name == "single_frame_unet_baseline"
+
+
+def test_candidate_directory_rejects_missing_proposal_in_proposal_required_mode(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+
+    with pytest.raises(CandidateValidationError, match="autonomous-mode requires"):
+        validate_candidate_directory(candidate, require_proposal=True)
+
+
+def test_candidate_directory_rejects_proposal_missing_required_sections(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    write_valid_proposal(candidate / "PROPOSAL.md")
+    (candidate / "PROPOSAL.md").write_text(
+        """\
+# Proposal
+
+## Hypothesis
+Try a new architecture for baseline.
+
+## Comparison Target
+Compare against previous run.
+"""
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate, require_proposal=True)
+
+    message = str(excinfo.value)
+    assert "Expected Effect" in message
+    assert "Implementation Sketch" in message
+    assert "Contract Features Used" in message
 
 
 def test_missing_required_manifest_field_is_rejected(tmp_path: Path):

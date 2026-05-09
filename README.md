@@ -76,6 +76,13 @@ candidate/
 └── model.py
 ```
 
+A Candidate source may also include:
+
+- `README.md`: narrative notes for the candidate owner.
+- `PROPOSAL.md`: autonomous-mode experiment rationale required by `run-candidate --require-proposal`.
+
+`Research Note` documents are distinct: they are captured outside candidate source directories and summarize Run outcomes in campaign context.
+
 Example manifest:
 
 ```yaml

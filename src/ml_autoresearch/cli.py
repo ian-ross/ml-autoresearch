@@ -167,6 +167,13 @@ def submit_candidate_command(
             help="Force rootless Docker ownership mode: run as container root, which maps to the invoking host user and preserves output ownership.",
         ),
     ] = False,
+    require_proposal: Annotated[
+        bool,
+        typer.Option(
+            "--require-proposal/--no-require-proposal",
+            help="Require a local PROPOSAL.md during candidate validation.",
+        ),
+    ] = False,
     ledger_path: Annotated[
         Path | None,
         typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to runs_root sibling research-ledger.jsonl."),
@@ -179,6 +186,7 @@ def submit_candidate_command(
         runs_root,
         backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root),
         ledger_path=ledger_path,
+        require_proposal=require_proposal,
     )
     _echo_run(run)
     if run.status in {RunStatus.REJECTED, RunStatus.SMOKE_FAILED}:
@@ -220,6 +228,13 @@ def run_candidate_command(
             help="Force rootless Docker ownership mode: run as container root, which maps to the invoking host user and preserves output ownership.",
         ),
     ] = False,
+    require_proposal: Annotated[
+        bool,
+        typer.Option(
+            "--require-proposal/--no-require-proposal",
+            help="Require a candidate-local PROPOSAL.md before execution. Use --no-require-proposal for manual compatibility.",
+        ),
+    ] = True,
     daemonize: Annotated[
         bool,
         typer.Option("--daemonize", help="Start the Candidate Experiment Run in a detached background process and return immediately."),
@@ -245,6 +260,7 @@ def run_candidate_command(
             prediction_sample_policy=prediction_sample_policy,
             backend=selected_backend,
             ledger_path=ledger_path,
+            require_proposal=require_proposal,
         )
     elif data_root is not None:
         run = run_candidate_with_gvccs_data(
@@ -256,6 +272,7 @@ def run_candidate_command(
             prediction_sample_policy=prediction_sample_policy,
             backend=selected_backend,
             ledger_path=ledger_path,
+            require_proposal=require_proposal,
         )
     else:
         raise typer.BadParameter("provide --data-root /path/to/gvccs or --synthetic-fixture")

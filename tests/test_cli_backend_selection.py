@@ -170,6 +170,7 @@ def test_run_candidate_cli_rejects_missing_data_root_before_creating_run(tmp_pat
         str(tmp_path / "missing"),
         "--backend",
         "native",
+        "--no-require-proposal",
     )
 
     assert completed.returncode != 0
