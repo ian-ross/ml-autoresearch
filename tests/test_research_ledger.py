@@ -210,3 +210,28 @@ def test_run_failed_event_persists_and_validates_failure_classification(tmp_path
         )
 
     assert read_jsonl(ledger) == [event]
+
+
+def test_candidate_created_event_persists_repair_lineage(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    event = record_research_event(
+        "candidate_created",
+        {
+            "candidate_id": "candidate-repair-1",
+            "candidate_path": "candidates/candidate-repair-1",
+            "proposal_id": "candidate-repair-1",
+            "repair_lineage": {
+                "original_proposal_id": "proposal-original",
+                "original_candidate_id": "candidate-original",
+                "motivating_run_id": "run_20260501_120000_abcdef",
+                "failure_classification": "candidate_bug",
+                "preserves_original_hypothesis": True,
+                "preserves_comparison_target": True,
+            },
+        },
+        ledger_path=ledger,
+    )
+
+    assert event["repair_lineage"]["original_proposal_id"] == "proposal-original"
+    assert read_jsonl(ledger) == [event]

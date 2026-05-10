@@ -39,6 +39,31 @@ class AuxiliaryTargetManifest(BaseModel):
     weight: float = Field(ge=0.0, le=1.0)
 
 
+class RepairLineage(BaseModel):
+    """Structured lineage for a Repair Candidate.
+
+    Repair Candidates may fix implementation defects while preserving the
+    original Experiment Proposal hypothesis and Comparison Target.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    original_proposal_id: str = Field(min_length=1)
+    original_candidate_id: str = Field(min_length=1)
+    motivating_run_id: str = Field(min_length=1)
+    failure_classification: Literal[
+        "candidate_bug",
+        "contract_violation",
+        "resource_failure",
+        "harness_failure",
+        "bad_research_result",
+        "unknown",
+    ]
+    preserves_original_hypothesis: Literal[True]
+    preserves_comparison_target: Literal[True]
+
+
+
 class CandidateManifest(BaseModel):
     """Normalized v1 Candidate Experiment source manifest."""
 
@@ -51,6 +76,7 @@ class CandidateManifest(BaseModel):
     auxiliary_targets: list[AuxiliaryTargetManifest] = Field(default_factory=list)
     data: DataManifest = Field(default_factory=DataManifest)
     training: TrainingManifest
+    repair: RepairLineage | None = None
 
 
 _ALLOWED_FILENAMES = {"manifest.yaml", "model.py", "README.md", "PROPOSAL.md"}

@@ -53,7 +53,7 @@ runs/
             └── harness_timeout.log         # Docker training timeout events, when applicable
 ```
 
-The Harness copies accepted candidate source into the Run directory. Later phases execute the copied source, not the original source path.
+The Harness copies accepted candidate source into the Run directory. Later phases execute the copied source, not the original source path. Submitted candidate source is never overwritten in place; Repair Candidates are submitted as distinct Candidate Experiments with their own Run-scoped source copy.
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
@@ -122,6 +122,10 @@ Approved values:
 - `unknown` — the Harness cannot safely infer a cause.
 
 Existing detailed fields (`rejection_reason`, `smoke_failure_reason`, and `training_failure_reason`) remain authoritative diagnostic text. Observation commands surface `failure_classification` when present so automation can distinguish Resource Failures from contract rejections, candidate bugs, Harness failures, and bad research results.
+
+## Repair Candidate policy
+
+Repair Candidate lineage from the manifest is persisted in `run_metadata.json` as `repair_lineage` and in `candidate_created` Research Ledger events. The lineage records the original proposal, original candidate, motivating failed Run, and Run Failure Classification. Autonomous mode (`--require-proposal`) enforces the initial policy limit of at most two Repair Candidates per original proposal. Repairs are valid only when they preserve the original hypothesis and Comparison Target; scientific changes require a new Experiment Proposal and lineage.
 
 ## Candidate Execution Boundary hardening
 

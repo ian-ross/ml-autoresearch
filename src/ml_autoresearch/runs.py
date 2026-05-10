@@ -152,6 +152,7 @@ def _run_candidate_synthetic_training(
         ledger_path=resolved_ledger_path,
     )
     execution_backend_metadata = metadata.get("execution_backend")
+    repair_lineage = metadata.get("repair_lineage") if isinstance(metadata.get("repair_lineage"), dict) else None
     _write_metadata(
         run.run_dir,
         run_id=run.run_id,
@@ -163,6 +164,7 @@ def _run_candidate_synthetic_training(
         smoke_failure_reason=None,
         training_failure_reason=None,
         execution_backend=execution_backend_metadata,
+        repair_lineage=repair_lineage,
     )
     selected_backend = backend or NativeBackend()
     training_result = None
@@ -188,6 +190,7 @@ def _run_candidate_synthetic_training(
             failure_classification=RunFailureClassification.RESOURCE_FAILURE,
             execution_backend=execution_backend_metadata,
             training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
+            repair_lineage=repair_lineage,
         )
         _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
@@ -205,6 +208,7 @@ def _run_candidate_synthetic_training(
             training_failure_reason=reason,
             failure_classification=RunFailureClassification.CANDIDATE_BUG,
             execution_backend=execution_backend_metadata,
+            repair_lineage=repair_lineage,
         )
         _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.CANDIDATE_BUG)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.CANDIDATE_BUG)
@@ -222,6 +226,7 @@ def _run_candidate_synthetic_training(
         artifacts=artifacts,
         execution_backend=execution_backend_metadata,
         training_lifecycle=_training_lifecycle_from_result(training_result),
+        repair_lineage=repair_lineage,
     )
     _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
@@ -257,6 +262,7 @@ def _run_candidate_training(
         {"run_id": run.run_id, "candidate_id": candidate_id},
         ledger_path=resolved_ledger_path,
     )
+    repair_lineage = metadata.get("repair_lineage") if isinstance(metadata.get("repair_lineage"), dict) else None
     _write_metadata(
         run.run_dir,
         run_id=run.run_id,
@@ -269,6 +275,7 @@ def _run_candidate_training(
         training_failure_reason=None,
         execution_backend=metadata.get("execution_backend"),
         dataset=dataset,
+        repair_lineage=repair_lineage,
     )
     try:
         training_result = trainer(run.run_dir)
@@ -289,6 +296,7 @@ def _run_candidate_training(
             execution_backend=metadata.get("execution_backend"),
             dataset=dataset,
             training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
+            repair_lineage=repair_lineage,
         )
         _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
@@ -313,6 +321,7 @@ def _run_candidate_training(
             failure_classification=classification,
             execution_backend=metadata.get("execution_backend"),
             dataset=dataset,
+            repair_lineage=repair_lineage,
         )
         _record_run_failed(resolved_ledger_path, run.run_id, reason, classification)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, classification)
@@ -331,6 +340,7 @@ def _run_candidate_training(
         execution_backend=metadata.get("execution_backend"),
         dataset=dataset,
         training_lifecycle=_training_lifecycle_from_result(training_result),
+        repair_lineage=repair_lineage,
     )
     _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
@@ -487,6 +497,40 @@ def _read_evaluation_summary_dir(evaluation_dir: Path) -> dict[str, object]:
     return summary
 
 
+def _repair_lineage_from_manifest(manifest: object) -> dict[str, object] | None:
+    repair = getattr(manifest, "repair", None)
+    if repair is None:
+        return None
+    return repair.model_dump(mode="json")
+
+
+def _repair_count_for_original_proposal(ledger_path: Path, original_proposal_id: str) -> int:
+    if not ledger_path.exists():
+        return 0
+    count = 0
+    for line in ledger_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        repair_lineage = event.get("repair_lineage") if event.get("event_type") == "candidate_created" else None
+        if isinstance(repair_lineage, dict) and repair_lineage.get("original_proposal_id") == original_proposal_id:
+            count += 1
+    return count
+
+
+def _enforce_autonomous_repair_limit(repair_lineage: dict[str, object] | None, ledger_path: Path, *, require_proposal: bool) -> str | None:
+    if repair_lineage is None or not require_proposal:
+        return None
+    original_proposal_id = str(repair_lineage["original_proposal_id"])
+    if _repair_count_for_original_proposal(ledger_path, original_proposal_id) >= 2:
+        return f"autonomous-mode permits at most two Repair Candidates per original proposal: {original_proposal_id}"
+    return None
+
+
+
 def submit_candidate(
     candidate_dir: str | Path,
     runs_root: str | Path,
@@ -534,11 +578,35 @@ def submit_candidate(
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason, RunFailureClassification.CONTRACT_VIOLATION)
 
+    repair_lineage = _repair_lineage_from_manifest(manifest)
+    repair_policy_reason = _enforce_autonomous_repair_limit(
+        repair_lineage,
+        resolved_ledger_path,
+        require_proposal=require_proposal,
+    )
+    if repair_policy_reason is not None:
+        validation_log.write_text(f"Candidate validation failed: {repair_policy_reason}\n")
+        _write_metadata(
+            run_dir,
+            run_id=run_id,
+            status=RunStatus.REJECTED,
+            created_at=created_at,
+            updated_at=_now_iso(),
+            candidate_source=source,
+            rejection_reason=repair_policy_reason,
+            smoke_failure_reason=None,
+            training_failure_reason=None,
+            failure_classification=RunFailureClassification.CONTRACT_VIOLATION,
+            execution_backend=execution_backend_metadata,
+            repair_lineage=repair_lineage,
+        )
+        return RunSubmission(run_id, run_dir, RunStatus.REJECTED, repair_policy_reason, RunFailureClassification.CONTRACT_VIOLATION)
+
     validation_log.write_text("Candidate validation accepted.\n")
     proposal_path = source / "PROPOSAL.md"
     if proposal_path.is_file():
         _record_proposal_created_event(proposal_path, manifest.name, resolved_ledger_path=resolved_ledger_path)
-    _record_candidate_created_event(source, manifest.name, proposal_id=manifest.name if proposal_path.is_file() else None, resolved_ledger_path=resolved_ledger_path)
+    _record_candidate_created_event(source, manifest.name, proposal_id=manifest.name if proposal_path.is_file() else None, repair_lineage=repair_lineage, resolved_ledger_path=resolved_ledger_path)
     shutil.copytree(source, run_dir / "candidate")
     _write_yaml(run_dir / "resolved_manifest.yaml", manifest.model_dump(mode="json"))
     _write_metadata(
@@ -552,6 +620,7 @@ def submit_candidate(
         smoke_failure_reason=None,
         training_failure_reason=None,
         execution_backend=execution_backend_metadata,
+        repair_lineage=repair_lineage,
     )
 
     try:
@@ -570,6 +639,7 @@ def submit_candidate(
             training_failure_reason=None,
             failure_classification=RunFailureClassification.CANDIDATE_BUG,
             execution_backend=execution_backend_metadata,
+            repair_lineage=repair_lineage,
         )
         return RunSubmission(run_id, run_dir, RunStatus.SMOKE_FAILED, reason, RunFailureClassification.CANDIDATE_BUG)
 
@@ -584,6 +654,7 @@ def submit_candidate(
         smoke_failure_reason=None,
         training_failure_reason=None,
         execution_backend=execution_backend_metadata,
+        repair_lineage=repair_lineage,
     )
     record_research_event(
         "candidate_submitted",
@@ -627,13 +698,16 @@ def _record_candidate_created_event(
     *,
     resolved_ledger_path: Path,
     proposal_id: str | None = None,
+    repair_lineage: dict[str, object] | None = None,
 ) -> None:
-    fields: dict[str, str] = {
+    fields: dict[str, object] = {
         "candidate_id": candidate_id,
         "candidate_path": str(candidate_path),
     }
     if proposal_id is not None:
         fields["proposal_id"] = proposal_id
+    if repair_lineage is not None:
+        fields["repair_lineage"] = repair_lineage
     record_research_event("candidate_created", fields, ledger_path=resolved_ledger_path)
 
 
@@ -702,6 +776,7 @@ def _write_metadata(
     execution_backend: object | None = None,
     dataset: dict[str, object] | None = None,
     training_lifecycle: dict[str, object] | None = None,
+    repair_lineage: dict[str, object] | None = None,
 ) -> None:
     metadata = {
         "run_id": run_id,
@@ -729,6 +804,8 @@ def _write_metadata(
         metadata["artifacts"] = artifacts
     if training_lifecycle is not None:
         metadata["training_lifecycle"] = training_lifecycle
+    if repair_lineage is not None:
+        metadata["repair_lineage"] = repair_lineage
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 
