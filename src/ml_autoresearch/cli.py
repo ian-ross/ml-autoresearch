@@ -95,6 +95,11 @@ def _parse_event_fields(fields: list[str]) -> dict[str, str]:
     return parsed
 
 
+def _exit_with_error(exc: BaseException) -> None:
+    typer.echo(str(exc), err=True)
+    raise typer.Exit(1) from exc
+
+
 @app.command("create-capability-request")
 def create_capability_request_command(
     request: Annotated[Path, typer.Option(help="Path to a YAML Capability Request file.")],
@@ -107,9 +112,8 @@ def create_capability_request_command(
 
     try:
         result = create_capability_request(request, ledger_path=ledger_path)
-    except CapabilityRequestError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+    except (CapabilityRequestError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
     _echo_json(result)
 
 
@@ -126,9 +130,8 @@ def run_post_run_evaluation_command(
 
     try:
         result = run_post_run_evaluation(request, runs_root=runs_root, ledger_path=ledger_path)
-    except EvaluationRequestError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+    except (EvaluationRequestError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
     _echo_json(result)
 
 
@@ -144,9 +147,8 @@ def record_campaign_report_command(
 
     try:
         result = record_campaign_report_written(report_path, ledger_path=ledger_path)
-    except CampaignControlError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+    except (CampaignControlError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
     _echo_json(result)
 
 
@@ -163,9 +165,8 @@ def pause_campaign_command(
 
     try:
         result = record_campaign_pause(reason, report_path=report_path, ledger_path=ledger_path)
-    except (CampaignControlError, ResearchLedgerError) as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+    except (CampaignControlError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
     _echo_json(result)
 
 
@@ -185,9 +186,8 @@ def record_research_event_command(
 
     try:
         event = record_research_event(event_type, _parse_event_fields(field or []), ledger_path=ledger_path)
-    except ResearchLedgerError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+    except (ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
     _echo_json(event)
 
 
@@ -263,13 +263,16 @@ def submit_candidate_command(
 ) -> None:
     """Validate a local Candidate Experiment and create a Run."""
 
-    run = submit_candidate(
-        candidate,
-        runs_root,
-        backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root),
-        ledger_path=ledger_path,
-        require_proposal=require_proposal,
-    )
+    try:
+        run = submit_candidate(
+            candidate,
+            runs_root,
+            backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root),
+            ledger_path=ledger_path,
+            require_proposal=require_proposal,
+        )
+    except (ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
     _echo_run(run)
     if run.status in {RunStatus.REJECTED, RunStatus.SMOKE_FAILED}:
         raise typer.Exit(1)
@@ -334,30 +337,33 @@ def run_candidate_command(
         _daemonize_current_run_candidate(runs_root)
         return
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
-    if synthetic_fixture:
-        run = run_candidate_with_synthetic_fixture(
-            candidate,
-            runs_root,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-            backend=selected_backend,
-            ledger_path=ledger_path,
-            require_proposal=require_proposal,
-        )
-    elif data_root is not None:
-        run = run_candidate_with_gvccs_data(
-            candidate,
-            runs_root,
-            data_root,
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-            backend=selected_backend,
-            ledger_path=ledger_path,
-            require_proposal=require_proposal,
-        )
-    else:
-        raise typer.BadParameter("provide --data-root /path/to/gvccs or --synthetic-fixture")
+    try:
+        if synthetic_fixture:
+            run = run_candidate_with_synthetic_fixture(
+                candidate,
+                runs_root,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+                backend=selected_backend,
+                ledger_path=ledger_path,
+                require_proposal=require_proposal,
+            )
+        elif data_root is not None:
+            run = run_candidate_with_gvccs_data(
+                candidate,
+                runs_root,
+                data_root,
+                max_samples=max_samples,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+                backend=selected_backend,
+                ledger_path=ledger_path,
+                require_proposal=require_proposal,
+            )
+        else:
+            raise typer.BadParameter("provide --data-root /path/to/gvccs or --synthetic-fixture")
+    except (ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
     _echo_run(run)
     if run.status != RunStatus.COMPLETED:
         raise typer.Exit(1)

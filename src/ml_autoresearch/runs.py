@@ -550,18 +550,19 @@ def _repair_count_for_original_proposal(ledger_path: Path, original_proposal_id:
     if not ledger_path.exists():
         return 0
     count = 0
-    for line_number, line in enumerate(ledger_path.read_text().splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ResearchLedgerError(
-                f"malformed JSON in ledger {ledger_path} at line {line_number}: cannot enforce repair limits safely"
-            ) from exc
-        repair_lineage = event.get("repair_lineage") if event.get("event_type") == "candidate_created" else None
-        if isinstance(repair_lineage, dict) and repair_lineage.get("original_proposal_id") == original_proposal_id:
-            count += 1
+    with ledger_path.open() as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ResearchLedgerError(
+                    f"malformed JSON in ledger {ledger_path} at line {line_number}: cannot enforce repair limits safely"
+                ) from exc
+            repair_lineage = event.get("repair_lineage") if event.get("event_type") == "candidate_created" else None
+            if isinstance(repair_lineage, dict) and repair_lineage.get("original_proposal_id") == original_proposal_id:
+                count += 1
     return count
 
 

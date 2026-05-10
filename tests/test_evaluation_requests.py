@@ -173,3 +173,32 @@ def test_run_post_run_evaluation_cli_validates_request_and_records_linkage(tmp_p
     assert payload["request"]["target_run_id"] == "run_123"
     assert payload["evaluation"]["parent_run_id"] == "run_123"
     assert read_jsonl(ledger)[1]["evaluation_id"] == payload["evaluation"]["evaluation_id"]
+
+
+def test_run_post_run_evaluation_cli_reports_ledger_write_failure_without_traceback(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    write_run(runs_root)
+    request_path = write_request(tmp_path / "request.yaml")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ml_autoresearch.cli",
+            "run-post-run-evaluation",
+            "--request",
+            str(request_path),
+            "--runs-root",
+            str(runs_root),
+            "--ledger-path",
+            str(tmp_path),
+        ],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert completed.returncode == 1
+    assert "Traceback" not in completed.stderr
+    assert str(tmp_path) in completed.stderr
