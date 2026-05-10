@@ -123,9 +123,31 @@ class CampaignReportWritten(_LedgerEvent):
     report_path: str = Field(min_length=1)
 
 
+CAMPAIGN_PAUSE_CONDITIONS: tuple[str, ...] = (
+    "budget_exhausted",
+    "repeated_failures",
+    "repeated_resource_failures",
+    "stalled_research_progress",
+    "too_many_pending_capability_requests",
+    "storage_risk",
+    "scheduled_check_in",
+)
+
+CampaignPauseConditionValue = Literal[
+    "budget_exhausted",
+    "repeated_failures",
+    "repeated_resource_failures",
+    "stalled_research_progress",
+    "too_many_pending_capability_requests",
+    "storage_risk",
+    "scheduled_check_in",
+]
+
+
 class CampaignPaused(_LedgerEvent):
     event_type: Literal["campaign_paused"] = "campaign_paused"
-    reason: str = Field(min_length=1)
+    reason: CampaignPauseConditionValue
+    report_path: str | None = Field(default=None, min_length=1)
 
 
 _EVENT_SCHEMAS: dict[str, type[_LedgerEvent]] = {

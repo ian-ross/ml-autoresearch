@@ -87,7 +87,7 @@ def test_record_research_event_rejects_invalid_schema_without_corrupting_ledger(
 def test_record_research_event_preserves_append_only_history(tmp_path: Path):
     ledger = tmp_path / "research-ledger.jsonl"
 
-    first = record_research_event("campaign_paused", {"reason": "waiting for review"}, ledger_path=ledger)
+    first = record_research_event("campaign_paused", {"reason": "scheduled_check_in"}, ledger_path=ledger)
     second = record_research_event(
         "research_note_written",
         {"note_path": "research-notes/2026-05-09-note.md", "run_id": "run_abc"},
