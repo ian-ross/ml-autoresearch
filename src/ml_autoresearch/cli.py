@@ -12,6 +12,11 @@ from typing import Annotated, Literal
 
 import typer
 
+from ml_autoresearch.campaign_controls import (
+    CampaignControlError,
+    record_campaign_pause,
+    record_campaign_report_written,
+)
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
 from ml_autoresearch.evaluations import DEFAULT_MAX_ARTIFACT_SAMPLES, EvaluationError, evaluate_run
@@ -122,6 +127,43 @@ def run_post_run_evaluation_command(
     try:
         result = run_post_run_evaluation(request, runs_root=runs_root, ledger_path=ledger_path)
     except EvaluationRequestError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    _echo_json(result)
+
+
+@app.command("record-campaign-report")
+def record_campaign_report_command(
+    report_path: Annotated[Path, typer.Option(help="Path to the Campaign Report artifact.")],
+    ledger_path: Annotated[
+        Path,
+        typer.Option(help="Append-only Research Ledger JSONL path."),
+    ] = Path(CANONICAL_RESEARCH_LEDGER),
+) -> None:
+    """Record a validated campaign_report_written Research Ledger event."""
+
+    try:
+        result = record_campaign_report_written(report_path, ledger_path=ledger_path)
+    except CampaignControlError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    _echo_json(result)
+
+
+@app.command("pause-campaign")
+def pause_campaign_command(
+    reason: Annotated[str, typer.Option(help="Approved Campaign Pause Condition value.")],
+    report_path: Annotated[Path | None, typer.Option(help="Optional Campaign Report path for this pause.")] = None,
+    ledger_path: Annotated[
+        Path,
+        typer.Option(help="Append-only Research Ledger JSONL path."),
+    ] = Path(CANONICAL_RESEARCH_LEDGER),
+) -> None:
+    """Record a validated campaign_paused Research Ledger event."""
+
+    try:
+        result = record_campaign_pause(reason, report_path=report_path, ledger_path=ledger_path)
+    except (CampaignControlError, ResearchLedgerError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     _echo_json(result)
