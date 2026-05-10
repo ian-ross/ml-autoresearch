@@ -78,6 +78,23 @@ class CapabilityRequestCreated(_LedgerEvent):
     request_path: str = Field(min_length=1)
 
 
+class EvaluationRequested(_LedgerEvent):
+    event_type: Literal["evaluation_requested"] = "evaluation_requested"
+    evaluation_request_id: str = Field(min_length=1)
+    request_path: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    evaluation_mode: str = Field(min_length=1)
+
+
+class EvaluationCompleted(_LedgerEvent):
+    event_type: Literal["evaluation_completed"] = "evaluation_completed"
+    evaluation_id: str = Field(min_length=1)
+    evaluation_request_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    evaluation_mode: str = Field(min_length=1)
+    artifact_metadata_path: str = Field(min_length=1)
+
+
 class CampaignReportWritten(_LedgerEvent):
     event_type: Literal["campaign_report_written"] = "campaign_report_written"
     report_path: str = Field(min_length=1)
@@ -97,6 +114,8 @@ _EVENT_SCHEMAS: dict[str, type[_LedgerEvent]] = {
     "run_failed": RunFailed,
     "research_note_written": ResearchNoteWritten,
     "capability_request_created": CapabilityRequestCreated,
+    "evaluation_requested": EvaluationRequested,
+    "evaluation_completed": EvaluationCompleted,
     "campaign_report_written": CampaignReportWritten,
     "campaign_paused": CampaignPaused,
 }
