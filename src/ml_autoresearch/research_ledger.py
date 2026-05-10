@@ -58,10 +58,21 @@ class RunCompleted(_LedgerEvent):
     metrics_path: str = Field(min_length=1)
 
 
+RunFailureClassificationValue = Literal[
+    "candidate_bug",
+    "contract_violation",
+    "resource_failure",
+    "harness_failure",
+    "bad_research_result",
+    "unknown",
+]
+
+
 class RunFailed(_LedgerEvent):
     event_type: Literal["run_failed"] = "run_failed"
     run_id: str = Field(min_length=1)
     error: str = Field(min_length=1)
+    failure_classification: RunFailureClassificationValue = "unknown"
 
 
 class ResearchNoteWritten(_LedgerEvent):

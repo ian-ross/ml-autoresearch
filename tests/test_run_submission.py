@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from ml_autoresearch.runs import RunStatus, submit_candidate
+from ml_autoresearch.runs import RunFailureClassification, RunStatus, submit_candidate, validate_run_failure_classification
 
 
 def write_valid_candidate(root: Path) -> Path:
@@ -100,3 +100,28 @@ def test_submit_candidate_records_rejected_run(tmp_path: Path):
     assert metadata["rejection_reason"] == run.rejection_reason
     assert (run.run_dir / "outputs" / "logs" / "validation.log").read_text()
     assert not (run.run_dir / "candidate" / "train.sh").exists()
+
+
+def test_rejected_run_persists_contract_violation_failure_classification(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "train.sh").write_text("echo nope\n")
+    runs_root = tmp_path / "runs"
+
+    run = submit_candidate(candidate, runs_root)
+
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert run.status == RunStatus.REJECTED
+    assert metadata["failure_classification"] == "contract_violation"
+    assert metadata["rejection_reason"] == run.rejection_reason
+    assert "contract_violation" in metadata["reserved_failure_classifications"]
+
+
+def test_invalid_run_failure_classification_is_rejected():
+    assert validate_run_failure_classification("resource_failure") == RunFailureClassification.RESOURCE_FAILURE
+
+    try:
+        validate_run_failure_classification("not-a-classification")
+    except ValueError as exc:
+        assert "invalid run failure classification" in str(exc)
+    else:
+        raise AssertionError("invalid classification was accepted")

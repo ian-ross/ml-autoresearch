@@ -73,6 +73,7 @@ def _echo_run(run) -> None:
             "run_dir": str(run.run_dir),
             "status": run.status.value,
             "rejection_reason": run.rejection_reason,
+            "failure_classification": run.failure_classification.value if run.failure_classification is not None else None,
         }
     )
 

@@ -188,3 +188,25 @@ def test_record_research_event_cli_rejects_missing_required_fields(tmp_path: Pat
     assert completed.returncode == 1
     assert "metrics_path" in completed.stderr
     assert not ledger.exists()
+
+
+def test_run_failed_event_persists_and_validates_failure_classification(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    event = record_research_event(
+        "run_failed",
+        {"run_id": "run_123", "error": "out of memory", "failure_classification": "resource_failure"},
+        ledger_path=ledger,
+    )
+
+    assert event["failure_classification"] == "resource_failure"
+    assert read_jsonl(ledger) == [event]
+
+    with pytest.raises(ResearchLedgerError, match="failure_classification"):
+        record_research_event(
+            "run_failed",
+            {"run_id": "run_124", "error": "bad", "failure_classification": "invalid"},
+            ledger_path=ledger,
+        )
+
+    assert read_jsonl(ledger) == [event]
