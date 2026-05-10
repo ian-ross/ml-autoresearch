@@ -28,6 +28,7 @@ class DataManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sampling_policy: Literal["sequential", "deterministic_shuffle"] = "sequential"
+    augmentation_policy: Literal["none", "light_geometric", "light_photometric", "light_combined"] = "none"
 
 
 class AuxiliaryTargetManifest(BaseModel):

@@ -25,6 +25,7 @@ input_mode: single_frame_rgb
 output_form: mask_logits
 data:
   sampling_policy: sequential
+  augmentation_policy: none
 training:
   loss: bce_dice
   optimizer: adamw
@@ -115,14 +116,19 @@ repair:
 
 ## Data policy
 
-Candidate manifests may select a Harness-owned Sampling Policy:
+Candidate manifests may select Harness-owned Sampling Policy and Augmentation Policy presets:
 
 ```yaml
 data:
   sampling_policy: deterministic_shuffle
+  augmentation_policy: light_combined
 ```
 
-Allowed values are `sequential` and `deterministic_shuffle`. If omitted, `data.sampling_policy` resolves to `sequential` for compatibility with older manifests. `deterministic_shuffle` only affects training example order and is reproducible; validation order stays stable for reproducible metrics and qualitative diagnostics.
+Allowed Sampling Policy values are `sequential` and `deterministic_shuffle`. If omitted, `data.sampling_policy` resolves to `sequential` for compatibility with older manifests. `deterministic_shuffle` only affects training example order and is reproducible; validation order stays stable for reproducible metrics and qualitative diagnostics.
+
+Allowed Augmentation Policy presets are `none`, `light_geometric`, `light_photometric`, and `light_combined`. If omitted, `data.augmentation_policy` resolves to `none`. The Resolved Manifest records both the requested `augmentation_policy` and the Harness-applied `augmentation_policy_effective`. Presets are currently Ground-Camera Contrail Detection / GVCCS-specific: `light_geometric` applies conservative image/mask-aligned horizontal mirroring, `light_photometric` applies conservative brightness/contrast/noise perturbations to images only, and `light_combined` applies both. These trusted Harness transforms are applied to training examples only; validation examples remain unaugmented and stable.
+
+Composable augmentation policies or candidate-defined transform DSLs are deferred until justified by structured Capability Requests.
 
 ## Dataset and mount authority
 

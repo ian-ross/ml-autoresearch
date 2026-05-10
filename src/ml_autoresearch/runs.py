@@ -530,6 +530,15 @@ def _read_evaluation_summary_dir(evaluation_dir: Path) -> dict[str, object]:
     return summary
 
 
+def _resolved_manifest_payload(manifest: object) -> dict[str, object]:
+    payload = manifest.model_dump(mode="json")
+    data_policy = payload.setdefault("data", {})
+    selected = data_policy.get("augmentation_policy", "none")
+    data_policy["augmentation_policy"] = selected
+    data_policy["augmentation_policy_effective"] = selected
+    return payload
+
+
 def _repair_lineage_from_manifest(manifest: object) -> dict[str, object] | None:
     repair = getattr(manifest, "repair", None)
     if repair is None:
@@ -641,7 +650,7 @@ def submit_candidate(
         _record_proposal_created_event(proposal_path, manifest.name, resolved_ledger_path=resolved_ledger_path)
     _record_candidate_created_event(source, manifest.name, proposal_id=manifest.name if proposal_path.is_file() else None, repair_lineage=repair_lineage, resolved_ledger_path=resolved_ledger_path)
     shutil.copytree(source, run_dir / "candidate")
-    _write_yaml(run_dir / "resolved_manifest.yaml", manifest.model_dump(mode="json"))
+    _write_yaml(run_dir / "resolved_manifest.yaml", _resolved_manifest_payload(manifest))
     _write_metadata(
         run_dir,
         run_id=run_id,

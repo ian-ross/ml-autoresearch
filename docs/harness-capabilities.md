@@ -134,7 +134,16 @@ Allowed v1 sampling policies:
 
 Manifests that omit `data.sampling_policy` resolve to `sequential`. `deterministic_shuffle` changes training example order reproducibly while validation order remains stable for reproducible metrics and qualitative diagnostics.
 
-Deferred policies include positive/negative balancing, vertical flips, hard-negative mining from prior Results, and cloud-heavy negative sampling until the relevant metadata, subsets, or artifact loop exist.
+Implemented Ground-Camera Contrail Detection / GVCCS augmentation presets:
+
+- `none` — no augmentation, and the default for omitted `data.augmentation_policy`.
+- `light_geometric` — conservative image/mask-aligned horizontal mirroring for training examples.
+- `light_photometric` — conservative brightness/contrast/noise perturbations to training images only.
+- `light_combined` — combines `light_geometric` and `light_photometric`.
+
+These presets are trusted Harness / Research Problem code, not Candidate Experiment code. They are intentionally named presets specific to the initial GVCCS Research Problem while remaining future-extractable to a Research Problem Repository. Validation examples are not augmented. Resolved Manifests record both selected `augmentation_policy` and `augmentation_policy_effective`.
+
+Deferred policies include composable augmentation policies, arbitrary transform DSLs, positive/negative balancing, vertical flips, hard-negative mining from prior Results, and cloud-heavy negative sampling until the relevant metadata, subsets, Capability Requests, or artifact loop exist.
 
 ## Training knobs and resource bounds
 

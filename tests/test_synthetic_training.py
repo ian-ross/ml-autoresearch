@@ -3,21 +3,23 @@ from pathlib import Path
 
 from PIL import Image
 import torch
+import yaml
 
 from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture
 from ml_autoresearch.synthetic import SyntheticContrailDataset
-from ml_autoresearch.training import _best_validation_metrics, _data_loader_for_sampling
+from ml_autoresearch.training import _best_validation_metrics, _data_loader_for_sampling, _dataset_with_augmentation_policy
 
 
-def write_trainable_candidate(root: Path, *, max_epochs: int = 1) -> Path:
+def write_trainable_candidate(root: Path, *, max_epochs: int = 1, augmentation_policy: str | None = None) -> Path:
     candidate = root / "candidate"
     candidate.mkdir()
+    data_block = "" if augmentation_policy is None else f"data:\n  augmentation_policy: {augmentation_policy}\n"
     (candidate / "manifest.yaml").write_text(
         f"""
 name: trainable_candidate
 input_mode: single_frame_rgb
 output_form: mask_logits
-training:
+{data_block}training:
   loss: bce_dice
   optimizer: adamw
   learning_rate: 0.001
@@ -72,6 +74,28 @@ def test_sampling_policy_deterministic_shuffle_changes_training_order_reproducib
 def test_sampling_policy_validation_loader_stays_stable():
     # Validation loaders must use sequential policy regardless of the manifest's training Sampling Policy.
     assert loader_order("sequential") == list(range(10))
+
+
+def test_augmentation_policy_presets_are_harness_applied_to_training_samples():
+    image, mask = SyntheticContrailDataset(2, seed=123)[1]
+    augmented = _dataset_with_augmentation_policy(SyntheticContrailDataset(2, seed=123), "light_combined")
+
+    augmented_image, augmented_mask = augmented[1]
+
+    assert not torch.equal(augmented_image, image)
+    assert augmented_image.shape == image.shape
+    assert augmented_mask.shape == mask.shape
+    assert torch.equal(augmented_mask, torch.flip(mask, dims=[2]))
+
+
+def test_augmentation_policy_none_leaves_validation_samples_stable():
+    image, mask = SyntheticContrailDataset(2, seed=123)[1]
+    unaugmented = _dataset_with_augmentation_policy(SyntheticContrailDataset(2, seed=123), "none")
+
+    stable_image, stable_mask = unaugmented[1]
+
+    assert torch.equal(stable_image, image)
+    assert torch.equal(stable_mask, mask)
 
 
 def test_synthetic_fixture_dataset_is_deterministic():
@@ -142,6 +166,19 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
         with Image.open(png) as image:
             sizes.append(image.size)
     assert sizes == [(128, 128)] * 5
+
+
+def test_synthetic_fixture_training_applies_selected_augmentation_policy(tmp_path: Path):
+    candidate = write_trainable_candidate(tmp_path, augmentation_policy="light_combined")
+
+    run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs", max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    resolved = yaml.safe_load((run.run_dir / "resolved_manifest.yaml").read_text())
+    assert resolved["data"]["augmentation_policy"] == "light_combined"
+    assert resolved["data"]["augmentation_policy_effective"] == "light_combined"
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
+    assert set(final) >= {"val/dice", "val/loss"}
 
 
 def test_synthetic_fixture_training_honors_manifest_max_epochs(tmp_path: Path):

@@ -55,10 +55,11 @@ def train_synthetic_fixture(
 ) -> dict[str, object]:
     """Train deterministic generated Contrail Mask fixture data with explicit mounted paths."""
 
-    train_loader_factory = lambda batch_size, sampling_policy: _data_loader_for_sampling(  # noqa: E731 - local concise factory.
+    train_loader_factory = lambda batch_size, sampling_policy, augmentation_policy: _data_loader_for_sampling(  # noqa: E731 - local concise factory.
         SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED),
         batch_size=batch_size,
         sampling_policy=sampling_policy,
+        augmentation_policy=augmentation_policy,
     )
     val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
         SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000),
@@ -120,8 +121,8 @@ def train_gvccs(
     samples = discover_gvccs_samples(data_root, split="train", max_samples=max_samples)
     split = deterministic_train_val_split(samples)
 
-    train_loader_factory = lambda batch_size, sampling_policy: _data_loader_for_sampling(  # noqa: E731
-        GVCCSDataset(split.train), batch_size=batch_size, sampling_policy=sampling_policy
+    train_loader_factory = lambda batch_size, sampling_policy, augmentation_policy: _data_loader_for_sampling(  # noqa: E731
+        GVCCSDataset(split.train), batch_size=batch_size, sampling_policy=sampling_policy, augmentation_policy=augmentation_policy
     )
     val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
         GVCCSDataset(split.val), batch_size=batch_size, sampling_policy="sequential"
@@ -173,7 +174,9 @@ def _train_manifest_epochs_run(
         torch.manual_seed(SYNTHETIC_FIXTURE_SEED)
         manifest = yaml.safe_load(resolved_manifest_path.read_text())
         training = manifest["training"]
-        sampling_policy = manifest.get("data", {}).get("sampling_policy", "sequential")
+        data_policy = manifest.get("data", {})
+        sampling_policy = data_policy.get("sampling_policy", "sequential")
+        augmentation_policy = data_policy.get("augmentation_policy_effective", data_policy.get("augmentation_policy", "none"))
         if training["loss"] != "bce_dice":
             raise TrainingError(f"unsupported loss: {training['loss']}")
         auxiliary_targets = manifest.get("auxiliary_targets", [])
@@ -188,7 +191,7 @@ def _train_manifest_epochs_run(
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=float(training["learning_rate"]))
         batch_size = int(training["batch_size"])
-        train_loader = train_loader_factory(batch_size, sampling_policy)
+        train_loader = train_loader_factory(batch_size, sampling_policy, augmentation_policy)
         val_loader = val_loader_factory(batch_size)
 
         metrics_path.write_text("")
@@ -291,7 +294,8 @@ def _train_manifest_epochs_run(
         raise TrainingError(reason) from exc
 
 
-def _data_loader_for_sampling(dataset, *, batch_size: int, sampling_policy: str) -> DataLoader:
+def _data_loader_for_sampling(dataset, *, batch_size: int, sampling_policy: str, augmentation_policy: str = "none") -> DataLoader:
+    dataset = _dataset_with_augmentation_policy(dataset, augmentation_policy)
     if sampling_policy == "sequential":
         return DataLoader(dataset, batch_size=batch_size, shuffle=False)
     if sampling_policy == "deterministic_shuffle":
@@ -299,6 +303,56 @@ def _data_loader_for_sampling(dataset, *, batch_size: int, sampling_policy: str)
         generator.manual_seed(SAMPLING_POLICY_SEED)
         return DataLoader(dataset, batch_size=batch_size, shuffle=True, generator=generator)
     raise TrainingError(f"unsupported sampling policy: {sampling_policy}")
+
+
+def _dataset_with_augmentation_policy(dataset, augmentation_policy: str):
+    if augmentation_policy == "none":
+        return dataset
+    if augmentation_policy in {"light_geometric", "light_photometric", "light_combined"}:
+        return _AugmentedContrailDataset(dataset, augmentation_policy)
+    raise TrainingError(f"unsupported augmentation policy: {augmentation_policy}")
+
+
+class _AugmentedContrailDataset(torch.utils.data.Dataset):
+    """Harness-owned deterministic augmentation wrapper for training samples."""
+
+    def __init__(self, dataset, augmentation_policy: str) -> None:
+        self.dataset = dataset
+        self.augmentation_policy = augmentation_policy
+
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    def __getitem__(self, index: int):
+        image, mask = self.dataset[index]
+        if self.augmentation_policy in {"light_geometric", "light_combined"}:
+            image, mask = _apply_light_geometric_augmentation(image, mask, index=index)
+        if self.augmentation_policy in {"light_photometric", "light_combined"}:
+            image = _apply_light_photometric_augmentation(image, index=index)
+        return image, mask
+
+
+def _apply_light_geometric_augmentation(
+    image: torch.Tensor, mask: torch.Tensor, *, index: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    # Horizontal mirroring is safe for GVCCS whole-sky contrail masks and keeps
+    # thin line geometry image-aligned. Apply on odd indices so tests and Runs
+    # remain deterministic under the Harness-owned policy.
+    if index % 2 == 1:
+        return torch.flip(image, dims=[2]), torch.flip(mask, dims=[2])
+    return image, mask
+
+
+def _apply_light_photometric_augmentation(image: torch.Tensor, *, index: int) -> torch.Tensor:
+    # Conservative GVCCS-specific brightness/contrast perturbation plus a tiny
+    # deterministic sensor-noise term. The Contrail Mask is intentionally not
+    # changed by photometric augmentation.
+    contrast = 1.05 if index % 2 == 0 else 0.95
+    brightness = 0.025 if index % 3 == 0 else -0.015
+    adjusted = (image - 0.5) * contrast + 0.5 + brightness
+    generator = torch.Generator(device=image.device).manual_seed(SYNTHETIC_FIXTURE_SEED + int(index))
+    noise = torch.randn(image.shape, generator=generator, device=image.device, dtype=image.dtype) * 0.005
+    return torch.clamp(adjusted + noise, 0.0, 1.0)
 
 
 def bce_dice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor) -> torch.Tensor:
