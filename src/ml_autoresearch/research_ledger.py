@@ -33,11 +33,33 @@ class ProposalCreated(_LedgerEvent):
     candidate_id: str | None = Field(default=None, min_length=1)
 
 
+RunFailureClassificationValue = Literal[
+    "candidate_bug",
+    "contract_violation",
+    "resource_failure",
+    "harness_failure",
+    "bad_research_result",
+    "unknown",
+]
+
+
+class RepairLineageRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    original_proposal_id: str = Field(min_length=1)
+    original_candidate_id: str = Field(min_length=1)
+    motivating_run_id: str = Field(min_length=1)
+    failure_classification: RunFailureClassificationValue
+    preserves_original_hypothesis: Literal[True]
+    preserves_comparison_target: Literal[True]
+
+
 class CandidateCreated(_LedgerEvent):
     event_type: Literal["candidate_created"] = "candidate_created"
     candidate_id: str = Field(min_length=1)
     candidate_path: str = Field(min_length=1)
     proposal_id: str | None = Field(default=None, min_length=1)
+    repair_lineage: RepairLineageRecord | None = None
 
 
 class CandidateSubmitted(_LedgerEvent):
@@ -56,16 +78,6 @@ class RunCompleted(_LedgerEvent):
     event_type: Literal["run_completed"] = "run_completed"
     run_id: str = Field(min_length=1)
     metrics_path: str = Field(min_length=1)
-
-
-RunFailureClassificationValue = Literal[
-    "candidate_bug",
-    "contract_violation",
-    "resource_failure",
-    "harness_failure",
-    "bad_research_result",
-    "unknown",
-]
 
 
 class RunFailed(_LedgerEvent):

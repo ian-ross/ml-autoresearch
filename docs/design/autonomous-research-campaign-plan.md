@@ -108,7 +108,10 @@ The Run lifecycle inside `ml_autoresearch.runs` automatically emits Research Led
 
 - `submit_candidate` records a `candidate_created` event as soon as the
   candidate source passes validation. Rejected Runs do not produce either
-  `candidate_created` or `candidate_submitted` events.
+  `candidate_created` or `candidate_submitted` events. For Repair Candidates,
+  this event includes `repair_lineage` with the original proposal, original
+  candidate, motivating failed Run, failure classification, and the explicit
+  preservation flags for the original hypothesis and Comparison Target.
 - `submit_candidate` records a `candidate_submitted` event when a candidate
   also passes smoke testing. Smoke-failed Runs do not produce a
   `candidate_submitted` event.

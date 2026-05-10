@@ -95,6 +95,24 @@ The `PROPOSAL.md` must include these required sections or metadata keys:
 
 A proposal copied with the Candidate Experiment can contain additional narrative and implementation detail.
 
+## Repair Candidate lineage
+
+A Repair Candidate is a distinct Candidate Experiment submitted to fix a prior candidate bug or contract issue without overwriting previously submitted source. Repair Candidates must preserve the original Experiment Proposal hypothesis and Comparison Target. If the hypothesis or Comparison Target changes, create a new Experiment Proposal instead of using repair lineage.
+
+Repair Candidates declare structured lineage in `manifest.yaml`:
+
+```yaml
+repair:
+  original_proposal_id: single_frame_unet_baseline
+  original_candidate_id: single_frame_unet_baseline_v1
+  motivating_run_id: run_20260501_120000_abcdef
+  failure_classification: candidate_bug
+  preserves_original_hypothesis: true
+  preserves_comparison_target: true
+```
+
+`failure_classification` must use the Run Failure Classification vocabulary from `docs/run-lifecycle.md`. In autonomous execution mode, the Harness initially permits at most two Repair Candidates per `original_proposal_id`; scientific changes require a new Experiment Proposal and lineage.
+
 ## Data policy
 
 Candidate manifests may select a Harness-owned Sampling Policy:

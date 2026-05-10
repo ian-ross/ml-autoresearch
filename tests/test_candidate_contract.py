@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 
@@ -408,3 +409,20 @@ training:
         validate_candidate_directory(candidate)
 
     assert "auxiliary_targets.0.weight" in str(excinfo.value)
+
+
+def test_repair_candidate_requires_preserving_original_hypothesis_and_comparison_target(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    manifest = yaml.safe_load((candidate / "manifest.yaml").read_text())
+    manifest["repair"] = {
+        "original_proposal_id": "proposal-original",
+        "original_candidate_id": "candidate-original",
+        "motivating_run_id": "run_20260501_120000_abcdef",
+        "failure_classification": "candidate_bug",
+        "preserves_original_hypothesis": False,
+        "preserves_comparison_target": True,
+    }
+    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+
+    with pytest.raises(CandidateValidationError, match="preserves_original_hypothesis"):
+        validate_candidate_directory(candidate)

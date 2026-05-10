@@ -125,3 +125,123 @@ def test_invalid_run_failure_classification_is_rejected():
         assert "invalid run failure classification" in str(exc)
     else:
         raise AssertionError("invalid classification was accepted")
+
+
+def add_valid_proposal(candidate: Path) -> None:
+    (candidate / "PROPOSAL.md").write_text(
+        """\
+## Hypothesis
+Fix candidate implementation defect without changing the research hypothesis.
+
+## Comparison Target
+Compare against the original proposal baseline.
+
+## Expected Effect
+The repaired candidate should run successfully.
+
+## Implementation Sketch
+Repair only candidate code defects.
+
+## Contract Features Used
+single_frame_rgb input, mask_logits output, bce_dice loss.
+
+## Budget Requested
+One synthetic-fixture run.
+
+## Success Criteria
+The Run reaches training.
+
+## Fallback/Next Decision
+Open a new Experiment Proposal for scientific changes.
+"""
+    )
+
+
+def add_repair_lineage(candidate: Path, *, name: str, original_proposal_id: str = "proposal-original") -> None:
+    manifest = yaml.safe_load((candidate / "manifest.yaml").read_text())
+    manifest["name"] = name
+    manifest["repair"] = {
+        "original_proposal_id": original_proposal_id,
+        "original_candidate_id": "candidate-original",
+        "motivating_run_id": "run_20260501_120000_abcdef",
+        "failure_classification": "candidate_bug",
+        "preserves_original_hypothesis": True,
+        "preserves_comparison_target": True,
+    }
+    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+
+
+def test_repair_candidate_lineage_is_recorded_in_run_metadata_and_ledger(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    add_valid_proposal(candidate)
+    add_repair_lineage(candidate, name="repair_candidate_1")
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    run = submit_candidate(candidate, runs_root, ledger_path=ledger, require_proposal=True)
+
+    assert run.status == RunStatus.ACCEPTED
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["repair_lineage"] == {
+        "original_proposal_id": "proposal-original",
+        "original_candidate_id": "candidate-original",
+        "motivating_run_id": "run_20260501_120000_abcdef",
+        "failure_classification": "candidate_bug",
+        "preserves_original_hypothesis": True,
+        "preserves_comparison_target": True,
+    }
+    events = [json.loads(line) for line in ledger.read_text().splitlines()]
+    candidate_created = next(event for event in events if event["event_type"] == "candidate_created")
+    assert candidate_created["repair_lineage"] == metadata["repair_lineage"]
+
+
+def test_autonomous_mode_rejects_more_than_two_repair_candidates_per_original_proposal(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+    for index in range(2):
+        (tmp_path / f"accepted_{index}").mkdir()
+        candidate = write_valid_candidate(tmp_path / f"accepted_{index}")
+        add_valid_proposal(candidate)
+        add_repair_lineage(candidate, name=f"repair_candidate_{index}")
+        assert submit_candidate(candidate, runs_root, ledger_path=ledger, require_proposal=True).status == RunStatus.ACCEPTED
+
+    (tmp_path / "third").mkdir()
+    third = write_valid_candidate(tmp_path / "third")
+    add_valid_proposal(third)
+    add_repair_lineage(third, name="repair_candidate_3")
+
+    run = submit_candidate(third, runs_root, ledger_path=ledger, require_proposal=True)
+
+    assert run.status == RunStatus.REJECTED
+    assert "at most two Repair Candidates" in str(run.rejection_reason)
+    assert not (run.run_dir / "candidate").exists()
+
+
+def test_manual_mode_does_not_apply_autonomous_repair_limit(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+    for index in range(2):
+        (tmp_path / f"accepted_{index}").mkdir()
+        candidate = write_valid_candidate(tmp_path / f"accepted_{index}")
+        add_repair_lineage(candidate, name=f"repair_candidate_{index}")
+        assert submit_candidate(candidate, runs_root, ledger_path=ledger).status == RunStatus.ACCEPTED
+
+    (tmp_path / "third").mkdir()
+    third = write_valid_candidate(tmp_path / "third")
+    add_repair_lineage(third, name="repair_candidate_3")
+
+    assert submit_candidate(third, runs_root, ledger_path=ledger).status == RunStatus.ACCEPTED
+
+
+def test_submitted_candidate_source_copy_is_not_overwritten_by_later_source_edits(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    run = submit_candidate(candidate, runs_root)
+    submitted_model = run.run_dir / "candidate" / "model.py"
+    original_submitted_text = submitted_model.read_text()
+
+    (candidate / "model.py").write_text("# repaired local source\n")
+
+    assert submitted_model.read_text() == original_submitted_text
+    assert submitted_model.read_text() != (candidate / "model.py").read_text()
