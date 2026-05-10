@@ -33,12 +33,36 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class RunFailureClassification(StrEnum):
+    """Approved Run Failure Classification vocabulary."""
+
+    CANDIDATE_BUG = "candidate_bug"
+    CONTRACT_VIOLATION = "contract_violation"
+    RESOURCE_FAILURE = "resource_failure"
+    HARNESS_FAILURE = "harness_failure"
+    BAD_RESEARCH_RESULT = "bad_research_result"
+    UNKNOWN = "unknown"
+
+
+def validate_run_failure_classification(value: str | RunFailureClassification | None) -> RunFailureClassification | None:
+    """Validate a Run Failure Classification value from metadata or callers."""
+
+    if value is None:
+        return None
+    try:
+        return RunFailureClassification(value)
+    except ValueError as exc:
+        allowed = ", ".join(member.value for member in RunFailureClassification)
+        raise ValueError(f"invalid run failure classification '{value}'; expected one of: {allowed}") from exc
+
+
 @dataclass(frozen=True)
 class RunSubmission:
     run_id: str
     run_dir: Path
     status: RunStatus
     rejection_reason: str | None = None
+    failure_classification: RunFailureClassification | None = None
 
 
 def run_candidate_with_synthetic_fixture(
@@ -161,11 +185,12 @@ def _run_candidate_synthetic_training(
             rejection_reason=None,
             smoke_failure_reason=None,
             training_failure_reason=reason,
+            failure_classification=RunFailureClassification.RESOURCE_FAILURE,
             execution_backend=execution_backend_metadata,
             training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
         )
-        _record_run_failed(resolved_ledger_path, run.run_id, reason)
-        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
+        _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
     except (TrainingError, RuntimeError) as exc:
         reason = str(exc)
         _write_metadata(
@@ -178,10 +203,11 @@ def _run_candidate_synthetic_training(
             rejection_reason=None,
             smoke_failure_reason=None,
             training_failure_reason=reason,
+            failure_classification=RunFailureClassification.CANDIDATE_BUG,
             execution_backend=execution_backend_metadata,
         )
-        _record_run_failed(resolved_ledger_path, run.run_id, reason)
-        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
+        _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.CANDIDATE_BUG)
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.CANDIDATE_BUG)
 
     _write_metadata(
         run.run_dir,
@@ -259,14 +285,20 @@ def _run_candidate_training(
             rejection_reason=None,
             smoke_failure_reason=None,
             training_failure_reason=reason,
+            failure_classification=RunFailureClassification.RESOURCE_FAILURE,
             execution_backend=metadata.get("execution_backend"),
             dataset=dataset,
             training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
         )
-        _record_run_failed(resolved_ledger_path, run.run_id, reason)
-        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
+        _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
     except (TrainingError, RuntimeError, GVCCSDataError) as exc:
         reason = str(exc)
+        classification = (
+            RunFailureClassification.HARNESS_FAILURE
+            if isinstance(exc, GVCCSDataError)
+            else RunFailureClassification.CANDIDATE_BUG
+        )
         _write_training_failure_log(run.run_dir, reason)
         _write_metadata(
             run.run_dir,
@@ -278,11 +310,12 @@ def _run_candidate_training(
             rejection_reason=None,
             smoke_failure_reason=None,
             training_failure_reason=reason,
+            failure_classification=classification,
             execution_backend=metadata.get("execution_backend"),
             dataset=dataset,
         )
-        _record_run_failed(resolved_ledger_path, run.run_id, reason)
-        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason)
+        _record_run_failed(resolved_ledger_path, run.run_id, reason, classification)
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, classification)
 
     _write_metadata(
         run.run_dir,
@@ -375,6 +408,8 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
     reason = metadata.get("rejection_reason") or metadata.get("smoke_failure_reason") or metadata.get("training_failure_reason")
     if reason is not None:
         summary["reason"] = reason
+    if metadata.get("failure_classification") is not None:
+        summary["failure_classification"] = metadata["failure_classification"]
     if "artifacts" in metadata:
         summary["artifacts"] = metadata["artifacts"]
 
@@ -494,9 +529,10 @@ def submit_candidate(
             rejection_reason=reason,
             smoke_failure_reason=None,
             training_failure_reason=None,
+            failure_classification=RunFailureClassification.CONTRACT_VIOLATION,
             execution_backend=execution_backend_metadata,
         )
-        return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason)
+        return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason, RunFailureClassification.CONTRACT_VIOLATION)
 
     validation_log.write_text("Candidate validation accepted.\n")
     proposal_path = source / "PROPOSAL.md"
@@ -532,9 +568,10 @@ def submit_candidate(
             rejection_reason=None,
             smoke_failure_reason=reason,
             training_failure_reason=None,
+            failure_classification=RunFailureClassification.CANDIDATE_BUG,
             execution_backend=execution_backend_metadata,
         )
-        return RunSubmission(run_id, run_dir, RunStatus.SMOKE_FAILED, reason)
+        return RunSubmission(run_id, run_dir, RunStatus.SMOKE_FAILED, reason, RunFailureClassification.CANDIDATE_BUG)
 
     _write_metadata(
         run_dir,
@@ -609,10 +646,19 @@ def _record_run_completed(ledger_path: Path, run_id: str, run_dir: Path) -> None
     )
 
 
-def _record_run_failed(ledger_path: Path, run_id: str, reason: str) -> None:
+def _record_run_failed(
+    ledger_path: Path,
+    run_id: str,
+    reason: str,
+    failure_classification: RunFailureClassification = RunFailureClassification.UNKNOWN,
+) -> None:
     record_research_event(
         "run_failed",
-        {"run_id": run_id, "error": reason or "unknown failure"},
+        {
+            "run_id": run_id,
+            "error": reason or "unknown failure",
+            "failure_classification": failure_classification.value,
+        },
         ledger_path=ledger_path,
     )
 
@@ -651,6 +697,7 @@ def _write_metadata(
     rejection_reason: str | None,
     smoke_failure_reason: str | None,
     training_failure_reason: str | None,
+    failure_classification: str | RunFailureClassification | None = None,
     artifacts: dict[str, object] | None = None,
     execution_backend: object | None = None,
     dataset: dict[str, object] | None = None,
@@ -664,6 +711,12 @@ def _write_metadata(
         "candidate_source": {"path": str(candidate_source.resolve())},
         "harness": {"package_version": _package_version()},
         "reserved_statuses": [member.value for member in RunStatus],
+        "reserved_failure_classifications": [member.value for member in RunFailureClassification],
+        "failure_classification": (
+            validate_run_failure_classification(failure_classification).value
+            if failure_classification is not None
+            else None
+        ),
         "rejection_reason": rejection_reason,
         "smoke_failure_reason": smoke_failure_reason,
         "training_failure_reason": training_failure_reason,

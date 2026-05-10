@@ -108,6 +108,21 @@ Rejected submissions do not copy the candidate source into `candidate/`.
 - `completed`
 - `failed`
 
+## Run Failure Classification
+
+Failed or unsuccessful Runs persist `failure_classification` in `run_metadata.json` without replacing detailed reason fields. `run_failed` Research Ledger events also include `failure_classification`.
+
+Approved values:
+
+- `candidate_bug` — Candidate implementation error during smoke testing or training.
+- `contract_violation` — Candidate Experiment Contract validation rejection.
+- `resource_failure` — timeout, resource exhaustion, or infrastructure interruption.
+- `harness_failure` — trusted Harness code, data, or configuration appears at fault.
+- `bad_research_result` — Run executed but produced a model-quality regression or otherwise poor research result.
+- `unknown` — the Harness cannot safely infer a cause.
+
+Existing detailed fields (`rejection_reason`, `smoke_failure_reason`, and `training_failure_reason`) remain authoritative diagnostic text. Observation commands surface `failure_classification` when present so automation can distinguish Resource Failures from contract rejections, candidate bugs, Harness failures, and bad research results.
+
 ## Candidate Execution Boundary hardening
 
 Docker-backed smoke tests, synthetic training, and GVCCS training launch containers with the following Harness-owned policy:

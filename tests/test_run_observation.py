@@ -14,6 +14,7 @@ def write_run(
     *,
     reason: str | None = None,
     best_dice: float | None = None,
+    failure_classification: str | None = None,
 ) -> Path:
     run_dir = runs_root / run_id
     run_dir.mkdir(parents=True)
@@ -26,6 +27,7 @@ def write_run(
         "rejection_reason": reason if status == "rejected" else None,
         "smoke_failure_reason": reason if status == "smoke_failed" else None,
         "training_failure_reason": reason if status == "failed" else None,
+        "failure_classification": failure_classification,
     }
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata) + "\n")
     if dice is not None:
@@ -234,3 +236,20 @@ def test_get_best_runs_ignores_post_run_evaluation_metrics(tmp_path: Path):
 
     assert [summary["run_id"] for summary in best] == ["run_high", "run_low"]
     assert [summary["rank_metric"] for summary in best] == [0.9, 0.2]
+
+
+def test_run_summary_surfaces_failure_classification_without_losing_reason(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    write_run(
+        runs_root,
+        "run_timeout",
+        "failed",
+        reason="wall-clock budget exhausted",
+        failure_classification="resource_failure",
+    )
+
+    summary = get_run_summary(runs_root, "run_timeout")
+
+    assert summary["status"] == "failed"
+    assert summary["reason"] == "wall-clock budget exhausted"
+    assert summary["failure_classification"] == "resource_failure"

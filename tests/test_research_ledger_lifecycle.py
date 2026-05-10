@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from ml_autoresearch.execution import DockerOperationTimeoutError, OperationResult
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER
 from ml_autoresearch.runs import (
     RunStatus,
@@ -321,3 +322,36 @@ def test_submit_candidate_cli_supports_ledger_path_option(tmp_path: Path) -> Non
     assert rows[0]["candidate_id"] == "ledger_lifecycle_candidate"
     assert rows[1]["event_type"] == "candidate_submitted"
     assert rows[1]["run_id"] == payload["run_id"]
+
+
+class TimeoutBackend:
+    name = "timeout-test"
+
+    def smoke_test(self, run_dir):
+        return OperationResult(backend=self.name, operation="smoke_test")
+
+    def train_synthetic(self, run_dir, *, max_prediction_samples=2, prediction_sample_policy="first_n"):
+        raise DockerOperationTimeoutError(
+            "wall-clock budget exhausted",
+            timeout_metadata={"requested": True, "forced_termination": True},
+        )
+
+    def train_gvccs(self, run_dir, data_root, *, max_samples=None, max_prediction_samples=2, prediction_sample_policy="first_n"):
+        raise NotImplementedError
+
+
+def test_run_candidate_with_synthetic_fixture_classifies_forced_timeout_as_resource_failure(tmp_path: Path) -> None:
+    candidate = write_trainable_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    run = run_candidate_with_synthetic_fixture(candidate, runs_root, ledger_path=ledger, backend=TimeoutBackend())
+
+    assert run.status == RunStatus.FAILED
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["failure_classification"] == "resource_failure"
+    assert metadata["training_failure_reason"] == run.rejection_reason
+    rows = read_jsonl(ledger)
+    assert rows[-1]["event_type"] == "run_failed"
+    assert rows[-1]["failure_classification"] == "resource_failure"
+    assert "wall-clock budget exhausted" in rows[-1]["error"]
