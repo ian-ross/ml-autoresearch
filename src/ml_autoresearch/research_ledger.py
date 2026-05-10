@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from ml_autoresearch.research_notes import ResearchFigureProvenance
+
 CANONICAL_RESEARCH_LEDGER = "research-ledger.jsonl"
 
 
@@ -66,6 +68,8 @@ class ResearchNoteWritten(_LedgerEvent):
     event_type: Literal["research_note_written"] = "research_note_written"
     note_path: str = Field(min_length=1)
     run_id: str | None = Field(default=None, min_length=1)
+    figure_provenance_path: str | None = Field(default=None, min_length=1)
+    figure_provenance: list[ResearchFigureProvenance] | None = None
 
 
 class CapabilityRequestCreated(_LedgerEvent):
