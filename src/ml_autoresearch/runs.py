@@ -16,7 +16,7 @@ import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
-from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
+from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.smoke import SmokeTestError
 from ml_autoresearch.gvccs import GVCCSDataError
 from ml_autoresearch.training import TrainingError
@@ -550,13 +550,15 @@ def _repair_count_for_original_proposal(ledger_path: Path, original_proposal_id:
     if not ledger_path.exists():
         return 0
     count = 0
-    for line in ledger_path.read_text().splitlines():
+    for line_number, line in enumerate(ledger_path.read_text().splitlines(), start=1):
         if not line.strip():
             continue
         try:
             event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as exc:
+            raise ResearchLedgerError(
+                f"malformed JSON in ledger {ledger_path} at line {line_number}: cannot enforce repair limits safely"
+            ) from exc
         repair_lineage = event.get("repair_lineage") if event.get("event_type") == "candidate_created" else None
         if isinstance(repair_lineage, dict) and repair_lineage.get("original_proposal_id") == original_proposal_id:
             count += 1

@@ -2,9 +2,12 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
+from ml_autoresearch.research_ledger import ResearchLedgerError
 from ml_autoresearch.runs import RunFailureClassification, RunStatus, submit_candidate, validate_run_failure_classification
+
 
 
 def write_valid_candidate(root: Path) -> Path:
@@ -195,6 +198,18 @@ def test_repair_candidate_lineage_is_recorded_in_run_metadata_and_ledger(tmp_pat
     events = [json.loads(line) for line in ledger.read_text().splitlines()]
     candidate_created = next(event for event in events if event["event_type"] == "candidate_created")
     assert candidate_created["repair_lineage"] == metadata["repair_lineage"]
+
+
+def test_repair_candidate_lineage_rejects_malformed_ledger_json_in_fast_fail_mode(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    add_valid_proposal(candidate)
+    add_repair_lineage(candidate, name="repair_candidate_1")
+    runs_root = tmp_path / "runs"
+    ledger = tmp_path / "research-ledger.jsonl"
+    ledger.write_text('{"event_type":"candidate_created"}\n{not-json}')
+
+    with pytest.raises(ResearchLedgerError, match="malformed JSON"):
+        submit_candidate(candidate, runs_root, ledger_path=ledger, require_proposal=True)
 
 
 def test_autonomous_mode_rejects_more_than_two_repair_candidates_per_original_proposal(tmp_path: Path):

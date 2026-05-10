@@ -51,7 +51,7 @@ def test_submit_candidate_cli_accepts_explicit_native_backend(tmp_path: Path):
     runs_root = tmp_path / "runs"
 
     completed = run_cli(
-        "submit-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--backend", "native"
+        "submit-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--backend", "native", "--no-require-proposal"
     )
 
     assert completed.returncode == 0, completed.stderr

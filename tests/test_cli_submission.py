@@ -82,7 +82,14 @@ def test_submit_candidate_cli_creates_run_and_prints_json(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
 
-    completed = run_cli("submit-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root))
+    completed = run_cli(
+        "submit-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--no-require-proposal",
+    )
 
     assert completed.returncode == 0
     payload = json.loads(completed.stdout)
@@ -92,12 +99,37 @@ def test_submit_candidate_cli_creates_run_and_prints_json(tmp_path: Path):
     assert completed.stderr == ""
 
 
+def test_submit_candidate_cli_defaults_to_require_proposal_in_autonomous_mode(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    completed = run_cli(
+        "submit-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+    )
+
+    assert completed.returncode == 1
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "rejected"
+    assert "PROPOSAL.md" in payload["rejection_reason"]
+
+
 def test_submit_candidate_cli_exits_nonzero_for_rejected_candidate(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     (candidate / "weights.pt").write_text("nope\n")
     runs_root = tmp_path / "runs"
 
-    completed = run_cli("submit-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root))
+    completed = run_cli(
+        "submit-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--no-require-proposal",
+    )
 
     assert completed.returncode == 1
     payload = json.loads(completed.stdout)

@@ -75,6 +75,12 @@ def test_validate_evaluation_request_file_rejects_unapproved_modes_and_unbounded
         validate_evaluation_request_file(write_request(tmp_path / "bad.yaml", **{field: value}))
 
 
+@pytest.mark.parametrize("target_run_id", ["../run_123", "/etc/passwd", "run_123/../evil", "..\\run_123", "run..run", "run 123"])
+def test_validate_evaluation_request_file_rejects_unsafe_target_run_id(tmp_path: Path, target_run_id: str) -> None:
+    with pytest.raises(EvaluationRequestError, match="target_run_id"):
+        validate_evaluation_request_file(write_request(tmp_path / "bad.yaml", target_run_id=target_run_id))
+
+
 def test_post_run_evaluation_requires_valid_request_and_links_artifacts_to_request_and_parent_run(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     write_run(runs_root)
@@ -98,7 +104,7 @@ def test_post_run_evaluation_requires_valid_request_and_links_artifacts_to_reque
     assert rows[0]["evaluation_request_id"] == "eval-threshold-sweep-run-123"
     assert rows[0]["run_id"] == "run_123"
     assert rows[1]["evaluation_id"] == "eval_eval-threshold-sweep-run-123"
-    assert rows[1]["artifact_metadata_path"] == "runs/run_123/evaluations/eval_eval-threshold-sweep-run-123/evaluation_metadata.json"
+    assert rows[1]["artifact_metadata_path"] == str((runs_root / "run_123" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "evaluation_metadata.json").resolve())
 
 
 def test_failed_evaluation_request_validation_does_not_create_artifacts_or_success_ledger_event(tmp_path: Path) -> None:

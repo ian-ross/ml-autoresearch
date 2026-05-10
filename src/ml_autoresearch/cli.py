@@ -255,7 +255,7 @@ def submit_candidate_command(
             "--require-proposal/--no-require-proposal",
             help="Require a local PROPOSAL.md during candidate validation.",
         ),
-    ] = False,
+    ] = True,
     ledger_path: Annotated[
         Path | None,
         typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to runs_root sibling research-ledger.jsonl."),

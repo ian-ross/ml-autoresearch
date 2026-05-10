@@ -114,6 +114,17 @@ _REQUIRED_PROPOSAL_SECTION_TITLES = (
     "fallback next decision",
 )
 
+_SECTION_SYNONYMS = {
+    "hypothesis": {"hypothesis"},
+    "comparison target": {"comparison target"},
+    "expected effect": {"expected effect"},
+    "implementation sketch": {"implementation sketch"},
+    "contract features used": {"contract features used", "contract features"},
+    "budget requested": {"budget requested", "budget"},
+    "success criteria": {"success criteria"},
+    "fallback next decision": {"fallback next decision", "fallback decision"},
+}
+
 _HEADING_RE = re.compile(r"^\s*#{1,6}\s+(?P<heading>.+?)\s*$")
 _METADATA_RE = re.compile(r"^\s*([^:#\n][^:]*)\s*:\s*(.+?)\s*$")
 
@@ -212,7 +223,7 @@ def _proposal_sections_present(text: str) -> set[str]:
 
 def _match_required_sections(text: str) -> set[str]:
     normalized = _normalize_section_name(text)
-    return {required for required in _REQUIRED_PROPOSAL_SECTION_TITLES if required in normalized}
+    return {required for required, synonyms in _SECTION_SYNONYMS.items() if normalized in synonyms}
 
 
 def _load_manifest(path: Path) -> CandidateManifest:

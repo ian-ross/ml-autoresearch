@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -79,6 +80,26 @@ class EvaluationRequest(BaseModel):
             raise ValueError("parameters.artifact_count must not exceed artifact_budget.max_artifacts")
         return self
 
+    @model_validator(mode="after")
+    def _target_run_id_is_safe_path(self) -> "EvaluationRequest":
+        if not _is_safe_target_run_id(self.target_run_id):
+            raise ValueError(f"target_run_id must be a safe single run identifier path segment: {self.target_run_id}")
+        return self
+
+
+def _is_safe_target_run_id(target_run_id: str) -> bool:
+    if target_run_id != target_run_id.strip():
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", target_run_id):
+        return False
+    if ".." in target_run_id:
+        return False
+    if "/" in target_run_id or "\\" in target_run_id:
+        return False
+    if target_run_id in {"", ".", ".."}:
+        return False
+    return True
+
 
 def validate_evaluation_request_file(request_path: str | Path) -> EvaluationRequest:
     """Load and validate one YAML Evaluation Request file."""
@@ -131,20 +152,10 @@ def run_post_run_evaluation(
     if evaluation_dir.exists():
         raise EvaluationRequestError(f"evaluation already exists: {evaluation_id}")
 
-    requested_event = record_research_event(
-        "evaluation_requested",
-        {
-            "evaluation_request_id": request.request_id,
-            "request_path": str(path),
-            "run_id": request.target_run_id,
-            "evaluation_mode": request.evaluation_mode,
-        },
-        ledger_path=ledger_path,
-    )
-
     evaluation_dir.mkdir(parents=True)
     summary_rel = relative_evaluation_dir / "summary.json"
     metadata_rel = relative_evaluation_dir / "evaluation_metadata.json"
+
     summary = _build_summary(request, evaluation_id)
     metadata = {
         "evaluation_id": evaluation_id,
@@ -160,6 +171,16 @@ def run_post_run_evaluation(
     _write_json(evaluation_dir / "summary.json", summary)
     _write_json(evaluation_dir / "evaluation_metadata.json", metadata)
 
+    requested_event = record_research_event(
+        "evaluation_requested",
+        {
+            "evaluation_request_id": request.request_id,
+            "request_path": str(path),
+            "run_id": request.target_run_id,
+            "evaluation_mode": request.evaluation_mode,
+        },
+        ledger_path=ledger_path,
+    )
     completed_event = record_research_event(
         "evaluation_completed",
         {
@@ -167,11 +188,16 @@ def run_post_run_evaluation(
             "evaluation_request_id": request.request_id,
             "run_id": request.target_run_id,
             "evaluation_mode": request.evaluation_mode,
-            "artifact_metadata_path": str(Path(root.name) / request.target_run_id / metadata_rel),
+            "artifact_metadata_path": str((run_dir / metadata_rel).resolve()),
         },
         ledger_path=ledger_path,
     )
-    return {"request": request.model_dump(), "evaluation": metadata, "ledger_events": [requested_event, completed_event], "evaluation_id": evaluation_id}
+    return {
+        "request": request.model_dump(),
+        "evaluation": metadata,
+        "ledger_events": [requested_event, completed_event],
+        "evaluation_id": evaluation_id,
+    }
 
 
 def _build_summary(request: EvaluationRequest, evaluation_id: str) -> dict[str, Any]:
@@ -183,7 +209,10 @@ def _build_summary(request: EvaluationRequest, evaluation_id: str) -> dict[str, 
         "diagnostic_question": request.diagnostic_question,
         "expected_decision_impact": request.expected_decision_impact,
         "status": "completed",
-        "note": "This Harness-owned Post-Run Evaluation recorded the validated request and artifact linkage; mode-specific metric computation can deepen behind this request gate.",
+        "note": (
+            "This Harness-owned Post-Run Evaluation recorded the validated request and artifact linkage; "
+            "mode-specific metric computation can deepen behind this request gate."
+        ),
     }
 
 
