@@ -52,17 +52,16 @@ or:
 }
 ```
 
-The broader v1 contract may add optional auxiliary heads:
+The current tracer-bullet implementation also accepts the first optional auxiliary head when requested by the manifest:
 
 ```python
 {
     "mask_logits": Tensor,
     "line_logits": Tensor,
-    "boundary_logits": Tensor,
 }
 ```
 
-Auxiliary heads are planned contract surface; the current smoke test rejects dictionary keys other than `mask_logits`. The Harness validates output names, shapes, and dtypes before real training.
+`line_logits` is allowed only for the Harness-derived Line Target. Broader auxiliary heads such as `boundary_logits` remain planned contract surface. The Harness validates output names, shapes, and dtypes before real training and rejects unrequested or unknown output keys.
 
 ## Loss allowlist
 
@@ -76,12 +75,12 @@ Allowed v1 primary mask losses:
 
 The current tracer-bullet implementation supports only `bce_dice`; the broader v1 allowlist is planned contract surface.
 
-Allowed v1 auxiliary losses for `line_logits` and `boundary_logits`:
+Allowed v1 auxiliary losses for planned `line_logits` and `boundary_logits`:
 
 - `focal_bce`
 - `weighted_bce`
 
-The manifest may provide bounded loss weights and loss parameters, but the Harness owns implementation, validation, and defaults.
+The current tracer-bullet implementation supports `weighted_bce` for the Line Target only. The manifest may provide bounded loss weights and loss parameters, but the Harness owns implementation, validation, and defaults.
 
 ## Metrics
 

@@ -88,6 +88,8 @@ Initial event types:
 - `run_failed`
 - `research_note_written`
 - `capability_request_created`
+- `evaluation_requested`
+- `evaluation_completed`
 - `campaign_report_written`
 - `campaign_paused`
 
@@ -120,7 +122,10 @@ The Run lifecycle inside `ml_autoresearch.runs` automatically emits Research Led
 - `run_candidate_with_synthetic_fixture` and `run_candidate_with_gvccs_data`
   record `run_started` once training begins, then either `run_completed`
   (with the final-metrics artifact path) or `run_failed` (with the failure
-  reason) when the Run terminates.
+  reason and approved `failure_classification`) when the Run terminates.
+- `run_post_run_evaluation` records `evaluation_requested` and
+  `evaluation_completed` after a valid Evaluation Request creates bounded
+  request-linked artifacts.
 
 By default, lifecycle events are appended to `<runs_root>/../research-ledger.jsonl`, which places the ledger at the campaign workspace root next to the local `runs/` artifact tree. Pass `--ledger-path` to `submit-candidate` and `run-candidate`, or the `ledger_path` keyword argument to the API, to override the destination (for example in tests).
 
@@ -170,30 +175,23 @@ Resource Budget Policy is Harness-owned and includes GPU assignment, CPU memory,
 
 Docker can constrain CPU RAM, shared memory, process limits, CPUs, and GPU device assignment. It generally cannot impose a simple reliable CUDA VRAM quota per container. Practical GPU-memory controls include one Run per GPU or explicit GPU slot scheduling, Harness-enforced bounds on batch size/image size/clip length/parameter count, mixed precision, smoke-test memory checks where feasible, bounded OOM retry, and MIG partitioning where available.
 
-Campaign Pause Conditions include:
+Campaign Pause Conditions use the approved values documented in `docs/campaign-report-format.md`:
 
-- budget exhausted;
-- repeated Run failures;
-- repeated Resource Failures;
-- repeated candidate validation rejections;
-- stalled Research Progress;
-- too many pending high-priority Capability Requests;
-- storage/artifact quota risk;
-- scheduled human check-in/report due.
+- `budget_exhausted`;
+- `repeated_failures`;
+- `repeated_resource_failures`;
+- `stalled_research_progress`;
+- `too_many_pending_capability_requests`;
+- `storage_risk`;
+- `scheduled_check_in`.
 
 ## Failure handling and repairs
 
-After a failed Run, the autonomous loop records a Run Failure Classification before acting. Failure classes include:
-
-- candidate bug;
-- contract violation;
-- Resource Failure;
-- Harness failure;
-- bad research result.
+After a failed Run, the autonomous loop records a Run Failure Classification before acting. Failure classes use the approved Run Failure Classification vocabulary from `docs/run-lifecycle.md`: `candidate_bug`, `contract_violation`, `resource_failure`, `harness_failure`, `bad_research_result`, and `unknown`.
 
 A submitted Candidate Experiment is never overwritten. Bug fixes are submitted as distinct Repair Candidates with repair lineage. Initial autonomous policy allows at most two Repair Candidates per original proposal. A Repair Candidate must preserve the original hypothesis and Comparison Target; changing the scientific idea requires a new Experiment Proposal and Candidate Experiment lineage.
 
-GPU out-of-memory is a Resource Failure. The Harness may perform bounded retry with a smaller effective batch size before failing the Run. When batch size is lowered, the Resolved Manifest or Run metadata must record both requested and effective batch size.
+GPU out-of-memory and similar allocation failures are Resource Failures. The Harness may perform bounded retry with a smaller effective batch size before failing the Run. When batch size is lowered, `resolved_manifest.yaml` records both `training.batch_size_requested` and `training.batch_size_effective`, and `run_metadata.json` records the Resource Failure retry lifecycle.
 
 ## Post-Run Evaluations
 
@@ -206,7 +204,7 @@ The agent may invoke approved, bounded Harness-owned Post-Run Evaluations on pri
 - bounded diagnostic parameters;
 - artifact/resource budget.
 
-Evaluation Requests may choose bounded Harness-approved diagnostic parameters such as thresholds, threshold sweep bounds, evaluation batch size, artifact counts, and failure buckets.
+Evaluation Requests may choose bounded Harness-approved diagnostic parameters such as thresholds, threshold sweep bounds, evaluation batch size, artifact counts, and failure buckets. The current request-gated tracer-bullet command writes linkage artifacts under `runs/<run_id>/evaluations/<evaluation_id>/`; the older whole-validation `evaluate-run` command writes diagnostic metric artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`.
 
 ## Validation overfitting control
 

@@ -109,7 +109,7 @@ Policy decisions for the branch:
 - In Docker, only `/outputs` and `/scratch` are writable container paths; `/outputs` is a run-scoped artifact mount and `/scratch` is bounded tmpfs.
 - For GVCCS training, host `--data-root` is mounted read-only at `/data`.
 - Candidate Experiments cannot request mounts or receive host dataset paths.
-- Containers run with no network, non-root users, read-only root filesystems, dropped Linux capabilities, process/CPU/memory limits, and GPU disabled by default unless enabled by Harness configuration.
+- Containers run with no network, Harness-selected user policy (rootless Docker may use container `0:0` mapped to the invoking host user; rootful Docker uses the host Harness uid/gid), read-only root filesystems, dropped Linux capabilities, process/CPU/memory limits, and GPU disabled by default unless enabled by Harness configuration.
 - Wall-clock budget exhaustion should use a graceful shutdown protocol for training Runs: signal the training loop, allow a bounded grace period to write the best meaningful Result available, and force-terminate only if the grace period expires.
 - The agent has no Docker or host shell access.
 
@@ -126,7 +126,7 @@ Provide initial candidates to exercise the loop:
 
 - single-frame UNet baseline.
 - temporal stack UNet baseline.
-- optional auxiliary-head UNet using `line_logits` and/or `boundary_logits`.
+- optional auxiliary-head UNet using implemented `line_logits`; `boundary_logits` remains planned contract surface.
 
 ## First tracer-bullet milestone — complete
 
@@ -143,7 +143,7 @@ Completion evidence:
 - Docker-backed execution and initial hardening have been added around the local loop;
 - the test suite passes for the implemented tracer-bullet behavior.
 
-The milestone remains intentionally narrower than the broader v1 contract. Temporal inputs, auxiliary heads, additional losses, pretrained-weight workflows, MLflow persistence, async orchestration, and production sandbox claims are follow-on work, not blockers for leaving the first tracer bullet.
+The milestone remains intentionally narrower than the broader v1 contract. Temporal inputs, Boundary Target auxiliary heads, additional primary losses, pretrained-weight workflows, MLflow persistence, async orchestration, and production sandbox claims are follow-on work, not blockers for leaving the first tracer bullet.
 
 ### Success criteria
 

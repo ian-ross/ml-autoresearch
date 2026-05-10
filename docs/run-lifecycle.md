@@ -8,9 +8,9 @@ A local Candidate Experiment submission creates a Harness-owned **Run** director
 ml-autoresearch submit-candidate --candidate path/to/candidate --runs-root runs --backend native
 ```
 
-The command prints JSON containing `run_id`, `run_dir`, `status`, and `rejection_reason`. It exits with status `0` for accepted submissions and non-zero for rejected submissions. `--backend native|docker` selects the smoke-test Candidate Execution Boundary; Docker uses `--docker-image`, defaulting to `ml-autoresearch-runner:local`.
+The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`. It exits with status `0` for accepted submissions and non-zero for rejected or smoke-failed submissions. `--backend native|docker` selects the smoke-test Candidate Execution Boundary; Docker uses `--docker-image`, defaulting to `ml-autoresearch-runner:local`.
 
-`submit-candidate` accepts `--require-proposal` when you want proposal validation on manual submissions.
+`submit-candidate` defaults to `--require-proposal`; use `--no-require-proposal` only for manual compatibility submissions that intentionally omit candidate-local `PROPOSAL.md`.
 
 ## Run IDs
 
@@ -50,6 +50,7 @@ runs/
             ├── validation.log
             ├── smoke_test.log              # after smoke test
             ├── training.log                # after training
+            ├── resource_retry.log          # Resource Failure retry events, when applicable
             └── harness_timeout.log         # Docker training timeout events, when applicable
 ```
 
@@ -65,7 +66,7 @@ Observation commands read metrics and summaries from the `outputs/` layout. Dock
 ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --synthetic-fixture
 ```
 
-`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows. Docker synthetic training and smoke testing use no data mount. Docker GVCCS training validates the host `--data-root`, mounts it read-only at `/data`, and records dataset metadata in `run_metadata.json`.
+`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Docker synthetic training and smoke testing use no data mount. Docker GVCCS training validates the host `--data-root`, mounts it read-only at `/data`, and records dataset metadata in `run_metadata.json`.
 
 GVCCS example:
 
@@ -123,9 +124,20 @@ Approved values:
 
 Existing detailed fields (`rejection_reason`, `smoke_failure_reason`, and `training_failure_reason`) remain authoritative diagnostic text. Observation commands surface `failure_classification` when present so automation can distinguish Resource Failures from contract rejections, candidate bugs, Harness failures, and bad research results.
 
+For Resource Failures during Harness-owned training, the implementation may retry with a smaller effective batch size up to three times while preserving the originally requested batch size in `resolved_manifest.yaml` as `training.batch_size_requested`. The attempted effective batch size is recorded as `training.batch_size_effective` and reflected in `training.batch_size` for the retried operation. `run_metadata.json` stores `training_lifecycle.resource_retry` with attempt details, and `outputs/logs/resource_retry.log` records a human-readable retry trace.
+
 ## Repair Candidate policy
 
 Repair Candidate lineage from the manifest is persisted in `run_metadata.json` as `repair_lineage` and in `candidate_created` Research Ledger events. The lineage records the original proposal, original candidate, motivating failed Run, and Run Failure Classification. Autonomous mode (`--require-proposal`) enforces the initial policy limit of at most two Repair Candidates per original proposal. Repairs are valid only when they preserve the original hypothesis and Comparison Target; scientific changes require a new Experiment Proposal and lineage.
+
+## Post-Run Evaluation artifacts
+
+There are currently two Harness-owned evaluation surfaces:
+
+- `evaluate-run` reloads a completed Run and writes metric/diagnostic artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`.
+- `run-post-run-evaluation` validates an Evaluation Request first, then writes the request-linked tracer-bullet artifacts under `runs/<run_id>/evaluations/<evaluation_id>/` and records `evaluation_requested` / `evaluation_completed` ledger events.
+
+`run-summary` currently observes completed `evaluate-run` artifacts under `outputs/evaluations/`.
 
 ## Candidate Execution Boundary hardening
 
