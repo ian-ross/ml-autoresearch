@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 
 import typer
 
+from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluations import DEFAULT_MAX_ARTIFACT_SAMPLES, EvaluationError, evaluate_run
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
@@ -85,6 +86,24 @@ def _parse_event_fields(fields: list[str]) -> dict[str, str]:
             raise typer.BadParameter("event field keys must be non-empty")
         parsed[key] = value
     return parsed
+
+
+@app.command("create-capability-request")
+def create_capability_request_command(
+    request: Annotated[Path, typer.Option(help="Path to a YAML Capability Request file.")],
+    ledger_path: Annotated[
+        Path,
+        typer.Option(help="Append-only Research Ledger JSONL path."),
+    ] = Path(CANONICAL_RESEARCH_LEDGER),
+) -> None:
+    """Validate a Capability Request and record a creation event for human review."""
+
+    try:
+        result = create_capability_request(request, ledger_path=ledger_path)
+    except CapabilityRequestError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    _echo_json(result)
 
 
 @app.command("record-research-event")
