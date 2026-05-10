@@ -117,6 +117,27 @@ def test_submit_candidate_cli_defaults_to_require_proposal_in_autonomous_mode(tm
     assert "PROPOSAL.md" in payload["rejection_reason"]
 
 
+def test_submit_candidate_cli_reports_ledger_failure_without_traceback(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    completed = run_cli(
+        "submit-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--ledger-path",
+        str(tmp_path),
+        "--no-require-proposal",
+    )
+
+    assert completed.returncode == 1
+    assert completed.stdout == ""
+    assert "Traceback" not in completed.stderr
+    assert str(tmp_path) in completed.stderr
+
+
 def test_submit_candidate_cli_exits_nonzero_for_rejected_candidate(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     (candidate / "weights.pt").write_text("nope\n")
@@ -150,6 +171,30 @@ def test_run_candidate_cli_rejects_missing_proposal_in_autonomous_mode(tmp_path:
     payload = json.loads(completed.stdout)
     assert payload["status"] == "rejected"
     assert "PROPOSAL.md" in payload["rejection_reason"]
+
+
+def test_run_candidate_cli_reports_ledger_failure_without_traceback(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+
+    completed = run_cli(
+        "run-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--synthetic-fixture",
+        "--backend",
+        "native",
+        "--ledger-path",
+        str(tmp_path),
+        "--no-require-proposal",
+    )
+
+    assert completed.returncode == 1
+    assert completed.stdout == ""
+    assert "Traceback" not in completed.stderr
+    assert str(tmp_path) in completed.stderr
 
 
 def test_run_candidate_cli_synthetic_fixture_trains_with_proposal_when_autonomous_and_accepts_by_default(tmp_path: Path):

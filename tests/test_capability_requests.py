@@ -150,3 +150,28 @@ def test_create_capability_request_cli_rejects_invalid_request_without_event(tmp
     assert completed.returncode == 1
     assert "capability_type" in completed.stderr
     assert not ledger.exists()
+
+
+def test_create_capability_request_cli_reports_ledger_write_failure_without_traceback(tmp_path: Path) -> None:
+    request_path = write_request(tmp_path / "request.yaml")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ml_autoresearch.cli",
+            "create-capability-request",
+            "--request",
+            str(request_path),
+            "--ledger-path",
+            str(tmp_path),
+        ],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert completed.returncode == 1
+    assert "Traceback" not in completed.stderr
+    assert str(tmp_path) in completed.stderr

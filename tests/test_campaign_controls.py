@@ -118,6 +118,33 @@ def test_campaign_control_cli_records_report_and_pause_events(tmp_path: Path) ->
     assert pause_payload["ledger_event"]["reason"] == "storage_risk"
 
 
+def test_campaign_control_cli_reports_ledger_write_failure_without_traceback(tmp_path: Path) -> None:
+    report = tmp_path / "campaign-reports" / "status.md"
+    report.parent.mkdir()
+    report.write_text("# Campaign Report\n")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ml_autoresearch.cli",
+            "record-campaign-report",
+            "--report-path",
+            str(report),
+            "--ledger-path",
+            str(tmp_path),
+        ],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert completed.returncode == 1
+    assert "Traceback" not in completed.stderr
+    assert str(tmp_path) in completed.stderr
+
+
 def test_campaign_report_format_doc_covers_required_summary_sections() -> None:
     text = Path("docs/campaign-report-format.md").read_text()
 
