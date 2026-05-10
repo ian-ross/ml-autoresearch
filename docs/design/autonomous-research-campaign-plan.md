@@ -100,6 +100,8 @@ ml-autoresearch record-research-event \
   --field candidate_id=candidate_abc
 ```
 
+`research_note_written` events include `note_path` and may include `run_id` for a single-Run note. Notes with Research Figures may also include `figure_provenance_path` pointing to the note section or sidecar provenance file, or `figure_provenance` metadata containing the same validated source Run/Evaluation IDs, source artifact paths, and selection reasons documented in `research-notes/README.md`.
+
 ## Run lifecycle emission
 
 The Run lifecycle inside `ml_autoresearch.runs` automatically emits Research Ledger events through the same validated `record_research_event` API as the CLI:

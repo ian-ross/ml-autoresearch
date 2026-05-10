@@ -97,6 +97,43 @@ def test_record_research_event_preserves_append_only_history(tmp_path: Path):
     assert read_jsonl(ledger) == [first, second]
 
 
+def test_research_note_written_event_can_reference_figure_provenance_path(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    event = record_research_event(
+        "research_note_written",
+        {
+            "note_path": "research-notes/2026-05-09-note.md",
+            "figure_provenance_path": "research-notes/2026-05-09-note.md#research-figures",
+        },
+        ledger_path=ledger,
+    )
+
+    assert event["figure_provenance_path"] == "research-notes/2026-05-09-note.md#research-figures"
+
+
+def test_research_note_written_event_can_embed_figure_provenance_metadata(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    event = record_research_event(
+        "research_note_written",
+        {
+            "note_path": "research-notes/2026-05-09-note.md",
+            "figure_provenance": [
+                {
+                    "figure_id": "fig-overlay-001",
+                    "source_run_id": "run_abc",
+                    "source_artifact_path": "outputs/prediction_samples/sample_000_overlay.png",
+                    "reason": "Shows the clearest false negative in the saved prediction samples.",
+                }
+            ],
+        },
+        ledger_path=ledger,
+    )
+
+    assert event["figure_provenance"][0]["source_run_id"] == "run_abc"
+
+
 def test_record_research_event_cli_validates_and_appends_json(tmp_path: Path):
     ledger = tmp_path / "research-ledger.jsonl"
     completed = subprocess.run(
