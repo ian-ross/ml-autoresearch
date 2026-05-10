@@ -16,6 +16,7 @@ This repository currently contains the local tracer-bullet Harness with a Docker
 - train one epoch on deterministic synthetic data or a local GVCCS-like/GVCCS dataset
 - for Docker GVCCS training, mount the host `--data-root` read-only at `/data` inside the container
 - write local Run artifacts such as metrics, metadata, logs, model summaries, and prediction samples
+- record validated Research Ledger events for proposals, candidates, Runs, evaluations, capability requests, reports, and pauses
 - inspect local Runs without MLflow
 
 The native backend remains available as an explicit developer-unsafe escape hatch. MLflow upload, async scheduling, and stronger production isolation are planned later layers around the same Research Loop.
@@ -79,7 +80,7 @@ candidate/
 A Candidate source may also include:
 
 - `README.md`: narrative notes for the candidate owner.
-- `PROPOSAL.md`: autonomous-mode experiment rationale required by `run-candidate --require-proposal`.
+- `PROPOSAL.md`: autonomous-mode experiment rationale required by the default `--require-proposal` validation on `submit-candidate` and `run-candidate`.
 
 `Research Note` documents are distinct: they are captured outside candidate source directories and summarize Run outcomes in campaign context.
 
@@ -92,6 +93,7 @@ input_mode: single_frame_rgb
 output_form: mask_logits
 data:
   sampling_policy: sequential
+  augmentation_policy: none
 training:
   loss: bce_dice
   optimizer: adamw
@@ -117,13 +119,14 @@ tests/fixtures/candidates/single_frame_unet_baseline
 
 ## Running a Candidate Experiment
 
-Run against deterministic synthetic fixture data:
+Run against deterministic synthetic fixture data. `run-candidate` defaults to autonomous-mode proposal validation; the committed test fixture has no `PROPOSAL.md`, so these fixture examples use `--no-require-proposal`.
 
 ```bash
 uv run ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root runs \
-  --synthetic-fixture
+  --synthetic-fixture \
+  --no-require-proposal
 ```
 
 Build the pinned Docker runner image. The Docker backend defaults to the local runner image tag `ml-autoresearch-runner:local`; the preferred repeatable local workflow is:
@@ -146,7 +149,8 @@ uv run ml-autoresearch run-candidate \
   --runs-root runs \
   --data-root /path/to/GVCCS \
   --max-samples 8 \
-  --prediction-sample-policy adjacent_and_scattered
+  --prediction-sample-policy adjacent_and_scattered \
+  --no-require-proposal
 ```
 
 Prediction Sample Policy is a Run-level Harness option, not a Candidate Experiment manifest option. Supported values are `first_n` (default) and `adjacent_and_scattered`.
@@ -167,7 +171,8 @@ uv run ml-autoresearch run-candidate \
   --runs-root runs \
   --data-root /path/to/GVCCS \
   --max-samples 8 \
-  --docker-enable-gpu
+  --docker-enable-gpu \
+  --no-require-proposal
 ```
 
 Real GVCCS data is not committed to this repository. The Docker backend validates the host path and mounts it read-only at `/data`; Candidate Experiments cannot choose data paths or mounts. See [`docs/gvccs-data.md`](docs/gvccs-data.md) for expected local layout.

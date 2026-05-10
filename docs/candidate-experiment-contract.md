@@ -82,8 +82,7 @@ Rules for the initial surface:
 
 ## Experiment Proposal contract
 
-`run-candidate` with `--require-proposal/--no-require-proposal` records a mandatory `PROPOSAL.md` in autonomous mode.
-The `PROPOSAL.md` must include these required sections or metadata keys:
+`submit-candidate` and `run-candidate` default to autonomous-mode proposal validation (`--require-proposal`). Use `--no-require-proposal` only for manual compatibility flows that intentionally omit a candidate-local proposal. When proposal validation is enabled, the Candidate Experiment directory must include `PROPOSAL.md` with these required sections or metadata keys:
 
 - `Hypothesis`
 - `Comparison Target`
