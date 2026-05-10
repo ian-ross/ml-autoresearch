@@ -62,6 +62,8 @@ def test_submit_candidate_creates_accepted_run_directory(tmp_path: Path):
     assert resolved["output_form"] == "mask_logits"
     assert resolved["auxiliary_targets"] == []
     assert resolved["data"]["sampling_policy"] == "sequential"
+    assert resolved["data"]["augmentation_policy"] == "none"
+    assert resolved["data"]["augmentation_policy_effective"] == "none"
     assert resolved["training"]["loss"] == "bce_dice"
 
     metadata = json.loads((run_dir / "run_metadata.json").read_text())

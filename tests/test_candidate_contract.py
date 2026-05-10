@@ -79,6 +79,7 @@ def test_valid_candidate_directory_returns_normalized_manifest(tmp_path: Path):
     assert manifest.training.max_epochs == 1
     assert manifest.data.sampling_policy == "sequential"
     assert manifest.auxiliary_targets == []
+    assert manifest.data.augmentation_policy == "none"
 
 
 def test_candidate_directory_accepts_valid_proposal_in_proposal_required_mode(tmp_path: Path):
@@ -139,6 +140,57 @@ training:
 
     with pytest.raises(CandidateValidationError, match="input_mode"):
         validate_candidate_directory(candidate)
+
+
+def test_candidate_manifest_accepts_augmentation_policy(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: light_augmented
+input_mode: single_frame_rgb
+output_form: mask_logits
+data:
+  augmentation_policy: light_combined
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    manifest = validate_candidate_directory(candidate)
+
+    assert manifest.data.augmentation_policy == "light_combined"
+
+
+def test_invalid_augmentation_policy_is_rejected(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: broken
+input_mode: single_frame_rgb
+output_form: mask_logits
+data:
+  augmentation_policy: candidate_custom_transform
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate)
+
+    message = str(excinfo.value)
+    assert "data.augmentation_policy" in message
+    assert "candidate_custom_transform" in message
 
 
 def test_candidate_manifest_accepts_sampling_policy(tmp_path: Path):
