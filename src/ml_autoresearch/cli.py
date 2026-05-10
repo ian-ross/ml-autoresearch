@@ -13,6 +13,7 @@ from typing import Annotated, Literal
 import typer
 
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
+from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
 from ml_autoresearch.evaluations import DEFAULT_MAX_ARTIFACT_SAMPLES, EvaluationError, evaluate_run
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
@@ -101,6 +102,25 @@ def create_capability_request_command(
     try:
         result = create_capability_request(request, ledger_path=ledger_path)
     except CapabilityRequestError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    _echo_json(result)
+
+
+@app.command("run-post-run-evaluation")
+def run_post_run_evaluation_command(
+    request: Annotated[Path, typer.Option(help="Path to a YAML Evaluation Request file.")],
+    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
+    ledger_path: Annotated[
+        Path,
+        typer.Option(help="Append-only Research Ledger JSONL path."),
+    ] = Path(CANONICAL_RESEARCH_LEDGER),
+) -> None:
+    """Validate an Evaluation Request and run a bounded Post-Run Evaluation."""
+
+    try:
+        result = run_post_run_evaluation(request, runs_root=runs_root, ledger_path=ledger_path)
+    except EvaluationRequestError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     _echo_json(result)
