@@ -7,6 +7,7 @@ import secrets
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Callable
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -44,6 +45,21 @@ class RunFailureClassification(StrEnum):
     UNKNOWN = "unknown"
 
 
+MAX_RESOURCE_RETRY_ATTEMPTS = 3
+_RESOURCE_FAILURE_MARKERS = (
+    "cuda out of memory",
+    "cuda error: out of memory",
+    "cublas_status_alloc_failed",
+    "cudnn_status_alloc_failed",
+    "hip out of memory",
+    "mps backend out of memory",
+    "defaultcpuallocator: can't allocate memory",
+    "cannot allocate memory",
+    "memoryerror",
+    "std::bad_alloc",
+)
+
+
 def validate_run_failure_classification(value: str | RunFailureClassification | None) -> RunFailureClassification | None:
     """Validate a Run Failure Classification value from metadata or callers."""
 
@@ -54,6 +70,13 @@ def validate_run_failure_classification(value: str | RunFailureClassification | 
     except ValueError as exc:
         allowed = ", ".join(member.value for member in RunFailureClassification)
         raise ValueError(f"invalid run failure classification '{value}'; expected one of: {allowed}") from exc
+
+
+def is_resource_failure(exc: BaseException | str) -> bool:
+    """Classify GPU/compute exhaustion messages as Resource Failures."""
+
+    text = str(exc).lower()
+    return any(marker in text for marker in _RESOURCE_FAILURE_MARKERS)
 
 
 @dataclass(frozen=True)
@@ -168,11 +191,15 @@ def _run_candidate_synthetic_training(
     )
     selected_backend = backend or NativeBackend()
     training_result = None
+    resource_lifecycle = None
     try:
-        training_result = selected_backend.train_synthetic(
+        training_result, resource_lifecycle = _run_with_resource_retries(
             run.run_dir,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
+            lambda: selected_backend.train_synthetic(
+                run.run_dir,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+            ),
         )
         artifacts = _validate_synthetic_training_outputs(run.run_dir)
     except DockerOperationTimeoutError as exc:
@@ -196,6 +223,8 @@ def _run_candidate_synthetic_training(
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
     except (TrainingError, RuntimeError) as exc:
         reason = str(exc)
+        classification = RunFailureClassification.RESOURCE_FAILURE if is_resource_failure(exc) else RunFailureClassification.CANDIDATE_BUG
+        failure_lifecycle = exc.lifecycle if isinstance(exc, ResourceRetryExhaustedError) else None
         _write_metadata(
             run.run_dir,
             run_id=run.run_id,
@@ -206,12 +235,13 @@ def _run_candidate_synthetic_training(
             rejection_reason=None,
             smoke_failure_reason=None,
             training_failure_reason=reason,
-            failure_classification=RunFailureClassification.CANDIDATE_BUG,
+            failure_classification=classification,
             execution_backend=execution_backend_metadata,
+            training_lifecycle=failure_lifecycle,
             repair_lineage=repair_lineage,
         )
-        _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.CANDIDATE_BUG)
-        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.CANDIDATE_BUG)
+        _record_run_failed(resolved_ledger_path, run.run_id, reason, classification)
+        return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, classification)
 
     _write_metadata(
         run.run_dir,
@@ -225,7 +255,7 @@ def _run_candidate_synthetic_training(
         training_failure_reason=None,
         artifacts=artifacts,
         execution_backend=execution_backend_metadata,
-        training_lifecycle=_training_lifecycle_from_result(training_result),
+        training_lifecycle=_merge_training_lifecycle(training_result, resource_lifecycle or {}),
         repair_lineage=repair_lineage,
     )
     _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
@@ -277,8 +307,9 @@ def _run_candidate_training(
         dataset=dataset,
         repair_lineage=repair_lineage,
     )
+    resource_lifecycle = None
     try:
-        training_result = trainer(run.run_dir)
+        training_result, resource_lifecycle = _run_with_resource_retries(run.run_dir, lambda: trainer(run.run_dir))
     except DockerOperationTimeoutError as exc:
         reason = str(exc)
         _write_training_failure_log(run.run_dir, reason)
@@ -305,8 +336,9 @@ def _run_candidate_training(
         classification = (
             RunFailureClassification.HARNESS_FAILURE
             if isinstance(exc, GVCCSDataError)
-            else RunFailureClassification.CANDIDATE_BUG
+            else RunFailureClassification.RESOURCE_FAILURE if is_resource_failure(exc) else RunFailureClassification.CANDIDATE_BUG
         )
+        failure_lifecycle = exc.lifecycle if isinstance(exc, ResourceRetryExhaustedError) else None
         _write_training_failure_log(run.run_dir, reason)
         _write_metadata(
             run.run_dir,
@@ -321,6 +353,7 @@ def _run_candidate_training(
             failure_classification=classification,
             execution_backend=metadata.get("execution_backend"),
             dataset=dataset,
+            training_lifecycle=failure_lifecycle,
             repair_lineage=repair_lineage,
         )
         _record_run_failed(resolved_ledger_path, run.run_id, reason, classification)
@@ -339,7 +372,7 @@ def _run_candidate_training(
         artifacts=_artifacts_from_training_result(training_result),
         execution_backend=metadata.get("execution_backend"),
         dataset=dataset,
-        training_lifecycle=_training_lifecycle_from_result(training_result),
+        training_lifecycle=_merge_training_lifecycle(training_result, resource_lifecycle or {}),
         repair_lineage=repair_lineage,
     )
     _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
@@ -668,6 +701,122 @@ def _outputs_dir(run_dir: Path) -> Path:
     return run_dir / "outputs"
 
 
+def _run_with_resource_retries(run_dir: Path, operation: Callable[[], object]) -> tuple[object, dict[str, object]]:
+    """Run Harness-owned training with bounded Resource Failure batch-size retries."""
+
+    requested_batch_size = _resolved_manifest_batch_size(run_dir)
+    effective_batch_size = requested_batch_size
+    attempts: list[dict[str, object]] = []
+    retry_count = 0
+    while True:
+        attempt_number = len(attempts) + 1
+        _set_resolved_manifest_effective_batch_size(
+            run_dir,
+            requested_batch_size=requested_batch_size,
+            effective_batch_size=effective_batch_size,
+        )
+        try:
+            result = operation()
+        except (TrainingError, RuntimeError) as exc:
+            reason = str(exc)
+            if not is_resource_failure(exc):
+                raise
+            attempt: dict[str, object] = {
+                "attempt": attempt_number,
+                "batch_size": effective_batch_size,
+                "outcome": "resource_failure",
+                "failure_classification": RunFailureClassification.RESOURCE_FAILURE.value,
+                "reason": reason,
+            }
+            can_retry = retry_count < MAX_RESOURCE_RETRY_ATTEMPTS and effective_batch_size > 1
+            if can_retry:
+                next_batch_size = max(1, effective_batch_size // 2)
+                attempt["next_batch_size"] = next_batch_size
+                attempts.append(attempt)
+                _append_resource_retry_log(
+                    run_dir,
+                    f"Resource Failure on attempt {attempt_number} with batch_size={effective_batch_size}: {reason}; retrying with batch_size={next_batch_size}.",
+                )
+                effective_batch_size = next_batch_size
+                retry_count += 1
+                continue
+            attempts.append(attempt)
+            _append_resource_retry_log(
+                run_dir,
+                f"Resource Failure retry exhausted after attempt {attempt_number} with batch_size={effective_batch_size}: {reason}.",
+            )
+            lifecycle = _resource_retry_lifecycle(
+                requested_batch_size=requested_batch_size,
+                effective_batch_size=effective_batch_size,
+                attempts=attempts,
+                exhausted=True,
+            )
+            raise ResourceRetryExhaustedError(reason, lifecycle=lifecycle) from exc
+        attempts.append({"attempt": attempt_number, "batch_size": effective_batch_size, "outcome": "completed"})
+        if retry_count:
+            _append_resource_retry_log(
+                run_dir,
+                f"Resource Failure retry succeeded on attempt {attempt_number} with batch_size={effective_batch_size}.",
+            )
+        lifecycle = _resource_retry_lifecycle(
+            requested_batch_size=requested_batch_size,
+            effective_batch_size=effective_batch_size,
+            attempts=attempts,
+            exhausted=False,
+        )
+        return result, lifecycle
+
+
+class ResourceRetryExhaustedError(TrainingError):
+    """Raised when bounded Resource Failure retry attempts are exhausted."""
+
+    def __init__(self, reason: str, *, lifecycle: dict[str, object]):
+        super().__init__(f"Resource Failure retry exhausted: {reason}")
+        self.lifecycle = lifecycle
+
+
+def _resource_retry_lifecycle(
+    *, requested_batch_size: int, effective_batch_size: int, attempts: list[dict[str, object]], exhausted: bool
+) -> dict[str, object]:
+    retry_count = sum(1 for attempt in attempts if attempt.get("outcome") == "resource_failure" and "next_batch_size" in attempt)
+    status = "resource_retry_exhausted" if exhausted else ("completed_after_resource_retry" if retry_count else "completed")
+    return {
+        "status": status,
+        "resource_retry": {
+            "enabled": True,
+            "max_retries": MAX_RESOURCE_RETRY_ATTEMPTS,
+            "requested_batch_size": requested_batch_size,
+            "effective_batch_size": effective_batch_size,
+            "retry_count": retry_count,
+            "exhausted": exhausted,
+            "attempts": attempts,
+        },
+    }
+
+
+def _resolved_manifest_batch_size(run_dir: Path) -> int:
+    manifest = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
+    return int(manifest["training"].get("batch_size_requested", manifest["training"]["batch_size"]))
+
+
+def _set_resolved_manifest_effective_batch_size(
+    run_dir: Path, *, requested_batch_size: int, effective_batch_size: int
+) -> None:
+    manifest_path = run_dir / "resolved_manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text())
+    manifest["training"]["batch_size_requested"] = requested_batch_size
+    manifest["training"]["batch_size_effective"] = effective_batch_size
+    manifest["training"]["batch_size"] = effective_batch_size
+    _write_yaml(manifest_path, manifest)
+
+
+def _append_resource_retry_log(run_dir: Path, line: str) -> None:
+    log_path = _outputs_dir(run_dir) / "logs" / "resource_retry.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a") as handle:
+        handle.write(line + "\n")
+
+
 def _resolve_ledger_path(runs_root: str | Path, ledger_path: str | Path | None) -> Path:
     if ledger_path is not None:
         return Path(ledger_path)
@@ -865,6 +1014,17 @@ def _training_lifecycle_from_result(training_result: object) -> dict[str, object
             lifecycle["timeout"] = timeout
         return lifecycle
     return None
+
+
+def _merge_training_lifecycle(training_result: object, resource_lifecycle: dict[str, object]) -> dict[str, object]:
+    lifecycle = dict(resource_lifecycle)
+    result_lifecycle = _training_lifecycle_from_result(training_result)
+    if result_lifecycle is None:
+        return lifecycle
+    lifecycle.update({key: value for key, value in result_lifecycle.items() if key != "status"})
+    if result_lifecycle.get("status") != "completed":
+        lifecycle["status"] = result_lifecycle["status"]
+    return lifecycle
 
 
 def _write_yaml(path: Path, data: object) -> None:
