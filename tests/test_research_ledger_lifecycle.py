@@ -306,6 +306,7 @@ def test_submit_candidate_cli_supports_ledger_path_option(tmp_path: Path) -> Non
             str(runs_root),
             "--ledger-path",
             str(ledger),
+            "--no-require-proposal",
         ],
         check=False,
         text=True,

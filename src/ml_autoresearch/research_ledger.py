@@ -193,7 +193,9 @@ def validate_research_event(event_type: str, fields: dict[str, Any]) -> dict[str
     if schema is None:
         supported = ", ".join(supported_research_event_types())
         raise ResearchLedgerError(f"unsupported event_type '{event_type}'; expected one of: {supported}")
-    payload = {"event_type": event_type, "created_at": _now_iso(), **fields}
+    sanitized_fields = dict(fields)
+    sanitized_fields.pop("created_at", None)
+    payload = {"event_type": event_type, "created_at": _now_iso(), **sanitized_fields}
     try:
         event = schema.model_validate(payload)
     except ValidationError as exc:

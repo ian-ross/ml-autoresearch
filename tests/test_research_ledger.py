@@ -67,6 +67,25 @@ def test_record_research_event_supports_candidate_linkage_for_candidate_created(
     assert rows[0]["candidate_path"] == "candidates/ledger_lifecycle_candidate"
 
 
+def test_record_research_event_forces_harness_created_at_timestamp(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+    fake_created_at = "2000-01-01T00:00:00Z"
+
+    event = record_research_event(
+        "run_started",
+        {
+            "run_id": "run_abc",
+            "candidate_id": "candidate-abc",
+            "created_at": fake_created_at,
+        },
+        ledger_path=ledger,
+    )
+
+    assert event["created_at"] != fake_created_at
+    rows = read_jsonl(ledger)
+    assert rows[0]["created_at"] == event["created_at"]
+
+
 def test_record_research_event_rejects_invalid_schema_without_corrupting_ledger(tmp_path: Path):
     ledger = tmp_path / "research-ledger.jsonl"
     record_research_event(

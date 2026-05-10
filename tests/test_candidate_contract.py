@@ -122,6 +122,28 @@ Compare against previous run.
     assert "Contract Features Used" in message
 
 
+def test_candidate_proposal_sections_require_exact_matches_not_substring_matches(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "PROPOSAL.md").write_text(
+        """\
+## Hypothesis about Comparison Target Effects
+A hypothesis that combines multiple decision points.
+
+## Comparison Target
+This is a concise summary.
+"""
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate, require_proposal=True)
+
+    message = str(excinfo.value)
+    assert "Expected Effect" in message
+    assert "Implementation Sketch" in message
+    assert "Contract Features Used" in message
+    assert "Fallback Next Decision" in message
+
+
 def test_missing_required_manifest_field_is_rejected(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     (candidate / "manifest.yaml").write_text(
