@@ -229,7 +229,7 @@ Candidate Experiments must not:
 - download pretrained weights at runtime;
 - reference arbitrary checkpoint paths.
 
-If new research freedom is needed, it should be added as an explicit Harness-owned parameter or audited capability.
+If new research freedom is needed, record a structured Capability Request using the format in `docs/capability-request-format.md`. Capability Requests are not self-approving; they only create an auditable request for separate human-supervised Harness work.
 
 ## Pretrained weights
 
