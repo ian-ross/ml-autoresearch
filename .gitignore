@@ -5,3 +5,5 @@ __pycache__/
 
 # Generated run artifacts
 runs/
+enclave-container/gondolin-debian/
+.make/
