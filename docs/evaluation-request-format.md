@@ -1,6 +1,6 @@
 # Evaluation Request format
 
-Evaluation Requests authorize bounded, Harness-owned autonomous Post-Run Evaluations. They are YAML mappings validated before any evaluation artifacts are written.
+Evaluation Requests authorize bounded, Harness-owned autonomous Post-Run Evaluations. Autonomous request-gated evaluations use YAML mappings validated before any evaluation artifacts are written. Manual `evaluate-run` invocations create an implicit JSON Evaluation Request artifact from the CLI/API parameters under `outputs/evaluations/<evaluation_id>/evaluation_request.json` so their durable artifacts have the same ledger linkage.
 
 Required fields:
 

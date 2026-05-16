@@ -51,13 +51,23 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def read_jsonl(path: Path) -> list[dict[str, object]]:
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
 def test_evaluate_run_api_writes_run_scoped_validation_artifacts(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", "tests/fixtures/gvccs_like", max_samples=4)
     assert run.status == RunStatus.COMPLETED
 
+    ledger = tmp_path / "evaluation-ledger.jsonl"
     result = evaluate_run(
-        run.run_dir, split="val", backend="native", data_root="tests/fixtures/gvccs_like", max_artifact_samples=1
+        run.run_dir,
+        split="val",
+        backend="native",
+        data_root="tests/fixtures/gvccs_like",
+        max_artifact_samples=1,
+        ledger_path=ledger,
     )
 
     evaluation_dir = result.evaluation_dir
@@ -122,6 +132,14 @@ def test_evaluate_run_api_writes_run_scoped_validation_artifacts(tmp_path: Path)
     for relative_path in diagnostic["paths"].values():
         assert (diagnostics_dir / relative_path).is_file()
 
+    request = json.loads((evaluation_dir / "evaluation_request.json").read_text())
+    assert request["request_id"] == result.evaluation_request_id
+    events = read_jsonl(ledger)
+    assert [event["event_type"] for event in events] == ["evaluation_requested", "evaluation_completed"]
+    assert events[0]["evaluation_request_id"] == result.evaluation_request_id
+    assert events[0]["request_path"] == str(result.request_path)
+    assert events[1]["evaluation_id"] == result.evaluation_id
+
 
 def test_evaluate_run_api_records_failed_metadata_for_missing_model_artifact(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
@@ -164,6 +182,22 @@ def test_evaluate_run_cli_uses_run_metadata_data_root_by_default(tmp_path: Path)
     assert (evaluation_dir / "per_sample_metrics.jsonl").exists()
     assert (evaluation_dir / "threshold_sweep.json").exists()
     assert (evaluation_dir / "diagnostic_samples" / "samples.json").exists()
+
+    request = json.loads((evaluation_dir / "evaluation_request.json").read_text())
+    assert request["request_id"] == f"manual_{payload['evaluation_id']}"
+    assert request["target_run_id"] == run.run_id
+    assert request["evaluation_mode"] == "whole_validation_failure_analysis"
+
+    rows = read_jsonl(tmp_path / "research-ledger.jsonl")
+    evaluation_events = [row for row in rows if row["event_type"].startswith("evaluation_")]
+    assert [row["event_type"] for row in evaluation_events] == ["evaluation_requested", "evaluation_completed"]
+    assert evaluation_events[0]["evaluation_request_id"] == request["request_id"]
+    assert evaluation_events[0]["request_path"] == str(evaluation_dir / "evaluation_request.json")
+    assert evaluation_events[0]["run_id"] == run.run_id
+    assert evaluation_events[0]["evaluation_mode"] == "whole_validation_failure_analysis"
+    assert evaluation_events[1]["evaluation_id"] == payload["evaluation_id"]
+    assert evaluation_events[1]["evaluation_request_id"] == request["request_id"]
+    assert evaluation_events[1]["artifact_metadata_path"] == str(evaluation_dir / "evaluation_metadata.json")
 
 
 def test_failure_bucket_selection_is_bounded_and_deduplicates_memberships():

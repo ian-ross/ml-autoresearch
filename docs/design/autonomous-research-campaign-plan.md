@@ -126,8 +126,12 @@ The Run lifecycle inside `ml_autoresearch.runs` automatically emits Research Led
 - `run_post_run_evaluation` records `evaluation_requested` and
   `evaluation_completed` after a valid Evaluation Request creates bounded
   request-linked artifacts.
+- `evaluate-run` creates an implicit manual Evaluation Request artifact at
+  `outputs/evaluations/<evaluation_id>/evaluation_request.json` and records the
+  same `evaluation_requested` / `evaluation_completed` ledger pair for the
+  durable Post-Run Evaluation artifacts it writes.
 
-By default, lifecycle events are appended to `<runs_root>/../research-ledger.jsonl`, which places the ledger at the campaign workspace root next to the local `runs/` artifact tree. Pass `--ledger-path` to `submit-candidate` and `run-candidate`, or the `ledger_path` keyword argument to the API, to override the destination (for example in tests).
+By default, lifecycle events are appended to `<runs_root>/../research-ledger.jsonl`, which places the ledger at the campaign workspace root next to the local `runs/` artifact tree. Pass `--ledger-path` to `submit-candidate`, `run-candidate`, and `evaluate-run`, or the corresponding `ledger_path` keyword argument to the API, to override the destination (for example in tests).
 
 Later event types may include:
 
@@ -204,7 +208,7 @@ The agent may invoke approved, bounded Harness-owned Post-Run Evaluations on pri
 - bounded diagnostic parameters;
 - artifact/resource budget.
 
-Evaluation Requests may choose bounded Harness-approved diagnostic parameters such as thresholds, threshold sweep bounds, evaluation batch size, artifact counts, and failure buckets. The current request-gated tracer-bullet command writes linkage artifacts under `runs/<run_id>/evaluations/<evaluation_id>/`; the older whole-validation `evaluate-run` command writes diagnostic metric artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`.
+Evaluation Requests may choose bounded Harness-approved diagnostic parameters such as thresholds, threshold sweep bounds, evaluation batch size, artifact counts, and failure buckets. The current request-gated tracer-bullet command writes linkage artifacts under `runs/<run_id>/evaluations/<evaluation_id>/`; the whole-validation `evaluate-run` command writes diagnostic metric artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/` and stores its implicit manual request as `evaluation_request.json` beside those artifacts.
 
 ## Validation overfitting control
 

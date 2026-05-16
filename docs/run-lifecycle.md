@@ -134,7 +134,7 @@ Repair Candidate lineage from the manifest is persisted in `run_metadata.json` a
 
 There are currently two Harness-owned evaluation surfaces:
 
-- `evaluate-run` reloads a completed Run and writes metric/diagnostic artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`.
+- `evaluate-run` reloads a completed Run, writes metric/diagnostic artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`, creates an implicit manual `evaluation_request.json` in that directory, and records `evaluation_requested` / `evaluation_completed` ledger events by default.
 - `run-post-run-evaluation` validates an Evaluation Request first, then writes the request-linked tracer-bullet artifacts under `runs/<run_id>/evaluations/<evaluation_id>/` and records `evaluation_requested` / `evaluation_completed` ledger events.
 
 `run-summary` currently observes completed `evaluate-run` artifacts under `outputs/evaluations/`.

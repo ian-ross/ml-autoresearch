@@ -293,6 +293,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - A **Research Ledger** is the structured research memory for the autonomous loop, while **Research Notes** provide human-readable interpretation.
 - The initial **Research Ledger** storage format is append-only `research-ledger.jsonl`.
 - **Research Ledger** events are appended through a Harness-owned command or API rather than direct agent file writes.
+- Harness-owned commands that create durable research artifacts append validated **Research Ledger** events by default, regardless of whether a human or agent invoked them.
 - Initial **Research Ledger** event types include proposal created, candidate created or submitted, Run started or completed or failed, Research Note written, Capability Request created, Campaign Report written, and Research Campaign paused.
 - Later **Research Ledger** event types may include Research Figure created, resource retry, comparison recorded, and budget updated.
 - A **Research Note** records the observed outcome, qualitative **Research Figures**, and decision from a **Run** or comparison of **Runs**.

@@ -19,7 +19,14 @@ from ml_autoresearch.campaign_controls import (
 )
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
-from ml_autoresearch.evaluations import DEFAULT_MAX_ARTIFACT_SAMPLES, EvaluationError, evaluate_run
+from ml_autoresearch.evaluations import (
+    DEFAULT_MAX_ARTIFACT_SAMPLES,
+    EvaluationError,
+    default_evaluation_ledger_path,
+    evaluate_run,
+    record_manual_evaluation_completed,
+    record_manual_evaluation_requested,
+)
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.runs import (
@@ -407,6 +414,10 @@ def evaluate_run_command(
         bool,
         typer.Option("--daemonize", help="Start the Post-Run Evaluation in a detached background process and return immediately."),
     ] = False,
+    ledger_path: Annotated[
+        Path | None,
+        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to runs_root sibling research-ledger.jsonl."),
+    ] = None,
 ) -> None:
     """Evaluate a completed Run without retraining and write run-scoped artifacts."""
 
@@ -415,15 +426,56 @@ def evaluate_run_command(
         return
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
+        resolved_ledger_path = ledger_path if ledger_path is not None else default_evaluation_ledger_path(run)
         if backend == "native":
-            result = evaluate_run(run, split=split, backend="native", data_root=data_root, max_artifact_samples=max_artifact_samples)
+            result = evaluate_run(
+                run,
+                split=split,
+                backend="native",
+                data_root=data_root,
+                max_artifact_samples=max_artifact_samples,
+                ledger_path=resolved_ledger_path,
+            )
             _echo_json({"evaluation_id": result.evaluation_id, "evaluation_dir": str(result.evaluation_dir), "status": result.status})
             return
         selected_backend.evaluate_run(run, data_root=data_root, max_artifact_samples=max_artifact_samples)
-    except (EvaluationError, RuntimeError) as exc:
+        ledger_events = _record_latest_docker_evaluation(run, resolved_ledger_path)
+    except (EvaluationError, RuntimeError, ResearchLedgerError, OSError) as exc:
         _echo_json({"status": "failed", "failure_reason": str(exc)})
         raise typer.Exit(1) from exc
-    _echo_json({"status": "completed", "backend": "docker", "run_dir": str(run)})
+    _echo_json({"status": "completed", "backend": "docker", "run_dir": str(run), "ledger_events": ledger_events})
+
+
+def _record_latest_docker_evaluation(run_dir: Path, ledger_path: Path) -> list[dict[str, object]]:
+    metadata_paths = sorted((run_dir / "outputs" / "evaluations").glob("eval_*/evaluation_metadata.json"))
+    if not metadata_paths:
+        raise EvaluationError("Docker evaluation completed without evaluation metadata")
+    metadata_path = metadata_paths[-1]
+    metadata = json.loads(metadata_path.read_text())
+    if metadata.get("status") != "completed":
+        raise EvaluationError(f"Docker evaluation did not complete successfully: {metadata.get('status')}")
+    evaluation_id = metadata.get("evaluation_id")
+    source_run = metadata.get("source_run")
+    run_id = source_run.get("run_id") if isinstance(source_run, dict) else None
+    if not isinstance(evaluation_id, str) or not isinstance(run_id, str):
+        raise EvaluationError("Docker evaluation metadata is missing evaluation_id or source_run.run_id")
+    request_path = metadata_path.parent / "evaluation_request.json"
+    if not request_path.is_file():
+        raise EvaluationError("Docker evaluation completed without evaluation_request.json")
+    requested = record_manual_evaluation_requested(
+        ledger_path=ledger_path,
+        evaluation_id=evaluation_id,
+        request_path=request_path,
+        run_id=run_id,
+    )
+    completed = record_manual_evaluation_completed(
+        ledger_path=ledger_path,
+        evaluation_id=evaluation_id,
+        evaluation_request_id=f"manual_{evaluation_id}",
+        run_id=run_id,
+        artifact_metadata_path=metadata_path,
+    )
+    return [requested, completed]
 
 
 @app.command("validate-docker-gpu")

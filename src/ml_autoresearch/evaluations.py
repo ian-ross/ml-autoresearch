@@ -16,6 +16,7 @@ import yaml
 from ml_autoresearch.artifacts import _save_mask_tensor, _save_overlay, _save_probability_heatmap, _save_rgb_tensor
 from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
+from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
 from ml_autoresearch.smoke import INPUT_SPEC, _extract_mask_logits, _import_candidate_model, output_spec_from_resolved_manifest
 
 DEFAULT_EVALUATION_THRESHOLD = 0.5
@@ -32,6 +33,9 @@ class EvaluationResult:
     evaluation_dir: Path
     status: Literal["completed", "failed"]
     failure_reason: str | None = None
+    evaluation_request_id: str | None = None
+    request_path: Path | None = None
+    ledger_events: tuple[dict[str, object], ...] = ()
 
 
 def evaluate_run(
@@ -42,6 +46,7 @@ def evaluate_run(
     data_root: str | Path | None = None,
     threshold: float = DEFAULT_EVALUATION_THRESHOLD,
     max_artifact_samples: int = DEFAULT_MAX_ARTIFACT_SAMPLES,
+    ledger_path: str | Path | None = None,
 ) -> EvaluationResult:
     """Run native Whole-Validation Failure Analysis for a completed Run without retraining."""
 
@@ -68,10 +73,32 @@ def evaluate_run(
         if split != "val":
             raise EvaluationError("evaluate-run currently supports only --split val")
         metadata = _read_json(source_run_dir / "run_metadata.json")
-        if isinstance(base_metadata.get("source_run"), dict) and isinstance(metadata.get("run_id"), str):
-            base_metadata["source_run"]["run_id"] = metadata["run_id"]  # type: ignore[index]
+        source_run_id = source_run_dir.name
+        if isinstance(metadata.get("run_id"), str):
+            source_run_id = metadata["run_id"]  # type: ignore[assignment]
+        if isinstance(base_metadata.get("source_run"), dict):
+            base_metadata["source_run"]["run_id"] = source_run_id  # type: ignore[index]
         if metadata.get("status") != "completed":
             raise EvaluationError(f"source Run must be completed, got status: {metadata.get('status')}")
+        request_path = _write_manual_evaluation_request(
+            evaluation_dir=evaluation_dir,
+            evaluation_id=evaluation_id,
+            source_run_id=source_run_id,
+            run_dir=source_run_dir,
+            split=split,
+            backend=backend,
+            threshold=threshold,
+            max_artifact_samples=max_artifact_samples,
+            data_root=data_root,
+        )
+        requested_event = None
+        if ledger_path is not None:
+            requested_event = record_manual_evaluation_requested(
+                ledger_path=ledger_path,
+                evaluation_id=evaluation_id,
+                request_path=request_path,
+                run_id=source_run_id,
+            )
         resolved_data_root = _resolve_data_root(metadata, data_root)
         model_artifact = _model_artifact_from_best_metrics(source_run_dir)
         model_artifact_path = source_run_dir / model_artifact
@@ -115,10 +142,28 @@ def evaluate_run(
                 "per_sample_metrics": "per_sample_metrics.jsonl",
                 "threshold_sweep": "threshold_sweep.json",
                 "diagnostic_samples": "diagnostic_samples/samples.json",
+                "evaluation_request": "evaluation_request.json",
             },
         }
         _write_metadata(evaluation_dir, completed_metadata)
-        return EvaluationResult(evaluation_id, evaluation_dir, "completed")
+        ledger_events: tuple[dict[str, object], ...] = ()
+        if ledger_path is not None:
+            completed_event = record_manual_evaluation_completed(
+                ledger_path=ledger_path,
+                evaluation_id=evaluation_id,
+                evaluation_request_id=_manual_evaluation_request_id(evaluation_id),
+                run_id=source_run_id,
+                artifact_metadata_path=evaluation_dir / "evaluation_metadata.json",
+            )
+            ledger_events = tuple(event for event in (requested_event, completed_event) if event is not None)
+        return EvaluationResult(
+            evaluation_id,
+            evaluation_dir,
+            "completed",
+            evaluation_request_id=_manual_evaluation_request_id(evaluation_id),
+            request_path=request_path,
+            ledger_events=ledger_events,
+        )
     except Exception as exc:  # noqa: BLE001 - failed evaluation metadata must capture unexpected failures too.
         reason = str(exc)
         failed_metadata = {
@@ -132,6 +177,94 @@ def evaluate_run(
         if isinstance(exc, EvaluationError):
             raise
         raise EvaluationError(reason) from exc
+
+
+def default_evaluation_ledger_path(run_dir: str | Path) -> Path:
+    """Return the default Research Ledger path for a Run-scoped evaluation."""
+
+    path = Path(run_dir)
+    return path.parent.parent / CANONICAL_RESEARCH_LEDGER
+
+
+def record_manual_evaluation_requested(
+    *,
+    ledger_path: str | Path,
+    evaluation_id: str,
+    request_path: str | Path,
+    run_id: str,
+) -> dict[str, object]:
+    """Record the implicit manual Evaluation Request for evaluate-run."""
+
+    return record_research_event(
+        "evaluation_requested",
+        {
+            "evaluation_request_id": _manual_evaluation_request_id(evaluation_id),
+            "request_path": str(request_path),
+            "run_id": run_id,
+            "evaluation_mode": "whole_validation_failure_analysis",
+        },
+        ledger_path=ledger_path,
+    )
+
+
+def record_manual_evaluation_completed(
+    *,
+    ledger_path: str | Path,
+    evaluation_id: str,
+    evaluation_request_id: str,
+    run_id: str,
+    artifact_metadata_path: str | Path,
+) -> dict[str, object]:
+    """Record completion of a manual whole-validation evaluate-run invocation."""
+
+    return record_research_event(
+        "evaluation_completed",
+        {
+            "evaluation_id": evaluation_id,
+            "evaluation_request_id": evaluation_request_id,
+            "run_id": run_id,
+            "evaluation_mode": "whole_validation_failure_analysis",
+            "artifact_metadata_path": str(artifact_metadata_path),
+        },
+        ledger_path=ledger_path,
+    )
+
+
+def _write_manual_evaluation_request(
+    *,
+    evaluation_dir: Path,
+    evaluation_id: str,
+    source_run_id: str,
+    run_dir: Path,
+    split: str,
+    backend: str,
+    threshold: float,
+    max_artifact_samples: int,
+    data_root: str | Path | None,
+) -> Path:
+    request_path = evaluation_dir / "evaluation_request.json"
+    request = {
+        "request_id": _manual_evaluation_request_id(evaluation_id),
+        "invocation_type": "manual_cli_or_api",
+        "target_run_id": source_run_id,
+        "target_run_dir": str(run_dir),
+        "evaluation_mode": "whole_validation_failure_analysis",
+        "diagnostic_question": "Run whole-validation failure analysis for a completed Run.",
+        "expected_decision_impact": "Provide diagnostic metrics and selected qualitative artifacts for research interpretation.",
+        "parameters": {
+            "split": split,
+            "backend": backend,
+            "threshold": threshold,
+            "max_artifact_samples": max_artifact_samples,
+            "data_root_override": str(data_root) if data_root is not None else None,
+        },
+    }
+    request_path.write_text(json.dumps(request, indent=2, sort_keys=True) + "\n")
+    return request_path
+
+
+def _manual_evaluation_request_id(evaluation_id: str) -> str:
+    return f"manual_{evaluation_id}"
 
 
 def _evaluate_gvccs_validation_split(
