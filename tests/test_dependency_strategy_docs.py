@@ -19,7 +19,7 @@ def test_dependency_strategy_doc_covers_runtime_split() -> None:
 def test_dependency_strategy_doc_covers_cluster_gpu_workflow() -> None:
     text = DOC.read_text()
 
-    assert "docker build -t ml-autoresearch-runner:local ." in text
+    assert "docker build -f containers/Dockerfile.runner -t ml-autoresearch-runner:local ." in text
     assert "validate-docker-gpu" in text
     assert "--docker-enable-gpu" in text
     assert "host NVIDIA driver" in text

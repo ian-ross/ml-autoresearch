@@ -57,7 +57,7 @@ uv sync --python 3.12 --extra dev
 uv run --python 3.12 pytest -q
 ```
 
-The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported. Base `ml-autoresearch` installs do not include PyTorch; use the `dev` extra for host tests. Docker-backed Candidate Execution Boundary runs get their runtime PyTorch/CUDA stack from the runner image and also use Python 3.12, with PyTorch `2.5.1+cu121` installed from the PyTorch CUDA 12.1 wheel index on top of the pinned `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04` base image. The Dockerfile installs `ml-autoresearch` without dependency resolution so the pinned PyTorch/CUDA stack is not replaced.
+The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported. Base `ml-autoresearch` installs do not include PyTorch; use the `dev` extra for host tests. Docker-backed Candidate Execution Boundary runs get their runtime PyTorch/CUDA stack from the runner image and also use Python 3.12, with PyTorch `2.5.1+cu121` installed from the PyTorch CUDA 12.1 wheel index on top of the pinned `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04` base image. `containers/Dockerfile.runner` installs `ml-autoresearch` without dependency resolution so the pinned PyTorch/CUDA stack is not replaced. Build it with `make -C containers runner-image` or the equivalent manual fallback `docker build -f containers/Dockerfile.runner -t ml-autoresearch-runner:local .`.
 
 Run the CLI via:
 

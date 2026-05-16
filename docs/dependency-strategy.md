@@ -17,7 +17,7 @@ Instead:
 
 - base `ml-autoresearch` installs contain the Harness code and non-runtime dependencies;
 - host development installs use `uv sync --python 3.12 --extra dev`, which resolves the pinned CPU-only PyTorch wheel from the PyTorch CPU index;
-- Docker runner images own the PyTorch/CUDA runtime used for Candidate Experiment smoke tests and training. The Dockerfile installs Python 3.12, installs the pinned PyTorch CUDA 12.1 wheel explicitly, installs only non-PyTorch runtime dependencies, and then installs `ml-autoresearch` with dependency resolution disabled, so package installation does not replace the pinned PyTorch/CUDA stack.
+- Docker runner images own the PyTorch/CUDA runtime used for Candidate Experiment smoke tests and training. `containers/Dockerfile.runner` installs Python 3.12, installs the pinned PyTorch CUDA 12.1 wheel explicitly, installs only non-PyTorch runtime dependencies, and then installs `ml-autoresearch` with dependency resolution disabled, so package installation does not replace the pinned PyTorch/CUDA stack.
 
 Candidate Experiments do not choose dependencies, Docker images, CUDA versions, or GPU access.
 
@@ -35,13 +35,13 @@ Host tests are CPU-only by design. They should not initialize or depend on the h
 Build the runner image once on a Docker-capable host or cluster node. Docker-backed Runs use `ml-autoresearch-runner:local` by default, and the preferred repeatable local workflow is:
 
 ```bash
-make runner-image
+make -C containers runner-image
 ```
 
 The manual Docker command remains a valid fallback and builds the same default image:
 
 ```bash
-docker build -t ml-autoresearch-runner:local .
+docker build -f containers/Dockerfile.runner -t ml-autoresearch-runner:local .
 ```
 
 Before launching GPU-enabled training on the cluster, validate GPU visibility inside the same runner image:
