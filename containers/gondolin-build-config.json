@@ -1,11 +1,11 @@
 {
   "arch": "x86_64",
-  "distro": "debian",
+  "distro": "alpine",
   "oci": {
-    "image": "gondolin-debian:trixie"
+    "image": "ml-autoresearch-enclave:local"
   },
   "rootfs": {
     "label": "gondolin-root",
-    "sizeMb": 500
+    "sizeMb": 4096
   }
 }
