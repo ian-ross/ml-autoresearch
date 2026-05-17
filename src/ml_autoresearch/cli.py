@@ -19,25 +19,11 @@ from ml_autoresearch.campaign_controls import (
 )
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
-from ml_autoresearch.evaluations import (
-    DEFAULT_MAX_ARTIFACT_SAMPLES,
-    EvaluationError,
-    default_evaluation_ledger_path,
-    evaluate_run,
-    record_manual_evaluation_completed,
-    record_manual_evaluation_requested,
-)
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
-from ml_autoresearch.runs import (
-    RunStatus,
-    get_best_runs,
-    get_run_summary,
-    list_runs,
-    run_candidate_with_gvccs_data,
-    run_candidate_with_synthetic_fixture,
-    submit_candidate,
-)
+from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs
+
+CLI_DEFAULT_MAX_ARTIFACT_SAMPLES = 12
 
 app = typer.Typer(help="ML Autoresearch local Harness commands.")
 
@@ -270,6 +256,8 @@ def submit_candidate_command(
 ) -> None:
     """Validate a local Candidate Experiment and create a Run."""
 
+    from ml_autoresearch.runs import submit_candidate
+
     try:
         run = submit_candidate(
             candidate,
@@ -343,6 +331,8 @@ def run_candidate_command(
     if daemonize:
         _daemonize_current_run_candidate(runs_root)
         return
+    from ml_autoresearch.runs import run_candidate_with_gvccs_data, run_candidate_with_synthetic_fixture
+
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
         if synthetic_fixture:
@@ -396,7 +386,7 @@ def evaluate_run_command(
     max_artifact_samples: Annotated[
         int,
         typer.Option("--max-artifact-samples", help="Maximum selected diagnostic samples to write as visual artifacts."),
-    ] = DEFAULT_MAX_ARTIFACT_SAMPLES,
+    ] = CLI_DEFAULT_MAX_ARTIFACT_SAMPLES,
     docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
     docker_enable_gpu: Annotated[
         bool,
@@ -424,6 +414,8 @@ def evaluate_run_command(
     if daemonize:
         _daemonize_current_evaluate_run(run)
         return
+    from ml_autoresearch.evaluations import EvaluationError, default_evaluation_ledger_path, evaluate_run
+
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
         resolved_ledger_path = ledger_path if ledger_path is not None else default_evaluation_ledger_path(run)
@@ -447,6 +439,12 @@ def evaluate_run_command(
 
 
 def _record_latest_docker_evaluation(run_dir: Path, ledger_path: Path) -> list[dict[str, object]]:
+    from ml_autoresearch.evaluations import (
+        EvaluationError,
+        record_manual_evaluation_completed,
+        record_manual_evaluation_requested,
+    )
+
     metadata_paths = sorted((run_dir / "outputs" / "evaluations").glob("eval_*/evaluation_metadata.json"))
     if not metadata_paths:
         raise EvaluationError("Docker evaluation completed without evaluation metadata")

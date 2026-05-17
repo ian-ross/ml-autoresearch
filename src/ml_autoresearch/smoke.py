@@ -16,16 +16,14 @@ import torch
 from torch import nn
 import yaml
 
+from ml_autoresearch.errors import SmokeTestError
+
 
 INPUT_SPEC = {"mode": "single_frame_rgb", "shape": [3, 128, 128]}
 OUTPUT_SPEC = {"form": "mask_logits", "shape": [1, 128, 128]}
 SYNTHETIC_BATCH_SHAPE = [2, 3, 128, 128]
 SYNTHETIC_TARGET_SHAPE = [2, 1, 128, 128]
 MAX_PARAMETER_COUNT = 10_000_000
-
-
-class SmokeTestError(RuntimeError):
-    """Raised when a Candidate Experiment fails synthetic model smoke testing."""
 
 
 @dataclass(frozen=True)

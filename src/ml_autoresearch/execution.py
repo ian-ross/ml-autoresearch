@@ -10,9 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from ml_autoresearch.smoke import SmokeTestResult, smoke_test_run
-from ml_autoresearch.training import train_gvccs_run, train_synthetic_fixture_run
-
 DEFAULT_DOCKER_IMAGE = "ml-autoresearch-runner:local"
 MANUAL_DOCKER_BUILD_COMMAND = f"docker build -t {DEFAULT_DOCKER_IMAGE} ."
 DEFAULT_DOCKER_MEMORY_LIMIT = "4g"
@@ -99,7 +96,9 @@ class NativeBackend:
     developer_unsafe: bool = True
 
     def smoke_test(self, run_dir: str | Path) -> OperationResult:
-        result: SmokeTestResult = smoke_test_run(run_dir)
+        from ml_autoresearch.smoke import smoke_test_run
+
+        result = smoke_test_run(run_dir)
         return OperationResult(
             backend=self.name,
             operation="smoke_test",
@@ -111,6 +110,8 @@ class NativeBackend:
     def train_synthetic(
         self, run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n"
     ) -> OperationResult:
+        from ml_autoresearch.training import train_synthetic_fixture_run
+
         train_synthetic_fixture_run(
             run_dir, max_prediction_samples=max_prediction_samples, prediction_sample_policy=prediction_sample_policy
         )
@@ -125,6 +126,8 @@ class NativeBackend:
         max_prediction_samples: int = 2,
         prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
+        from ml_autoresearch.training import train_gvccs_run
+
         train_gvccs_run(
             run_dir,
             data_root,

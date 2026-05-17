@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 import yaml
 
 from ml_autoresearch.artifacts import write_prediction_sample_artifacts
+from ml_autoresearch.errors import TrainingError
 from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.smoke import INPUT_SPEC, _extract_expected_outputs, _import_candidate_model, output_spec_from_resolved_manifest
@@ -22,10 +23,6 @@ SYNTHETIC_FIXTURE_SEED = 20260502
 SAMPLING_POLICY_SEED = 20260531
 TRAIN_SAMPLES = 8
 VAL_SAMPLES = 4
-
-
-class TrainingError(RuntimeError):
-    """Raised when Harness-owned training fails."""
 
 
 def train_synthetic_fixture_run(

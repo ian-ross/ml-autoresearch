@@ -15,15 +15,13 @@ import torch
 from PIL import Image, ImageDraw
 from torch.utils.data import Dataset
 
+from ml_autoresearch.errors import GVCCSDataError
+
 IMAGE_SIZE = 128
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 DEFAULT_SPLIT_SEED = 20260502
 _FRAME_TIMESTAMP_PATTERN = re.compile(r"(\d{14})")
 _FRAME_SEQUENCE_STEP_SECONDS = 30
-
-
-class GVCCSDataError(ValueError):
-    """Raised when a local GVCCS Dataset root is missing or malformed."""
 
 
 @dataclass(frozen=True)
