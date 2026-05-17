@@ -1,3 +1,5 @@
+# Rules
+
 Inside the Agent Control Boundary, the agent needs:
 
 1. Read access
@@ -97,3 +99,57 @@ So the rule should be:
     ⇒ Pre-install Python in image
     ⇒ Pre-install common packages in image
 
+
+# Implementation using pi-fort
+
+The `.pi/fort.toml` configuration when running Pi inside the Agent Control
+Boundary should have the following contents, and Pi should be executed from
+within a `agent-work` directory where the agent should write its output:
+
+```toml
+# pi-fort project configuration
+# See: https://github.com/ian-ross/pi-fort
+
+# Enable pi-fort for this project.
+enabled = true
+
+# HTTP egress policy. By default, only configured secret/policy hosts
+# plus package repository hosts are reachable. Set to true to allow
+# HTTP egress to any public host while still applying policies to
+# hosts listed in [hosts].
+allow_egress = true
+
+# Optional guest distro and custom Gondolin image tag or asset path.
+# Alpine is the default. Use distro = "debian" with a custom Debian image.
+# Package names are distro-native; edit drop-ins when switching distros.
+#
+# Agent container path: this is designed to run from an agent-work directory
+# inside the ml-autoresearch directory, where the containers are built in a
+# "containers" subdirectory. This means that the path to the container has to
+# be relative to .../agent-work/.pi, hence ../..
+distro = "debian"
+image = "../../containers/ml-autoresearch-agent"
+
+# Mount directories outside the workspace (relative paths ok, supports ~).
+# Missing paths are silently skipped. Bare string mounts appear at the same
+# path inside the VM. Use object form to set readonly or a guest target path.
+#
+# Agent access to ml-autoresearch paths.
+mounts = [
+  {path="../candidates", target="/history/candidates", readonly=true},
+  {path="../runs", target="/history/runs", readonly=true},
+  {path="../research-notes", target="/history/research-notes", readonly=true},
+  {path="../docs", target="/docs", readonly=true},
+  {path="../scratch", target="/scratch", readonly=false}
+]
+```
+
+## Setup
+
+```shell
+mkdir agent-work
+pi install -l git:git@github.com:ian-ross/pi-fort
+pi
+/fort init
+<Replace .pi/fort.toml with contents shown above>
+```
