@@ -1,4 +1,0 @@
-enabled = true
-distro = "debian"
-image = "/home/iross/work/mit/projects/ml-autoresearch/containers/gondolin-ml-autoresearch"
-mounts = ["/data/GVCCS"]

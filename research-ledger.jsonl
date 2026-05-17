@@ -1,0 +1,4 @@
+{"candidate_id":"single_frame_small_unet_line_auxiliary_w010","candidate_path":"candidates/single_frame_small_unet_line_auxiliary_w010","created_at":"2026-05-10T16:53:35Z","event_type":"candidate_created"}
+{"candidate_id":"single_frame_small_unet_line_auxiliary_w010","created_at":"2026-05-10T16:53:41Z","event_type":"candidate_submitted","run_id":"run_20260510_165335_b458c3"}
+{"candidate_id":"single_frame_small_unet_line_auxiliary_w010","created_at":"2026-05-10T16:53:41Z","event_type":"run_started","run_id":"run_20260510_165335_b458c3"}
+{"created_at":"2026-05-10T23:11:24Z","event_type":"run_completed","metrics_path":"/home/iross/code/ml-autoresearch/runs/run_20260510_165335_b458c3/outputs/final_metrics.json","run_id":"run_20260510_165335_b458c3"}

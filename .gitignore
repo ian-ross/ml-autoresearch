@@ -5,5 +5,7 @@ __pycache__/
 
 # Generated run artifacts
 runs/
-enclave-container/gondolin-debian/
+containers/ml-autoresearch-agent/
 .make/
+agent-work/
+

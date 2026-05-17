@@ -2,10 +2,10 @@
   "arch": "x86_64",
   "distro": "alpine",
   "oci": {
-    "image": "ml-autoresearch-enclave:local"
+    "image": "ml-autoresearch-agent:local"
   },
   "rootfs": {
     "label": "gondolin-root",
-    "sizeMb": 4096
+    "sizeMb": 2048
   }
 }
