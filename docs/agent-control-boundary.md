@@ -1,154 +1,136 @@
-# Rules
+# Agent Control Boundary
 
-Inside the Agent Control Boundary, the agent needs:
+The Agent Control Boundary is the permission boundary for an autonomous agent
+running inside the VM. It protects infrastructure authority: the agent cannot
+control host shell, Docker, GPUs, cluster schedulers, secrets, cloud credentials,
+or Harness-owned Run execution. It is not primarily a dataset hiding mechanism
+for overfitting control; validation authority and authoritative Results remain
+owned by the Harness.
 
-1. Read access
+## Inner-agent prompt contract
 
-    - CONTEXT.md
-    - docs/autoresearch-skills/
-    - Harness docs: candidate contract, run lifecycle, evaluation request
-      format, capability request format, campaign report format
-    - Prior research-notes/
-    - Prior candidate sources, if available
-    - Run summaries/artifacts exposed by Harness-owned commands
+Prompt the inner agent with these operational rules:
 
-    ⇒ read-only mounts
+- The Agent Workspace is the current writable directory inside the VM.
+- Use `ml-autoresearch-agent`, not `ml-autoresearch`, inside the VM.
+- Draft Candidate Experiments and handoff artifacts only in the Agent Workspace.
+- Review read-only reference, history, docs, and approved data mounts before
+  proposing work.
+- Do not modify Harness code, canonical Research Ledger files, canonical
+  Experiment Index files, or mounted history/reference/data.
+- Do not seek hidden authority through filesystem probing, candidate helper
+  files, side-channel artifacts, environment inspection, subprocesses, or
+  network workarounds.
 
+## Filesystem layout
 
-2. Write access to campaign workspace
+### Writable Agent Workspace
 
-    - New Candidate Experiment directories
-    - PROPOSAL.md
-    - Candidate README.md
-    - Research Notes
-    - Capability Requests
-    - Evaluation Requests
-    - Campaign Reports
-    - Temporary scratch files
+The Agent Workspace is the current writable directory. It is prepared by the
+Harness before the agent starts and contains these writable subdirectories:
 
-    ⇒ read/write mounts
+- `drafts/candidates/` — mutable draft Candidate Experiment directories.
+- `submissions/` — the Candidate Submission Queue for finalized handoffs.
+- `research-notes/` — draft Research Notes and note assets.
+- `capability-requests/` — requests for Harness-owned contract or policy
+  expansion.
+- `evaluation-requests/` — requests for Harness-owned Post-Run Evaluations.
+- `campaign-reports/` — campaign status and pause reports.
+- `scratch/` — temporary analysis files, plots, summaries, and toy checks.
 
+`submissions/` entries are immutable once created. The agent must create a new
+submission for a repair or revision rather than editing an existing queued
+entry. Submissions are ingested by the Harness outside the Agent Control Boundary,
+where validation, canonical ledger/index updates, and Run scheduling occur.
 
-3. Execute Harness-owned CLI
+### Read-only mounts
 
-    - ml-autoresearch submit-candidate
-    - ml-autoresearch run-candidate
-    - ml-autoresearch list-runs
-    - ml-autoresearch run-summary / get-run-summary
-    - ml-autoresearch get-best-runs
-    - ml-autoresearch run-post-run-evaluation
-    - ml-autoresearch record-research-event
-    - ml-autoresearch create-capability-request
-    - ml-autoresearch record-campaign-report
-    - ml-autoresearch pause-campaign
+The VM exposes these read-only paths:
 
-    ⇒ pre-installed in container image
+- `/reference` — the Agent Reference Snapshot generated at setup time.
+  - `/reference/CONTEXT.md` — canonical domain language snapshot.
+  - `/reference/EXPERIMENT_INDEX.md` — canonical experiment index snapshot.
+- `/history` — prior research material exposed for review.
+  - `/history/research-ledger.jsonl` — Research Ledger snapshot.
+  - `/history/candidates/` — prior Candidate Experiment sources, when
+    available.
+  - `/history/runs/` — prior Run summaries/artifacts exposed by the Harness.
+  - `/history/research-notes/` — prior Research Notes.
+- `/docs` — trusted project documentation, including the Candidate Experiment
+  Contract, Run lifecycle, request/report formats, and agent skill docs.
+- `/data` — approved read-only Research Problem data mounts, when policy
+  permits.
 
+## Approved commands
 
-4. No direct trusted infrastructure access
+Inside the VM, allowed ML Autoresearch operations go through the agent-safe CLI
+wrapper:
 
-    - No Docker socket.
-    - No secrets.
-    - No cloud credentials.
-    - No dataset write access.
-    - No direct MLflow write token unless narrowly scoped and unavoidable.
-    - No Harness code modification during autonomous campaign operation.
+- `ml-autoresearch-agent validate-candidate`
+- `ml-autoresearch-agent prepare-candidate-submission`
+- `ml-autoresearch-agent list-runs`
+- `ml-autoresearch-agent run-summary` / `ml-autoresearch-agent get-run-summary`
+- `ml-autoresearch-agent get-best-runs`
 
-    ⇒ No mount of dataset directory.
-    ⇒ No access to harness code.
-    ⇒ External proxy for LLM access.
+Capability Requests, Evaluation Requests, Research Notes, and Campaign Reports
+are handoff artifacts written as files in the corresponding Agent Workspace
+subdirectories unless an agent-safe wrapper command is explicitly added later.
 
+The agent may run shell, Python, and common text/data tools for bounded
+agent-side work such as editing Candidate Experiment files, parsing exposed
+metrics, making Research Note figures, summarizing JSON/CSV artifacts,
+performing static source inspection, and checking tensor-shape ideas on
+synthetic toy inputs.
 
-5. External web access
+The agent must not run Candidate Experiments inside the VM. It must not run
+Docker, GPU tools, cluster scheduler commands, direct training/evaluation scripts,
+Harness execution backends, or any command intended to submit or execute a Run
+outside the agent-safe wrapper. Authoritative Runs,
+authoritative Results, Post-Run Evaluations, ledger ingestion, resource use,
+and candidate execution happen only through Harness-owned processes outside the
+Agent Control Boundary.
 
-Reasonable, but risky. It enables architecture/literature lookup, but also
-exfiltration if the sandbox can read sensitive files. So web access is only
-reasonable if the mounted workspace contains nothing secret.
+## Data access policy
 
-    ⇒ Allow external web access.
+Read-only `/data` inspection is allowed for hypothesis formation when the
+Harness mounts approved Research Problem data. The agent may inspect schema,
+metadata, filenames, small samples, class balance, or qualitative examples to
+understand the Research Problem and write better proposals.
 
+Candidate Experiment code must remain data-path agnostic. It must not hard-code
+`/data` paths, implement candidate-owned data loading, probe mounted data from
+model/helper code, cache dataset-derived side channels, or treat local analysis
+as an official evaluation. Authoritative Results come from the Harness after it
+validates and executes submitted Candidate Experiments.
 
-6. Run arbitrary Python code for restricted purposes
-
-The agent should be allowed to run arbitrary Python inside its own container
-for:
-
-- parsing metrics/artifacts;
-- making plots for Research Notes;
-- summarizing CSV/JSON outputs;
-- validating tensor-shape ideas on synthetic toy inputs;
-- inspecting candidate source statically;
-- generating candidate files;
-- small non-authoritative sanity checks.
-
-But it should not be allowed to use arbitrary Python to:
-
-- train models outside the Harness;
-- evaluate on raw datasets outside Harness-owned evaluation commands;
-- bypass Candidate Experiment Contract limits;
-- write unofficial result artifacts and treat them as Results;
-- probe filesystem/environment for hidden capabilities;
-- download pretrained weights into candidate code.
-
-So the rule should be:
-
-| Arbitrary Python is allowed for agent-side analysis and artifact preparation,
-| but all authoritative Runs, Results, Post-Run Evaluations, ledger events, and
-| resource use must go through Harness-owned CLI/API paths.
-
-    ⇒ Pre-install Python in image
-    ⇒ Pre-install common packages in image
-
-
-# Implementation using pi-fort
+## Implementation using pi-fort
 
 The `.pi/fort.toml` configuration when running Pi inside the Agent Control
-Boundary should have the following contents, and Pi should be executed from
-within a `agent-work` directory where the agent should write its output:
+Boundary should be generated from `agent-boundary.toml` by the Harness. A
+representative generated configuration is:
 
 ```toml
-# pi-fort project configuration
-# See: https://github.com/ian-ross/pi-fort
-
-# Enable pi-fort for this project.
+# Generated by ml-autoresearch prepare-agent-boundary
 enabled = true
-
-# HTTP egress policy. By default, only configured secret/policy hosts
-# plus package repository hosts are reachable. Set to true to allow
-# HTTP egress to any public host while still applying policies to
-# hosts listed in [hosts].
 allow_egress = true
-
-# Optional guest distro and custom Gondolin image tag or asset path.
-# Alpine is the default. Use distro = "debian" with a custom Debian image.
-# Package names are distro-native; edit drop-ins when switching distros.
-#
-# Agent container path: this is designed to run from an agent-work directory
-# inside the ml-autoresearch directory, where the containers are built in a
-# "containers" subdirectory. This means that the path to the container has to
-# be relative to .../agent-work/.pi, hence ../..
 distro = "debian"
 image = "../../containers/ml-autoresearch-agent"
-
-# Mount directories outside the workspace (relative paths ok, supports ~).
-# Missing paths are silently skipped. Bare string mounts appear at the same
-# path inside the VM. Use object form to set readonly or a guest target path.
-#
-# Agent access to ml-autoresearch paths.
 mounts = [
-  {path="../candidates", target="/history/candidates", readonly=true},
-  {path="../runs", target="/history/runs", readonly=true},
-  {path="../research-notes", target="/history/research-notes", readonly=true},
+  {path="../agent-reference", target="/reference", readonly=true},
+  {path="../agent-history", target="/history", readonly=true},
+  {path="../agent-history/candidates", target="/history/candidates", readonly=true},
+  {path="../agent-history/runs", target="/history/runs", readonly=true},
+  {path="../agent-history/research-notes", target="/history/research-notes", readonly=true},
   {path="../docs", target="/docs", readonly=true},
-  {path="../scratch", target="/scratch", readonly=false}
+  {path="/path/to/gvccs", target="/data/gvccs", readonly=true},
 ]
 ```
 
 ## Setup
 
-The host-side Harness prepares the generated Agent Reference Snapshot,
-Research History snapshot, Agent Workspace directory layout, and managed
-pi-fort configuration from the root `agent-boundary.toml` file:
+The host-side Harness prepares the Agent Reference Snapshot, Research History
+snapshot, Agent Workspace directory layout, and managed pi-fort configuration
+from root `agent-boundary.toml`:
 
 ```shell
 ml-autoresearch prepare-agent-boundary
