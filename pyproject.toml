@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 ml-autoresearch = "ml_autoresearch.cli:main"
+ml-autoresearch-agent = "ml_autoresearch.agent_cli:main"
 
 [project.optional-dependencies]
 dev = [
