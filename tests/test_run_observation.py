@@ -158,7 +158,7 @@ def test_agent_cli_help_is_agent_safe_and_excludes_execution_authority() -> None
     help_text = completed.stdout
     assert "Agent-safe" in help_text
     assert "cannot run Candidate Experiments" in help_text
-    for allowed in ["list-runs", "run-summary", "get-best-runs", "validate-candidate"]:
+    for allowed in ["list-runs", "run-summary", "get-best-runs", "validate-candidate", "prepare-candidate-submission"]:
         assert allowed in help_text
     for disallowed in [
         "run-candidate",
