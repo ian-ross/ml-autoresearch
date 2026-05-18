@@ -232,6 +232,36 @@ def _daemonize_current_command(log_path: Path) -> None:
     _echo_json({"status": "daemonized", "pid": process.pid, "log_path": str(log_path), "command": command})
 
 
+@app.command("validate-candidate")
+def validate_candidate_command(
+    candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
+    require_proposal: Annotated[
+        bool,
+        typer.Option(
+            "--require-proposal/--no-require-proposal",
+            help="Require a candidate-local PROPOSAL.md during static validation.",
+        ),
+    ] = False,
+    require_readme: Annotated[
+        bool,
+        typer.Option(
+            "--require-readme/--no-require-readme",
+            help="Require a candidate-local README.md during static validation.",
+        ),
+    ] = False,
+) -> None:
+    """Statically validate a Candidate Experiment contract without importing or executing model code."""
+
+    from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+
+    try:
+        manifest = validate_candidate_directory(candidate, require_proposal=require_proposal, require_readme=require_readme)
+    except (CandidateValidationError, OSError) as exc:
+        _echo_json({"status": "invalid", "reason": str(exc)})
+        raise typer.Exit(1) from exc
+    _echo_json({"status": "valid", "manifest": manifest.model_dump(mode="json")})
+
+
 @app.command("submit-candidate")
 def submit_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],

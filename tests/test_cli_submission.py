@@ -78,6 +78,36 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_validate_candidate_cli_reports_static_success_and_requires_artifacts_when_requested(tmp_path: Path):
+    candidate = write_valid_candidate_with_proposal(tmp_path)
+    (candidate / "README.md").write_text("# CLI candidate\n")
+
+    completed = run_cli(
+        "validate-candidate",
+        "--candidate",
+        str(candidate),
+        "--require-proposal",
+        "--require-readme",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "valid"
+    assert payload["manifest"]["name"] == "cli_candidate"
+
+
+def test_validate_candidate_cli_reports_static_failure_without_traceback(tmp_path: Path):
+    candidate = write_valid_candidate_with_proposal(tmp_path)
+
+    completed = run_cli("validate-candidate", "--candidate", str(candidate), "--require-readme")
+
+    assert completed.returncode == 1
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "invalid"
+    assert "README.md" in payload["reason"]
+    assert "Traceback" not in completed.stderr
+
+
 def test_submit_candidate_cli_creates_run_and_prints_json(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"

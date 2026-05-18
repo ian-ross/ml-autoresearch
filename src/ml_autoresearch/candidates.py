@@ -129,7 +129,12 @@ _HEADING_RE = re.compile(r"^\s*#{1,6}\s+(?P<heading>.+?)\s*$")
 _METADATA_RE = re.compile(r"^\s*([^:#\n][^:]*)\s*:\s*(.+?)\s*$")
 
 
-def validate_candidate_directory(candidate_dir: str | Path, *, require_proposal: bool = False) -> CandidateManifest:
+def validate_candidate_directory(
+    candidate_dir: str | Path,
+    *,
+    require_proposal: bool = False,
+    require_readme: bool = False,
+) -> CandidateManifest:
     """Validate a local Candidate Experiment directory and return its manifest.
 
     Issue 1 validates only the source contract. It does not import or execute
@@ -138,6 +143,8 @@ def validate_candidate_directory(candidate_dir: str | Path, *, require_proposal:
     Args:
         require_proposal: Require a local ``PROPOSAL.md`` file that contains the
             required pre-code Experiment Proposal sections.
+        require_readme: Require a local ``README.md`` file for autonomous
+            submission documentation.
     """
 
     path = Path(candidate_dir)
@@ -150,6 +157,8 @@ def validate_candidate_directory(candidate_dir: str | Path, *, require_proposal:
     _validate_file_allowlist(path)
     if require_proposal:
         _validate_proposal_file(path / "PROPOSAL.md")
+    if require_readme:
+        _validate_readme_file(path / "README.md")
     return _load_manifest(path / "manifest.yaml")
 
 
@@ -177,6 +186,11 @@ def _validate_file_allowlist(path: Path) -> None:
         if item.suffix in _ALLOWED_SUFFIXES:
             continue
         raise CandidateValidationError(f"forbidden candidate file: {relative}")
+
+
+def _validate_readme_file(path: Path) -> None:
+    if not path.is_file():
+        raise CandidateValidationError("autonomous-mode requires a candidate-local README.md")
 
 
 def _validate_proposal_file(path: Path) -> None:

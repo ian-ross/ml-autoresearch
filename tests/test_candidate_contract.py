@@ -98,6 +98,25 @@ def test_candidate_directory_rejects_missing_proposal_in_proposal_required_mode(
         validate_candidate_directory(candidate, require_proposal=True)
 
 
+def test_candidate_directory_rejects_missing_readme_only_when_required(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+
+    manifest = validate_candidate_directory(candidate)
+
+    assert manifest.name == "single_frame_unet_baseline"
+    with pytest.raises(CandidateValidationError, match="README.md"):
+        validate_candidate_directory(candidate, require_readme=True)
+
+
+def test_candidate_directory_accepts_readme_in_readme_required_mode(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "README.md").write_text("# Candidate\n\nStatic submission notes.\n")
+
+    manifest = validate_candidate_directory(candidate, require_readme=True)
+
+    assert manifest.name == "single_frame_unet_baseline"
+
+
 def test_candidate_directory_rejects_proposal_missing_required_sections(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     write_valid_proposal(candidate / "PROPOSAL.md")
