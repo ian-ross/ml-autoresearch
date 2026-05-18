@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 from ml_autoresearch.runs import get_best_runs, get_run_summary, list_runs
@@ -53,6 +54,16 @@ def write_run(
 def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "ml_autoresearch.cli", *args],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def run_agent_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "ml_autoresearch.agent_cli", *args],
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -132,6 +143,76 @@ def test_observation_cli_json_commands_are_thin_over_local_artifacts(tmp_path: P
     assert [item["run_id"] for item in json.loads(listed.stdout)] == ["run_high", "run_low"]
     assert json.loads(summary.stdout)["metrics"]["val/dice"] == 0.9
     assert [item["run_id"] for item in json.loads(best.stdout)] == ["run_high", "run_low"]
+
+
+def test_agent_cli_is_installed_as_separate_console_script() -> None:
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+
+    assert pyproject["project"]["scripts"]["ml-autoresearch-agent"] == "ml_autoresearch.agent_cli:main"
+
+
+def test_agent_cli_help_is_agent_safe_and_excludes_execution_authority() -> None:
+    completed = run_agent_cli("--help")
+
+    assert completed.returncode == 0, completed.stderr
+    help_text = completed.stdout
+    assert "Agent-safe" in help_text
+    assert "cannot run Candidate Experiments" in help_text
+    for allowed in ["list-runs", "run-summary", "get-best-runs", "validate-candidate"]:
+        assert allowed in help_text
+    for disallowed in [
+        "run-candidate",
+        "submit-candidate",
+        "evaluate-run",
+        "run-post-run-evaluation",
+        "validate-docker-gpu",
+        "record-research-event",
+        "pause-campaign",
+        "record-campaign-report",
+    ]:
+        assert disallowed not in help_text
+
+
+def test_agent_cli_observation_commands_work_against_fixture_runs(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    write_run(runs_root, "run_low", "completed", 0.2)
+    write_run(runs_root, "run_high", "completed", 0.9)
+
+    listed = run_agent_cli("list-runs", "--runs-root", str(runs_root), "--json")
+    summary = run_agent_cli("run-summary", "--runs-root", str(runs_root), "--run-id", "run_high", "--json")
+    best = run_agent_cli("get-best-runs", "--runs-root", str(runs_root), "--json")
+
+    assert listed.returncode == 0, listed.stderr
+    assert summary.returncode == 0, summary.stderr
+    assert best.returncode == 0, best.stderr
+    assert [item["run_id"] for item in json.loads(listed.stdout)] == ["run_high", "run_low"]
+    assert json.loads(summary.stdout)["metrics"]["val/dice"] == 0.9
+    assert [item["run_id"] for item in json.loads(best.stdout)] == ["run_high", "run_low"]
+
+
+def test_agent_cli_validate_candidate_is_static_and_does_not_import_model_code(tmp_path: Path):
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "manifest.yaml").write_text(
+        """
+name: static_candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+    (candidate / "model.py").write_text("raise RuntimeError('model.py should not be imported during static validation')\n")
+
+    completed = run_agent_cli("validate-candidate", "--candidate", str(candidate), "--no-require-proposal")
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["status"] == "valid"
 
 
 def write_evaluation(run_dir: Path, evaluation_id: str, metadata: dict[str, object] | str | None) -> Path:
