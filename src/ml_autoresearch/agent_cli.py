@@ -111,11 +111,18 @@ def validate_candidate_command(
             help="Require a candidate-local PROPOSAL.md during static validation.",
         ),
     ] = True,
+    require_readme: Annotated[
+        bool,
+        typer.Option(
+            "--require-readme/--no-require-readme",
+            help="Require a candidate-local README.md during static validation.",
+        ),
+    ] = False,
 ) -> None:
     """Statically validate a Candidate Experiment contract without importing or executing model code."""
 
     try:
-        manifest = validate_candidate_directory(candidate, require_proposal=require_proposal)
+        manifest = validate_candidate_directory(candidate, require_proposal=require_proposal, require_readme=require_readme)
     except (CandidateValidationError, OSError) as exc:
         _echo_json({"status": "invalid", "reason": str(exc)})
         raise typer.Exit(1) from exc

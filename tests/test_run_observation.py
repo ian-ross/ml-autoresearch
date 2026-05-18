@@ -190,6 +190,35 @@ def test_agent_cli_observation_commands_work_against_fixture_runs(tmp_path: Path
     assert [item["run_id"] for item in json.loads(best.stdout)] == ["run_high", "run_low"]
 
 
+def test_agent_cli_validate_candidate_can_require_submission_readme(tmp_path: Path):
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "manifest.yaml").write_text(
+        """
+name: static_candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+    (candidate / "model.py").write_text("raise RuntimeError('model.py should not be imported during static validation')\n")
+
+    missing = run_agent_cli("validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--require-readme")
+    (candidate / "README.md").write_text("# Static candidate\n")
+    valid = run_agent_cli("validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--require-readme")
+
+    assert missing.returncode == 1
+    assert "README.md" in json.loads(missing.stdout)["reason"]
+    assert valid.returncode == 0, valid.stderr
+    assert json.loads(valid.stdout)["status"] == "valid"
+
+
 def test_agent_cli_validate_candidate_is_static_and_does_not_import_model_code(tmp_path: Path):
     candidate = tmp_path / "candidate"
     candidate.mkdir()
