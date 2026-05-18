@@ -153,12 +153,32 @@ A lightweight pre-evaluation record stating the target Run, approved Post-Run Ev
 _Avoid_: Experiment Proposal, ad hoc diagnostic command
 
 **Candidate Experiment Runner**:
-The trusted subsystem that validates, executes, and records agent-proposed Candidate Experiments without exposing host secrets, datasets, Docker, or GPU control to the agent.
+The trusted subsystem that validates, executes, and records agent-proposed Candidate Experiments without exposing host secrets, Docker, GPU control, or unapproved infrastructure authority to the agent.
 _Avoid_: Pi runner, Docker runner, contrail runner
 
 **Agent Control Boundary**:
-The boundary that prevents the agent from directly accessing host shell, Docker, datasets, secrets, cloud credentials, or unrestricted network resources.
+The boundary that prevents the agent from directly accessing host shell, Docker, GPU or cluster control, secrets, cloud credentials, or unrestricted infrastructure/network resources, while allowing explicitly configured read-only Research Problem data access when policy permits.
 _Avoid_: Sandbox when referring specifically to agent permissions
+
+**Agent Workspace**:
+The writable area inside the Agent Control Boundary where the agent drafts Candidate Experiments and creates autonomous-loop artifacts before Harness ingestion.
+_Avoid_: History, Harness workspace, run directory
+
+**Research History**:
+The read-only prior research material exposed inside the Agent Control Boundary for review, including prior Candidate Experiments, Runs, Research Notes, Research Ledger events, and trusted docs.
+_Avoid_: Workspace, scratch area
+
+**Agent Reference Snapshot**:
+A setup-generated, read-only directory exposed inside the Agent Control Boundary containing copies of root-level canonical reference files that cannot be mounted individually, such as `CONTEXT.md` and `EXPERIMENT_INDEX.md`.
+_Avoid_: Canonical source file, editable reference
+
+**Candidate Submission Queue**:
+A Harness-ingested handoff area where the agent places finalized Candidate Experiment submissions that are ready for validation and execution by the Harness.
+_Avoid_: Draft candidates directory, runs queue
+
+**Candidate Submission Preparation**:
+A Harness-owned packaging step inside the Agent Control Boundary that statically validates a Candidate Experiment draft, requires its Experiment Proposal, copies it into the Candidate Submission Queue, and writes submission metadata without importing model code or running smoke tests.
+_Avoid_: Run submission, smoke test, training
 
 **Candidate Execution Boundary**:
 The boundary that contains untrusted Candidate Experiment code while it is imported, smoke-tested, trained, and evaluated.
@@ -274,7 +294,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **ML Autoresearch** works by sustaining a **Research Loop**.
 - A **Research Loop** explores a **Research Problem** through many **Candidate Experiments**.
 - **Human-Guided Research Iterations** are early **Research Loop** iterations used before **Autonomous Research Iterations** are implemented.
-- **Autonomous Research Iterations** allow the agent to conduct Candidate Experiment proposal, implementation, submission, observation, note-writing, and next-step selection within fixed Harness and Research Problem boundaries.
+- **Autonomous Research Iterations** allow the agent to conduct Candidate Experiment proposal, implementation, submission for Harness execution, observation, note-writing, and next-step selection within fixed Harness and Research Problem boundaries.
 - An **Autoresearch Skill Set** should use focused skills with progressive disclosure, orchestrated by a campaign-manager skill rather than one monolithic prompt.
 - An **Autonomy Smoke Loop** uses the current narrow **Candidate Experiment Contract** to test autonomous behavior and whether the agent creates **Capability Requests** instead of attempting covert workarounds.
 - An **Autonomous Research Iteration** normally proposes one **Candidate Experiment**, but may propose an **Experiment Batch** when parallel variants are bounded and tied to one research hypothesis.
@@ -289,10 +309,11 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - When the Harness lowers batch size after a **Resource Failure**, the **Resolved Manifest** or Run metadata records both requested and effective batch size so Result comparisons remain interpretable.
 - After a failed Run, the autonomous loop records a **Run Failure Classification** before deciding whether to fix the candidate, create a Capability Request, propose a smaller variant, pause for human review, or treat the outcome as research evidence.
 - During an **Autonomous Research Iteration**, the agent may use existing **Candidate Experiment Contract** choices but must create a human-gated **Capability Request** before expanding Harness-owned contract surface, approved resources, or operational policy.
-- During autonomous operation, the agent may create Candidate Experiments, Research Notes, Research Ledger updates, Research Figures, and Capability Requests; it must not modify Harness code, tests, or trusted infrastructure docs.
+- During autonomous operation, the agent may create and submit Candidate Experiments, request Research Ledger updates through Harness-owned commands, create Research Notes, create Research Figures, and create Capability Requests; it must not modify Harness code, tests, or trusted infrastructure docs.
 - A **Research Ledger** is the structured research memory for the autonomous loop, while **Research Notes** provide human-readable interpretation.
 - The initial **Research Ledger** storage format is append-only `research-ledger.jsonl`.
 - **Research Ledger** events are appended through a Harness-owned command or API rather than direct agent file writes.
+- The agent does not create generic **Research Ledger** event requests; it creates explicit artifacts such as Candidate Experiment submissions, Research Notes, Capability Requests, Evaluation Requests, and Campaign Reports, from which the Harness records validated ledger events.
 - Harness-owned commands that create durable research artifacts append validated **Research Ledger** events by default, regardless of whether a human or agent invoked them.
 - Initial **Research Ledger** event types include proposal created, candidate created or submitted, Run started or completed or failed, Research Note written, Capability Request created, Campaign Report written, and Research Campaign paused.
 - Later **Research Ledger** event types may include Research Figure created, resource retry, comparison recorded, and budget updated.
@@ -344,9 +365,18 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - Whole-Validation Failure Analysis uses a default threshold sweep from `0.05` to `0.95` in `0.05` increments, while keeping `0.5` as the default binary-mask threshold.
 - Whole-Validation Failure Analysis initially saves bounded diagnostic artifacts for `worst_by_dice`, `best_by_dice`, `false_positive_heavy`, `false_negative_heavy`, `empty_mask_false_positives`, and `missed_positive_masks` buckets.
 - A **Post-Run Evaluation** has an Evaluation ID of the form `eval_YYYYMMDD_HHMMSS_<suffix>` and records its own lifecycle status (`running`, `completed`, or `failed`) without changing the parent **Run** status.
-- The agent may have MLflow read access and normal pi-enclave network access constrained by Gondolin policy.
-- The **Agent Control Boundary** constrains what the agent can directly access.
+- The agent may have MLflow read access, explicitly configured read-only Research Problem data access, and normal pi-enclave network access constrained by Gondolin policy.
+- The **Agent Control Boundary** constrains infrastructure authority rather than serving as the primary mechanism for validation/test overfitting control.
 - The **Candidate Execution Boundary** constrains what Candidate Experiment code can do during a Run.
+- The **Agent Workspace** is writable by the agent; the **Research History** is read-only prior research context.
+- The **Agent Workspace** contains mutable draft Candidate Experiments under `drafts/candidates/`, immutable queued submissions under `submissions/`, and writable autonomous-loop artifacts such as Research Notes, Capability Requests, Evaluation Requests, Campaign Reports, and scratch files; it does not contain generic Research Ledger event requests.
+- The **Agent Reference Snapshot** provides read-only setup-time copies of root canonical files such as `CONTEXT.md` and `EXPERIMENT_INDEX.md` because the Agent Control Boundary mounts directories rather than individual files.
+- The **Research History** may use a generated parent directory for singleton files such as `research-ledger.jsonl` plus placeholder child directories that are over-mounted by read-only historical Candidate Experiment, Run, and Research Note directories.
+- Canonical Research Ledger and Experiment Index updates are performed by Harness ingestion outside the **Agent Control Boundary**, not by direct agent edits.
+- The **Candidate Submission Queue** separates draft **Candidate Experiments** from submissions that are ready for Harness validation and execution.
+- Once placed in the **Candidate Submission Queue**, a **Candidate Experiment** is immutable by convention; changes require a new **Candidate Experiment** or a **Repair Candidate**.
+- **Candidate Submission Preparation** happens in a minimal Agent Control Boundary Python environment without PyTorch or NVIDIA libraries and must not import Candidate Experiment model code.
+- The Agent Control Boundary exposes an agent-safe CLI wrapper for observation and static Candidate Experiment submission preparation instead of exposing Run execution commands to the agent.
 - The **Candidate Experiment Runner** bridges the **Agent Control Boundary** and the **Candidate Execution Boundary**.
 
 ## Example dialogue
