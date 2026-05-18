@@ -36,7 +36,9 @@ def _echo_table(rows: list[dict[str, object]]) -> None:
     for row in rows:
         metrics = row.get("metrics")
         dice = metrics.get("val/dice") if isinstance(metrics, dict) else ""
-        typer.echo(f"{row.get('run_id', '')}\t{row.get('status', '')}\t{dice}\t{row.get('reason', row.get('error', ''))}")
+        typer.echo(
+            f"{row.get('run_id', '')}\t{row.get('status', '')}\t{dice}\t{row.get('reason') or row.get('error', '')}"
+        )
 
 
 @app.command("list-runs")

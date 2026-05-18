@@ -159,3 +159,45 @@ target = "/data/shared"
 
     assert completed.returncode == 1
     assert "overlapping data mount target" in completed.stderr
+
+
+def test_prepare_agent_boundary_replaces_existing_snapshot_contents_instead_of_appending(tmp_path: Path):
+    write_project(tmp_path)
+    run_cli(tmp_path, "prepare-agent-boundary")
+
+    stale_reference_root = tmp_path / "agent-reference"
+    stale_history_root = tmp_path / "agent-history"
+    (stale_reference_root / "stale.txt").write_text("stale")
+    (stale_reference_root / "old-dir").mkdir()
+    (stale_reference_root / "old-dir" / "keep.txt").write_text("keep")
+    (stale_history_root / "stale.txt").write_text("stale")
+    (stale_history_root / "old-dir").mkdir()
+    (stale_history_root / "old-dir" / "keep.txt").write_text("keep")
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 0, completed.stderr
+    assert not (stale_reference_root / "stale.txt").exists()
+    assert not (stale_reference_root / "old-dir").exists()
+    assert not (stale_history_root / "stale.txt").exists()
+    assert not (stale_history_root / "old-dir").exists()
+    for relative in ["candidates", "runs", "research-notes"]:
+        assert (tmp_path / "agent-history" / relative).is_dir()
+
+
+def test_prepare_agent_boundary_escapes_control_characters_in_generated_fort_toml(tmp_path: Path):
+    write_project(tmp_path)
+    (tmp_path / "agent-boundary.toml").write_text(
+        '''
+[agent_control_boundary]
+distro = "debian\\nedge"
+image = "agent\\\"studio\\nedge"
+allow_egress = true
+'''.lstrip()
+    )
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 0, completed.stderr
+    fort_toml = (tmp_path / "agent-work" / ".pi" / "fort.toml").read_text()
+    assert r'distro = "debian\nedge"' in fort_toml
+    assert r'image = "agent\"studio\nedge"' in fort_toml

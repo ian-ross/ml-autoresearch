@@ -89,6 +89,36 @@ def test_list_runs_summarizes_local_run_artifacts_and_reports_corrupt_runs(tmp_p
     assert "error" in summaries[2]
 
 
+def test_list_runs_table_prints_empty_reason_when_reason_is_missing(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    write_run(runs_root, "run_missing", "rejected")
+
+    completed = run_cli("list-runs", "--runs-root", str(runs_root))
+
+    assert completed.returncode == 0, completed.stderr
+    lines = completed.stdout.splitlines()
+    assert len(lines) == 2
+    assert "\tNone\t" not in lines[1]
+    parts = lines[1].split("\t")
+    assert len(parts) == 4
+    assert parts[3] == ""
+
+
+def test_agent_cli_list_runs_table_prints_empty_reason_when_reason_is_missing(tmp_path: Path):
+    runs_root = tmp_path / "runs"
+    write_run(runs_root, "run_missing", "rejected")
+
+    completed = run_agent_cli("list-runs", "--runs-root", str(runs_root))
+
+    assert completed.returncode == 0, completed.stderr
+    lines = completed.stdout.splitlines()
+    assert len(lines) == 2
+    assert "\tNone\t" not in lines[1]
+    parts = lines[1].split("\t")
+    assert len(parts) == 4
+    assert parts[3] == ""
+
+
 def test_get_run_summary_reads_one_run_without_mlflow(tmp_path: Path):
     runs_root = tmp_path / "runs"
     write_run(runs_root, "run_done", "completed", 0.82, best_dice=0.9)
