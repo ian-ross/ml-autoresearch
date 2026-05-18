@@ -1,7 +1,8 @@
-.PHONY: all ml-autoresearch-agent agent-image runner-image
+.PHONY: all ml-autoresearch-agent agent-image runner-image enclave-image
 
 RUNNER_IMAGE ?= ml-autoresearch-runner:local
 AGENT_IMAGE ?= ml-autoresearch-agent:local
+ENCLAVE_IMAGE ?= ml-autoresearch-enclave:local
 
 MAKEFILE_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 PROJECT_ROOT := $(abspath $(MAKEFILE_DIR)/..)
@@ -16,3 +17,6 @@ agent-image: $(MAKEFILE_DIR)/Dockerfile.agent
 
 runner-image: $(MAKEFILE_DIR)/Dockerfile.runner
 	docker build -f $(MAKEFILE_DIR)/Dockerfile.runner -t $(RUNNER_IMAGE) $(PROJECT_ROOT)
+
+enclave-image: $(MAKEFILE_DIR)/Dockerfile.enclave
+	docker build -f $(MAKEFILE_DIR)/Dockerfile.enclave -t $(ENCLAVE_IMAGE) $(PROJECT_ROOT)
