@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tomllib
 from dataclasses import dataclass
@@ -136,7 +137,7 @@ def prepare_agent_boundary(project_root: Path = Path(".")) -> dict[str, str]:
 
 
 def _refresh_reference_snapshot(project_root: Path, reference_dir: Path) -> None:
-    reference_dir.mkdir(parents=True, exist_ok=True)
+    _clear_snapshot_contents(reference_dir)
     for filename in REFERENCE_FILES:
         source = project_root / filename
         if not source.is_file():
@@ -145,13 +146,13 @@ def _refresh_reference_snapshot(project_root: Path, reference_dir: Path) -> None
 
 
 def _refresh_history_snapshot(project_root: Path, history_dir: Path) -> None:
-    history_dir.mkdir(parents=True, exist_ok=True)
+    _clear_snapshot_contents(history_dir)
     ledger = project_root / "research-ledger.jsonl"
     if not ledger.is_file():
         raise AgentBoundaryError(f"missing Research Ledger: {ledger}")
     shutil.copy2(ledger, history_dir / "research-ledger.jsonl")
     for dirname in HISTORY_DIRS:
-        (history_dir / dirname).mkdir(parents=True, exist_ok=True)
+        (history_dir / dirname).mkdir(parents=True)
 
 
 def _ensure_workspace(workspace_dir: Path) -> None:
@@ -197,9 +198,22 @@ def _format_mount(path: Path, target: str) -> str:
     return f'{{path="{_toml_escape(str(path))}", target="{_toml_escape(target)}", readonly=true}}'
 
 
+def _clear_snapshot_contents(snapshot_dir: Path) -> None:
+    if snapshot_dir.exists():
+        if not snapshot_dir.is_dir():
+            raise AgentBoundaryError(f"snapshot path is not a directory: {snapshot_dir}")
+        for entry in snapshot_dir.iterdir():
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+    else:
+        snapshot_dir.mkdir(parents=True)
+
+
 def _toml_bool(value: bool) -> str:
     return "true" if value else "false"
 
 
 def _toml_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    return json.dumps(value)[1:-1]

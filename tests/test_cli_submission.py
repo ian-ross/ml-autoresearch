@@ -108,6 +108,21 @@ def test_validate_candidate_cli_reports_static_failure_without_traceback(tmp_pat
     assert "Traceback" not in completed.stderr
 
 
+def test_validate_candidate_cli_defaults_to_require_proposal_in_normal_cli(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+
+    completed = run_cli(
+        "validate-candidate",
+        "--candidate",
+        str(candidate),
+    )
+
+    assert completed.returncode == 1
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "invalid"
+    assert "PROPOSAL.md" in payload["reason"]
+
+
 def test_submit_candidate_cli_creates_run_and_prints_json(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
