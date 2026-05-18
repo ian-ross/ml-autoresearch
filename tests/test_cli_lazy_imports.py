@@ -28,6 +28,34 @@ import ml_autoresearch.cli
     assert completed.returncode == 0, completed.stderr
 
 
+def test_agent_cli_help_does_not_import_torch() -> None:
+    code = """
+import builtins
+import sys
+original_import = builtins.__import__
+
+def guarded_import(name, *args, **kwargs):
+    if name == 'torch' or name.startswith('torch.'):
+        raise RuntimeError(f'torch imported during agent CLI help: {name}')
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = guarded_import
+sys.argv = ['ml-autoresearch-agent', '--help']
+from ml_autoresearch.agent_cli import main
+main()
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_agent_safe_validate_candidate_command_does_not_import_torch(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()

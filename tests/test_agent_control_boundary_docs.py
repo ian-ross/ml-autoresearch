@@ -52,3 +52,13 @@ def test_agent_control_boundary_docs_define_inner_agent_commands_and_data_policy
     assert "Authoritative Results come from the Harness" in text
     assert "protects infrastructure authority" in text
     assert "dataset hiding" in text
+
+
+def test_agent_control_boundary_docs_describe_lightweight_image_dependency_boundary() -> None:
+    text = DOC_PATH.read_text()
+
+    assert "Agent Control Boundary image installs the base `ml-autoresearch` package" in text
+    assert "`ml-autoresearch-agent` console script" in text
+    assert "does not install PyTorch" in text
+    assert "NVIDIA/CUDA" in text
+    assert "heavy ML/runtime dependencies belong to the outer Harness and Candidate Execution Boundary" in text

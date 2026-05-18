@@ -20,10 +20,27 @@ RUN python -m pip install --no-cache-dir \
     "pydantic>=2,<3" \
     "PyYAML>=6,<7" \
     "typer>=0.12,<1"
-RUN python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
-    "torch==2.5.1+cpu"
 RUN python -m pip install --no-cache-dir --no-deps .
-RUN ml-autoresearch --help >/dev/null
+RUN ml-autoresearch-agent --help >/dev/null \
+    && mkdir -p /tmp/agent-smoke/runs /tmp/agent-smoke/submissions /tmp/agent-smoke/candidate \
+    && cat > /tmp/agent-smoke/candidate/manifest.yaml <<'EOF'
+name: candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+EOF
+RUN touch /tmp/agent-smoke/candidate/model.py \
+    && printf '%s\n' '# Smoke Candidate' > /tmp/agent-smoke/candidate/README.md \
+    && printf '%s\n' 'Hypothesis: smoke' 'Comparison Target: smoke' 'Expected Effect: smoke' 'Implementation Sketch: smoke' 'Contract Features Used: smoke' 'Budget Requested: smoke' 'Success Criteria: smoke' 'Fallback Next Decision: smoke' > /tmp/agent-smoke/candidate/PROPOSAL.md \
+    && ml-autoresearch-agent list-runs --runs-root /tmp/agent-smoke/runs >/dev/null \
+    && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-smoke/candidate >/dev/null \
+    && ml-autoresearch-agent prepare-candidate-submission --candidate /tmp/agent-smoke/candidate --submissions-root /tmp/agent-smoke/submissions >/dev/null \
+    && rm -rf /tmp/agent-smoke
 
 WORKDIR /workspace
 CMD ["bash"]

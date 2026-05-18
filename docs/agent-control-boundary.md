@@ -126,6 +126,20 @@ mounts = [
 ]
 ```
 
+## Agent image and dependency boundary
+
+The Agent Control Boundary image installs the base `ml-autoresearch` package and
+exposes the `ml-autoresearch-agent` console script for observation and static
+Candidate Experiment preparation. The image intentionally does not install PyTorch,
+NVIDIA/CUDA libraries, Docker tooling, GPU utilities, or Run-execution
+dependencies. These heavy ML/runtime dependencies belong to the outer Harness and Candidate Execution Boundary, where Candidate Experiments are validated,
+smoke-tested, trained, and evaluated under Harness-owned policy.
+
+The agent image build smoke-checks `ml-autoresearch-agent --help` plus allowed
+static commands such as `list-runs`, `validate-candidate`, and
+`prepare-candidate-submission`. The separate runner image remains responsible
+for the PyTorch/CUDA stack used by Candidate Execution Boundary training.
+
 ## Setup
 
 The host-side Harness prepares the Agent Reference Snapshot, Research History
