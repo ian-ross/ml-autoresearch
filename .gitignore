@@ -7,5 +7,7 @@ __pycache__/
 runs/
 containers/ml-autoresearch-agent/
 .make/
+agent-reference/
+agent-history/
 agent-work/
 

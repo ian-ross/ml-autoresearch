@@ -146,10 +146,20 @@ mounts = [
 
 ## Setup
 
+The host-side Harness prepares the generated Agent Reference Snapshot,
+Research History snapshot, Agent Workspace directory layout, and managed
+pi-fort configuration from the root `agent-boundary.toml` file:
+
 ```shell
-mkdir agent-work
+ml-autoresearch prepare-agent-boundary
+```
+
+The command overwrites only managed pi-fort files under
+`agent-work/.pi/fort.toml` and `agent-work/.pi/fort.d/`; it does not delete the
+whole `agent-work/.pi` directory or existing Agent Workspace outputs.
+
+```shell
 pi install -l git:git@github.com:ian-ross/pi-fort
+cd agent-work
 pi
-/fort init
-<Replace .pi/fort.toml with contents shown above>
 ```

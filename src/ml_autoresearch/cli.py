@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 
 import typer
 
+from ml_autoresearch.agent_boundary import AgentBoundaryError, prepare_agent_boundary
 from ml_autoresearch.campaign_controls import (
     CampaignControlError,
     record_campaign_pause,
@@ -91,6 +92,19 @@ def _parse_event_fields(fields: list[str]) -> dict[str, str]:
 def _exit_with_error(exc: BaseException) -> None:
     typer.echo(str(exc), err=True)
     raise typer.Exit(1) from exc
+
+
+@app.command("prepare-agent-boundary")
+def prepare_agent_boundary_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-boundary.toml.")] = Path("."),
+) -> None:
+    """Prepare Agent Control Boundary snapshots, workspace directories, and pi-fort config."""
+
+    try:
+        result = prepare_agent_boundary(project_root)
+    except (AgentBoundaryError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
 
 
 @app.command("create-capability-request")
