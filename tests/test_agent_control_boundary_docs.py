@@ -62,3 +62,16 @@ def test_agent_control_boundary_docs_describe_lightweight_image_dependency_bound
     assert "does not install PyTorch" in text
     assert "NVIDIA/CUDA" in text
     assert "heavy ML/runtime dependencies belong to the outer Harness and Candidate Execution Boundary" in text
+
+
+def test_agent_control_boundary_docs_define_root_config_schema() -> None:
+    text = DOC_PATH.read_text()
+
+    assert "## `agent-boundary.toml` schema" in text
+    assert "[agent_control_boundary]" in text
+    for field in ["distro", "image", "allow_egress", "[[data_mounts]]", "name", "path", "target", "readonly"]:
+        assert field in text
+    assert "direct child of `/data`" in text
+    assert "relative to the project root" in text
+    assert "image paths are interpreted by pi-fort" in text
+    assert "`agent-work/.pi/fort.toml` file" in text

@@ -103,6 +103,55 @@ model/helper code, cache dataset-derived side channels, or treat local analysis
 as an official evaluation. Authoritative Results come from the Harness after it
 validates and executes submitted Candidate Experiments.
 
+## `agent-boundary.toml` schema
+
+`ml-autoresearch prepare-agent-boundary` reads `agent-boundary.toml` from the
+project root. A minimal configuration is:
+
+```toml
+[agent_control_boundary]
+distro = "debian"
+image = "../../containers/ml-autoresearch-agent"
+allow_egress = true
+```
+
+The `[agent_control_boundary]` table accepts:
+
+- `distro` — optional non-empty string; defaults to `"debian"`.
+- `image` — optional non-empty string; defaults to
+  `"../../containers/ml-autoresearch-agent"`.
+- `allow_egress` — optional boolean; defaults to `true`.
+
+The `image` value is copied into the generated pi-fort configuration. Relative
+image paths are interpreted by pi-fort relative to the generated
+`agent-work/.pi/fort.toml` file, not relative to the project root or the
+`agent-work/` current working directory. Thus the default
+`../../containers/ml-autoresearch-agent` resolves from `agent-work/.pi/` to the
+project's `containers/ml-autoresearch-agent` image reference.
+
+Approved read-only Research Problem data mounts are optional and use an array of
+tables:
+
+```toml
+[[data_mounts]]
+name = "gvccs"
+path = "/path/to/gvccs"
+target = "/data/gvccs"
+readonly = true
+```
+
+Each `[[data_mounts]]` entry accepts:
+
+- `name` — required non-empty string. If `target` is omitted, this name is used
+  to derive `target = "/data/{name}"`.
+- `path` — required non-empty string naming an existing host path. Relative
+  paths are resolved relative to the project root.
+- `target` — optional non-empty string; defaults to `/data/{name}`. The target
+  must be a non-overlapping direct child of `/data`, for example `/data/gvccs`;
+  nested targets such as `/data/gvccs/train` are rejected.
+- `readonly` — optional boolean, but if present it must be `true`. Writable data
+  mounts are rejected.
+
 ## Implementation using pi-fort
 
 The `.pi/fort.toml` configuration when running Pi inside the Agent Control
