@@ -13,6 +13,7 @@ from typing import Annotated, Literal
 import typer
 
 from ml_autoresearch.agent_boundary import AgentBoundaryError, prepare_agent_boundary
+from ml_autoresearch.agent_handoffs import AgentHandoffIngestionError, ingest_candidate_submission
 from ml_autoresearch.campaign_controls import (
     CampaignControlError,
     record_campaign_pause,
@@ -103,6 +104,19 @@ def prepare_agent_boundary_command(
     try:
         result = prepare_agent_boundary(project_root)
     except (AgentBoundaryError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+
+
+@app.command("ingest-candidate-submission")
+def ingest_candidate_submission_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/submissions.")] = Path("."),
+) -> None:
+    """Ingest one Agent Workspace Candidate Submission into canonical candidates/."""
+
+    try:
+        result = ingest_candidate_submission(project_root)
+    except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
 
