@@ -15,6 +15,7 @@ import typer
 from ml_autoresearch.agent_boundary import AgentBoundaryError, prepare_agent_boundary
 from ml_autoresearch.agent_handoffs import (
     AgentHandoffIngestionError,
+    collect_agent_handoff,
     ingest_campaign_report,
     ingest_candidate_submission,
     ingest_capability_request,
@@ -111,6 +112,21 @@ def prepare_agent_boundary_command(
     try:
         result = prepare_agent_boundary(project_root)
     except (AgentBoundaryError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+
+
+@app.command("ingest-agent-handoff")
+def ingest_agent_handoff_command(
+    project_root: Annotated[
+        Path, typer.Option(help="Project root containing agent-work handoff directories.")
+    ] = Path("."),
+) -> None:
+    """Collect and ingest exactly one primary Agent Workspace handoff."""
+
+    try:
+        result = collect_agent_handoff(project_root)
+    except (ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
 

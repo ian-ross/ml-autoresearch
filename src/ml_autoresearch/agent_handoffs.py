@@ -25,6 +25,14 @@ from ml_autoresearch.submissions import (
 
 INGESTION_MARKER = "INGESTED.json"
 
+PRIMARY_HANDOFF_TYPES = (
+    "candidate_submission",
+    "evaluation_request",
+    "capability_request",
+    "research_note",
+    "campaign_report",
+)
+
 
 class AgentHandoffIngestionError(ValueError):
     """Raised when a Harness handoff cannot be ingested safely."""
@@ -40,6 +48,48 @@ class CandidateSubmissionMetadata(BaseModel):
     candidate_id: str = Field(min_length=1)
     candidate_path: str = Field(min_length=1)
     requested_action: str = Field(min_length=1)
+
+
+def collect_agent_handoff(project_root: str | Path = Path(".")) -> dict[str, object]:
+    """Collect and ingest exactly one primary Agent Workspace handoff for an Autonomy Step."""
+
+    root = Path(project_root).resolve()
+    artifacts = _discover_uningested_primary_handoffs(root)
+    present = [handoff_type for handoff_type in PRIMARY_HANDOFF_TYPES if artifacts[handoff_type]]
+
+    if not present:
+        return {
+            "status": "no_handoff",
+            "next_action": "stop_for_human",
+            "executed_next_action": False,
+            "ledger_events": [],
+        }
+
+    if len(present) > 1:
+        return _ingestion_failed(
+            "multiple primary handoff categories produced in one Autonomy Step: " + ", ".join(present),
+            present,
+        )
+
+    handoff_type = present[0]
+    if len(artifacts[handoff_type]) > 1:
+        return _ingestion_failed(
+            f"multiple un-ingested {handoff_type} artifacts produced in one Autonomy Step: "
+            + ", ".join(_relative_posix(path, root) for path in artifacts[handoff_type]),
+            [handoff_type],
+        )
+
+    ingest = {
+        "candidate_submission": ingest_candidate_submission,
+        "evaluation_request": ingest_evaluation_request,
+        "capability_request": ingest_capability_request,
+        "research_note": ingest_research_note,
+        "campaign_report": ingest_campaign_report,
+    }[handoff_type]
+    try:
+        return ingest(root)
+    except AgentHandoffIngestionError as exc:
+        return _ingestion_failed(str(exc), [handoff_type])
 
 
 def ingest_candidate_submission(project_root: str | Path = Path(".")) -> dict[str, object]:
@@ -278,12 +328,65 @@ def ingest_campaign_report(project_root: str | Path = Path(".")) -> dict[str, ob
     }
 
 
+def _ingestion_failed(reason: str, handoff_types: list[str]) -> dict[str, object]:
+    return {
+        "status": "ingestion_failed",
+        "reason": reason,
+        "handoff_types": handoff_types,
+        "next_action": "stop_for_human",
+        "executed_next_action": False,
+        "ledger_events": [],
+    }
+
+
+def _discover_uningested_primary_handoffs(root: Path) -> dict[str, list[Path]]:
+    return {
+        "candidate_submission": _list_uningested_submissions(root / "agent-work" / "submissions"),
+        "evaluation_request": _list_uningested_files(
+            root / "agent-work" / "evaluation-requests", {".yaml", ".yml"}, "evaluation_request"
+        ),
+        "capability_request": _list_uningested_files(
+            root / "agent-work" / "capability-requests", {".yaml", ".yml"}, "capability_request"
+        ),
+        "research_note": _list_uningested_research_notes(root / "agent-work" / "research-notes"),
+        "campaign_report": _list_uningested_files(root / "agent-work" / "campaign-reports", {".md"}, "campaign_report"),
+    }
+
+
+def _list_uningested_submissions(submissions_root: Path) -> list[Path]:
+    if not submissions_root.is_dir():
+        return []
+    return sorted(
+        path
+        for path in submissions_root.iterdir()
+        if path.is_dir() and not _has_valid_ingestion_marker(path / INGESTION_MARKER, "candidate_submission")
+    )
+
+
+def _list_uningested_files(directory: Path, suffixes: set[str], handoff_type: str) -> list[Path]:
+    if not directory.is_dir():
+        return []
+    return sorted(
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix in suffixes and not _has_valid_ingestion_marker(_file_marker_path(path), handoff_type)
+    )
+
+
+def _list_uningested_research_notes(notes_root: Path) -> list[Path]:
+    if not notes_root.is_dir():
+        return []
+    return sorted(
+        path
+        for path in notes_root.glob("*.md")
+        if path.is_file() and not _has_valid_ingestion_marker(_research_note_marker_path(path), "research_note")
+    )
+
+
 def _discover_one_uningested_submission(submissions_root: Path) -> Path:
     if not submissions_root.is_dir():
         raise AgentHandoffIngestionError(f"Candidate Submission Queue does not exist: {submissions_root}")
-    submissions = sorted(
-        path for path in submissions_root.iterdir() if path.is_dir() and not (path / INGESTION_MARKER).exists()
-    )
+    submissions = _list_uningested_submissions(submissions_root)
     if len(submissions) != 1:
         raise AgentHandoffIngestionError(
             f"expected exactly one un-ingested Candidate Submission in {submissions_root}, found {len(submissions)}"
@@ -294,11 +397,8 @@ def _discover_one_uningested_submission(submissions_root: Path) -> Path:
 def _discover_one_uningested_file(directory: Path, handoff_name: str, suffixes: set[str]) -> Path:
     if not directory.is_dir():
         raise AgentHandoffIngestionError(f"Agent Workspace {handoff_name} directory does not exist: {directory}")
-    files = sorted(
-        path
-        for path in directory.iterdir()
-        if path.is_file() and path.suffix in suffixes and not _file_marker_path(path).exists()
-    )
+    handoff_type = handoff_name.lower().replace(" ", "_")
+    files = _list_uningested_files(directory, suffixes, handoff_type)
     if len(files) != 1:
         raise AgentHandoffIngestionError(f"expected exactly one un-ingested {handoff_name} in {directory}, found {len(files)}")
     return files[0]
@@ -307,11 +407,7 @@ def _discover_one_uningested_file(directory: Path, handoff_name: str, suffixes: 
 def _discover_one_uningested_research_note(notes_root: Path) -> Path:
     if not notes_root.is_dir():
         raise AgentHandoffIngestionError(f"Agent Workspace Research Notes directory does not exist: {notes_root}")
-    notes = sorted(
-        path
-        for path in notes_root.glob("*.md")
-        if path.is_file() and not _research_note_marker_path(path).exists()
-    )
+    notes = _list_uningested_research_notes(notes_root)
     if len(notes) != 1:
         raise AgentHandoffIngestionError(
             f"expected exactly one un-ingested Research Note in {notes_root}, found {len(notes)}"
@@ -491,6 +587,22 @@ def _research_note_marker_path(note_path: Path) -> Path:
 
 def _file_marker_path(path: Path) -> Path:
     return path.with_name(f"{path.name}.{INGESTION_MARKER}")
+
+
+def _has_valid_ingestion_marker(marker_path: Path, handoff_type: str) -> bool:
+    if not marker_path.is_file():
+        return False
+    try:
+        marker = json.loads(marker_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(marker, dict)
+        and marker.get("status") == "ingested"
+        and marker.get("handoff_type") == handoff_type
+        and isinstance(marker.get("canonical_path"), str)
+        and bool(marker.get("canonical_path"))
+    )
 
 
 def _write_file_ingestion_marker_last(source: Path, handoff_type: str, artifact_id: str, canonical_path: str) -> None:

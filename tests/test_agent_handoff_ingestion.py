@@ -7,6 +7,7 @@ import pytest
 
 from ml_autoresearch.agent_handoffs import (
     AgentHandoffIngestionError,
+    collect_agent_handoff,
     ingest_campaign_report,
     ingest_candidate_submission,
     ingest_capability_request,
@@ -301,7 +302,16 @@ def test_ingest_candidate_submission_requires_exactly_one_uningested_submission(
     with pytest.raises(AgentHandoffIngestionError, match="expected exactly one"):
         ingest_candidate_submission(tmp_path)
 
-    (first / "INGESTED.json").write_text("{}\n")
+    (first / "INGESTED.json").write_text(
+        json.dumps(
+            {
+                "status": "ingested",
+                "handoff_type": "candidate_submission",
+                "canonical_path": "candidates/first_candidate",
+            }
+        )
+        + "\n"
+    )
     result = ingest_candidate_submission(tmp_path)
     assert result["candidate_id"] == "second_candidate"
 
@@ -491,6 +501,22 @@ def test_non_executing_handoff_cli_commands_report_next_actions(tmp_path: Path) 
     assert not (tmp_path / "runs").exists()
 
 
+def test_collect_agent_handoff_cli_reports_invariant_failure_without_side_effects(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    write_submission(tmp_path)
+    write_capability_request(tmp_path)
+
+    completed = run_cli(tmp_path, "ingest-agent-handoff")
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "ingestion_failed"
+    assert "multiple primary handoff categories" in payload["reason"]
+    assert not (tmp_path / "candidates" / "agent_candidate").exists()
+    assert not (tmp_path / "capability-requests" / "capability-temporal-inputs.yaml").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
 def test_capability_request_ingestion_fails_closed_for_duplicate_destination(tmp_path: Path) -> None:
     write_project(tmp_path)
     source = write_capability_request(tmp_path)
@@ -529,3 +555,86 @@ def test_campaign_report_ingestion_fails_closed_for_duplicate_destination(tmp_pa
     assert (tmp_path / "campaign-reports" / source.name).read_text() == "existing\n"
     assert not (source.parent / f"{source.name}.INGESTED.json").exists()
     assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def test_collect_agent_handoff_returns_no_handoff_for_empty_or_scratch_only_workspace(tmp_path: Path) -> None:
+    write_project(tmp_path)
+
+    result = collect_agent_handoff(tmp_path)
+
+    assert result == {
+        "status": "no_handoff",
+        "next_action": "stop_for_human",
+        "executed_next_action": False,
+        "ledger_events": [],
+    }
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+    (tmp_path / "agent-work" / "scratch").mkdir()
+    (tmp_path / "agent-work" / "scratch" / "notes.md").write_text("# scratch\n")
+    assert collect_agent_handoff(tmp_path)["status"] == "no_handoff"
+    assert not (tmp_path / "research-notes" / "notes.md").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def test_collect_agent_handoff_ingests_one_primary_handoff(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    write_evaluation_request(tmp_path)
+
+    result = collect_agent_handoff(tmp_path)
+
+    assert result["status"] == "ingested"
+    assert result["handoff_type"] == "evaluation_request"
+    assert result["next_action"] == "run_post_run_evaluation"
+    assert (tmp_path / "evaluation-requests" / "eval-threshold-sweep-run-123.yaml").is_file()
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert [event["event_type"] for event in events] == ["agent_handoff_ingested"]
+
+
+def test_collect_agent_handoff_fails_closed_for_multiple_primary_categories(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    write_submission(tmp_path)
+    write_research_note(tmp_path)
+
+    result = collect_agent_handoff(tmp_path)
+
+    assert result["status"] == "ingestion_failed"
+    assert "multiple primary handoff categories" in result["reason"]
+    assert result["handoff_types"] == ["candidate_submission", "research_note"]
+    assert result["next_action"] == "stop_for_human"
+    assert result["ledger_events"] == []
+    assert not (tmp_path / "candidates" / "agent_candidate").exists()
+    assert not (tmp_path / "research-notes" / "2026-05-09-agent-note.md").exists()
+    assert not (tmp_path / "agent-work" / "submissions" / "agent_candidate" / "INGESTED.json").exists()
+    assert not (tmp_path / "agent-work" / "research-notes" / "2026-05-09-agent-note.md.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def test_collect_agent_handoff_fails_closed_for_multiple_artifacts_in_same_primary_category(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    write_capability_request(tmp_path)
+    write_capability_request(tmp_path, filename="capability-second.yaml", request_id="capability-second")
+
+    result = collect_agent_handoff(tmp_path)
+
+    assert result["status"] == "ingestion_failed"
+    assert "multiple un-ingested capability_request artifacts" in result["reason"]
+    assert result["handoff_types"] == ["capability_request"]
+    assert not (tmp_path / "capability-requests" / "capability-temporal-inputs.yaml").exists()
+    assert not (tmp_path / "capability-requests" / "capability-second.yaml").exists()
+    assert not (tmp_path / "agent-work" / "capability-requests" / "capability-temporal-inputs.yaml.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def test_collect_agent_handoff_ignores_already_ingested_artifacts_with_valid_source_markers(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_campaign_report(tmp_path)
+
+    ingest_campaign_report(tmp_path)
+    first_ledger = (tmp_path / "research-ledger.jsonl").read_text()
+
+    result = collect_agent_handoff(tmp_path)
+
+    assert result["status"] == "no_handoff"
+    assert (tmp_path / "research-ledger.jsonl").read_text() == first_ledger
+    assert json.loads((source.parent / f"{source.name}.INGESTED.json").read_text())["handoff_type"] == "campaign_report"
