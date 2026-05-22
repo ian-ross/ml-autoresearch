@@ -12,7 +12,7 @@ REQUIRED_SKILLS = {
     "candidate-implementer": ["Candidate Experiment Contract", "PROPOSAL.md"],
     "run-observer": ["Run", "Result", "get-best-runs"],
     "failure-classifier": ["Run Failure Classification", "Repair Candidate"],
-    "evaluation-request-writer": ["Evaluation Request", "run-post-run-evaluation"],
+    "evaluation-request-writer": ["Evaluation Request", "run-post-run-evaluation", "Whole-Validation Failure Analysis"],
     "research-note-writer": ["Research Note", "research-figures", "figure provenance"],
     "ledger-recorder": ["Research Ledger", "record-research-event"],
     "capability-request-writer": ["Capability Request", "not self-approving"],

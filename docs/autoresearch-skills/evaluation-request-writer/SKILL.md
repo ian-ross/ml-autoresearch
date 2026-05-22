@@ -17,7 +17,7 @@ Use when a completed Run needs a bounded Harness-owned diagnostic before the nex
 
 ## Instructions
 
-State the diagnostic question and expected decision impact. Keep parameters within documented bounds. Do not create ad hoc diagnostics outside approved modes such as threshold_sweep and failure_bucket_review.
+State the diagnostic question and expected decision impact. Keep parameters within documented bounds. Treat Whole-Validation Failure Analysis as the umbrella Harness-owned diagnostic; request-gated modes such as `threshold_sweep` and `failure_bucket_review` select bounded parts of that diagnostic. Do not create ad hoc diagnostics outside approved modes.
 
 ## Guardrails
 

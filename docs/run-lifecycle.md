@@ -132,10 +132,19 @@ Repair Candidate lineage from the manifest is persisted in `run_metadata.json` a
 
 ## Post-Run Evaluation artifacts
 
+A **Post-Run Evaluation** is not a new Run and does not retrain the model. It reloads a completed Run's copied Candidate Experiment, Resolved Manifest, and persisted model artifact, then writes diagnostics under the parent Run.
+
+The implemented `evaluate-run` diagnostic is **Whole-Validation Failure Analysis**. It evaluates the completed model across the full Working Validation Split and writes:
+
+- `aggregate_metrics.json` — split-level metrics at the primary threshold, defaulting to `0.5`;
+- `per_sample_metrics.jsonl` — per-sample metrics for all evaluated validation samples;
+- `threshold_sweep.json` — aggregate metrics across the default threshold sweep from `0.05` to `0.95`;
+- `diagnostic_samples/` — bounded visual artifacts for selected samples such as worst Dice, best Dice, false-positive-heavy, false-negative-heavy, empty-mask false positives, and missed positive masks.
+
 There are currently two Harness-owned evaluation surfaces:
 
-- `evaluate-run` reloads a completed Run, writes metric/diagnostic artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`, creates an implicit manual `evaluation_request.json` in that directory, and records `evaluation_requested` / `evaluation_completed` ledger events by default.
-- `run-post-run-evaluation` validates an Evaluation Request first, then writes the request-linked tracer-bullet artifacts under `runs/<run_id>/evaluations/<evaluation_id>/` and records `evaluation_requested` / `evaluation_completed` ledger events.
+- `evaluate-run` is the manual/operator convenience surface for Whole-Validation Failure Analysis. It writes metric/diagnostic artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`, creates an implicit manual `evaluation_request.json` in that directory, and records `evaluation_requested` / `evaluation_completed` ledger events by default.
+- `run-post-run-evaluation` validates an explicit Evaluation Request first, then writes request-linked artifacts under `runs/<run_id>/evaluations/<evaluation_id>/` and records `evaluation_requested` / `evaluation_completed` ledger events. Its current request modes, `threshold_sweep` and `failure_bucket_review`, are bounded request-gated parts of Whole-Validation Failure Analysis.
 
 `run-summary` currently observes completed `evaluate-run` artifacts under `outputs/evaluations/`.
 

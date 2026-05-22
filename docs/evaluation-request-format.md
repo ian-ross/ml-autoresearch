@@ -1,11 +1,20 @@
 # Evaluation Request format
 
-Evaluation Requests authorize bounded, Harness-owned autonomous Post-Run Evaluations. Autonomous request-gated evaluations use YAML mappings validated before any evaluation artifacts are written. Manual `evaluate-run` invocations create an implicit JSON Evaluation Request artifact from the CLI/API parameters under `outputs/evaluations/<evaluation_id>/evaluation_request.json` so their durable artifacts have the same ledger linkage.
+Evaluation Requests authorize bounded, Harness-owned autonomous Post-Run Evaluations. Autonomous request-gated evaluations use YAML mappings validated before any evaluation artifacts are written.
+
+## Whole-Validation Failure Analysis and request modes
+
+**Whole-Validation Failure Analysis** is the current umbrella diagnostic for evaluating a completed Run across the Working Validation Split without retraining. It reloads the Run's persisted model artifact, computes whole-validation aggregate and per-sample metrics, can compute a probability-threshold sweep, and can save bounded failure-bucket diagnostic samples.
+
+There are two current surfaces for this diagnostic:
+
+- `evaluate-run` is the manual/operator convenience command. It runs the implemented Whole-Validation Failure Analysis directly and creates an implicit JSON Evaluation Request artifact from the CLI/API parameters under `outputs/evaluations/<evaluation_id>/evaluation_request.json` so the durable artifacts have ledger linkage.
+- `run-post-run-evaluation` is the autonomous request-gated surface. Its approved `evaluation_mode` values, currently `threshold_sweep` and `failure_bucket_review`, select bounded parts of Whole-Validation Failure Analysis after validating an explicit Evaluation Request.
 
 Required fields:
 
 - `target_run_id`: parent Run to evaluate.
-- `evaluation_mode`: approved Harness-owned mode. Current values: `threshold_sweep`, `failure_bucket_review`.
+- `evaluation_mode`: approved Harness-owned request mode. Current values: `threshold_sweep`, `failure_bucket_review`. These are not separate ad hoc evaluators; they are bounded request-gated modes within Whole-Validation Failure Analysis.
 - `diagnostic_question`: question the diagnostic should answer.
 - `expected_decision_impact`: how the result may affect the next Research Loop decision.
 - `parameters`: bounded diagnostic parameters, including optional `primary_threshold` in `[0, 1]`, `threshold_sweep` bounds (`min`, `max`, `steps`), `batch_size`, `artifact_count`, and `failure_bucket_count`.
