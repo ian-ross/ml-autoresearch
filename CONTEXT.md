@@ -36,6 +36,10 @@ _Avoid_: Monolithic prompt, implicit agent workflow
 A short autonomous run using the current narrow Candidate Experiment Contract to test disciplined autonomous behavior, including proposals, contract compliance, bounded repairs, failure classification, Research Notes with figure provenance, Research Ledger events, Capability Requests, Campaign Reports, and pause behavior before broader contract expansion.
 _Avoid_: Production autonomy, multi-week campaign, metric-improvement gate
 
+**Autonomy Step**:
+One outer-Harness orchestration cycle that refreshes the Agent Control Boundary, invokes the agent once, ingests exactly one primary handoff outcome, updates canonical state, and selects the next action for an Autonomous Research Iteration.
+_Avoid_: Full autonomous iteration, agent session, multi-action batch, manual test step
+
 **Experiment Batch**:
 A bounded set of related Candidate Experiments proposed together to compare independent variants under one research hypothesis.
 _Avoid_: Unbounded search, sweep when the variants are not tied to a single hypothesis
@@ -175,6 +179,10 @@ _Avoid_: Canonical source file, editable reference
 **Candidate Submission Queue**:
 A Harness-ingested handoff area where the agent places finalized Candidate Experiment submissions that are ready for validation and execution by the Harness.
 _Avoid_: Draft candidates directory, runs queue
+
+**Agent Handoff Ingestion**:
+The Harness-owned act of copying exactly one primary handoff outcome from the Agent Workspace to its canonical destination, marking the source as ingested, and recording an auditable Research Ledger event before any optional Run or evaluation execution.
+_Avoid_: Candidate execution, direct agent scheduling, moving workspace files
 
 **Candidate Submission Preparation**:
 A Harness-owned packaging step inside the Agent Control Boundary that statically validates a Candidate Experiment draft, requires its Experiment Proposal, copies it into the Candidate Submission Queue, and writes submission metadata without importing model code or running smoke tests.

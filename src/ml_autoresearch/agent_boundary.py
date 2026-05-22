@@ -126,7 +126,9 @@ def prepare_agent_boundary(project_root: Path = Path(".")) -> dict[str, str]:
     _refresh_reference_snapshot(project_root, reference_dir)
     _refresh_history_snapshot(project_root, history_dir)
     _ensure_workspace(workspace_dir)
+    _write_agent_workspace_instructions(workspace_dir)
     _write_managed_fort_config(project_root, workspace_dir, config)
+    _install_autoresearch_skills(project_root, workspace_dir)
 
     return {
         "agent_reference": str(reference_dir),
@@ -160,6 +162,41 @@ def _ensure_workspace(workspace_dir: Path) -> None:
         (workspace_dir / dirname).mkdir(parents=True, exist_ok=True)
 
 
+def _write_agent_workspace_instructions(workspace_dir: Path) -> None:
+    (workspace_dir / "AGENTS.md").write_text(
+        "# Agent Control Boundary path map\n"
+        "\n"
+        "You are running inside the Agent Workspace. Autoresearch skills may refer to\n"
+        "project-root paths from the outer Harness repository; translate those paths to\n"
+        "the mounted paths inside this boundary.\n"
+        "\n"
+        "## Read-only reference and history\n"
+        "\n"
+        "- `CONTEXT.md` -> `/reference/CONTEXT.md`\n"
+        "- `EXPERIMENT_INDEX.md` -> `/reference/EXPERIMENT_INDEX.md`\n"
+        "- `docs/` -> `/docs/`\n"
+        "- `research-ledger.jsonl` -> `/history/research-ledger.jsonl`\n"
+        "- `candidates/` -> `/history/candidates/` for prior Candidate sources\n"
+        "- `runs/` -> `/history/runs/` for prior Run summaries/artifacts\n"
+        "- `research-notes/` -> `/history/research-notes/` for prior notes\n"
+        "- `/data/` contains approved read-only Research Problem data mounts when present\n"
+        "\n"
+        "## Writable handoff locations\n"
+        "\n"
+        "- Draft Candidate Experiments: `drafts/candidates/`\n"
+        "- Final Candidate Submission Queue entries: `submissions/`\n"
+        "- write new draft Research Notes under `research-notes/`\n"
+        "- Capability Requests: `capability-requests/`\n"
+        "- Evaluation Requests: `evaluation-requests/`\n"
+        "- Campaign Reports: `campaign-reports/`\n"
+        "- Scratch files: `scratch/`\n"
+        "\n"
+        "Use `ml-autoresearch-agent`, not `ml-autoresearch`, for allowed observation\n"
+        "and static Candidate preparation commands. Do not edit mounted read-only\n"
+        "reference, history, docs, or data paths.\n"
+    )
+
+
 def _write_managed_fort_config(project_root: Path, workspace_dir: Path, config: AgentBoundaryConfig) -> None:
     pi_dir = workspace_dir / ".pi"
     fort_d = pi_dir / "fort.d"
@@ -169,6 +206,27 @@ def _write_managed_fort_config(project_root: Path, workspace_dir: Path, config: 
     fort_d.mkdir()
     (fort_d / "README.md").write_text("Managed by `ml-autoresearch prepare-agent-boundary`; contents may be replaced.\n")
     (pi_dir / "fort.toml").write_text(_render_fort_toml(project_root, config))
+
+
+def _install_autoresearch_skills(project_root: Path, workspace_dir: Path) -> None:
+    source_dir = project_root / "docs" / "autoresearch-skills"
+    if not source_dir.exists():
+        return
+    if not source_dir.is_dir():
+        raise AgentBoundaryError(f"Autoresearch Skill Set path is not a directory: {source_dir}")
+    skills_dir = workspace_dir / ".pi" / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for source_entry in source_dir.iterdir():
+        destination = skills_dir / source_entry.name
+        if destination.exists():
+            if destination.is_dir() and not destination.is_symlink():
+                shutil.rmtree(destination)
+            else:
+                destination.unlink()
+        if source_entry.is_dir():
+            shutil.copytree(source_entry, destination)
+        else:
+            shutil.copy2(source_entry, destination)
 
 
 def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:

@@ -62,6 +62,41 @@ def test_prepare_agent_boundary_generates_layout_and_preserves_workspace_outputs
     assert settings.read_text() == "{}\n"
 
 
+def test_prepare_agent_boundary_writes_agent_workspace_path_instructions(tmp_path: Path):
+    write_project(tmp_path)
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 0, completed.stderr
+    instructions = (tmp_path / "agent-work" / "AGENTS.md").read_text()
+    assert "Agent Control Boundary path map" in instructions
+    assert "`CONTEXT.md` -> `/reference/CONTEXT.md`" in instructions
+    assert "`docs/` -> `/docs/`" in instructions
+    assert "`research-notes/` -> `/history/research-notes/` for prior notes" in instructions
+    assert "write new draft Research Notes under `research-notes/`" in instructions
+    assert "Use `ml-autoresearch-agent`, not `ml-autoresearch`" in instructions
+
+
+def test_prepare_agent_boundary_installs_autoresearch_skills_in_agent_workspace(tmp_path: Path):
+    write_project(tmp_path)
+    (tmp_path / "docs" / "autoresearch-skills" / "campaign-manager").mkdir(parents=True)
+    (tmp_path / "docs" / "autoresearch-skills" / "campaign-manager" / "SKILL.md").write_text("# Campaign Manager\n")
+    stale_skill_file = tmp_path / "agent-work" / ".pi" / "skills" / "campaign-manager" / "stale.txt"
+    stale_skill_file.parent.mkdir(parents=True)
+    stale_skill_file.write_text("stale\n")
+    unrelated_skill_file = tmp_path / "agent-work" / ".pi" / "skills" / "local-helper" / "SKILL.md"
+    unrelated_skill_file.parent.mkdir(parents=True)
+    unrelated_skill_file.write_text("# Local Helper\n")
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 0, completed.stderr
+    skill_path = tmp_path / "agent-work" / ".pi" / "skills" / "campaign-manager" / "SKILL.md"
+    assert skill_path.read_text() == "# Campaign Manager\n"
+    assert not stale_skill_file.exists()
+    assert unrelated_skill_file.read_text() == "# Local Helper\n"
+
+
 def test_prepare_agent_boundary_generates_managed_fort_config_with_data_mounts(tmp_path: Path):
     data_root = tmp_path / "gvccs-data"
     data_root.mkdir()

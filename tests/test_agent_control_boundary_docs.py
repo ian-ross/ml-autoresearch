@@ -32,6 +32,10 @@ def test_agent_control_boundary_docs_describe_workspace_and_reference_layout() -
 
     assert "`submissions/` entries are immutable once created" in text
     assert "Submissions are ingested by the Harness outside the Agent Control Boundary" in text
+    assert "Autoresearch Skill Set" in text
+    assert "`agent-work/.pi/skills/`" in text
+    assert "`agent-work/AGENTS.md`" in text
+    assert "path map" in text
 
 
 def test_agent_control_boundary_docs_define_inner_agent_commands_and_data_policy() -> None:

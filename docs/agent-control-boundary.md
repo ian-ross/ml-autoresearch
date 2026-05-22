@@ -43,6 +43,18 @@ submission for a repair or revision rather than editing an existing queued
 entry. Submissions are ingested by the Harness outside the Agent Control Boundary,
 where validation, canonical ledger/index updates, and Run scheduling occur.
 
+The Harness also writes `agent-work/AGENTS.md` with the Agent Control Boundary
+path map. It tells the inner agent how to translate project-root paths mentioned
+in Autoresearch skills into boundary mounts, for example `CONTEXT.md` to
+`/reference/CONTEXT.md`, `docs/` to `/docs/`, and prior `research-notes/` to
+`/history/research-notes/`, while keeping new draft notes under the writable
+workspace `research-notes/` directory.
+
+The Harness installs the reviewed Autoresearch Skill Set from
+`docs/autoresearch-skills/` into `agent-work/.pi/skills/` during setup so the
+inner agent can use the campaign-manager and focused autoresearch skills as
+active Pi skills inside the VM.
+
 ### Read-only mounts
 
 The VM exposes these read-only paths:
@@ -200,8 +212,10 @@ ml-autoresearch prepare-agent-boundary
 ```
 
 The command overwrites only managed pi-fort files under
-`agent-work/.pi/fort.toml` and `agent-work/.pi/fort.d/`; it does not delete the
-whole `agent-work/.pi` directory or existing Agent Workspace outputs.
+`agent-work/.pi/fort.toml` and `agent-work/.pi/fort.d/`, refreshes managed
+Autoresearch Skill Set files under `agent-work/.pi/skills/`, and rewrites the
+managed workspace instruction file `agent-work/AGENTS.md`; it does not delete
+the whole `agent-work/.pi` directory or existing Agent Workspace outputs.
 
 ```shell
 pi install -l git:git@github.com:ian-ross/pi-fort
