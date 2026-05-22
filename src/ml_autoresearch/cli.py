@@ -127,15 +127,22 @@ def autonomy_step_command(
             help="Agent command to invoke inside agent-work; defaults to [autonomy_step].agent_command or pi.",
         ),
     ] = None,
+    execute_next_action: Annotated[
+        bool,
+        typer.Option(
+            "--execute-next-action",
+            help="After successful ingestion, execute at most one Harness-owned next action for executable handoffs.",
+        ),
+    ] = False,
 ) -> None:
-    """Run one Autonomy Step: prepare boundary, invoke agent once, then ingest one handoff."""
+    """Run one Autonomy Step: prepare boundary, invoke agent once, ingest one handoff, and optionally execute its next action."""
 
     try:
-        result = run_autonomy_step(project_root, agent_command=agent_command)
+        result = run_autonomy_step(project_root, agent_command=agent_command, execute_next_action=execute_next_action)
     except (AutonomyStepError, AgentBoundaryError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     typer.echo(format_autonomy_step_summary(result))
-    if result.status in {"agent_failed", "ingestion_failed"}:
+    if result.status in {"agent_failed", "ingestion_failed", "execution_failed"}:
         raise typer.Exit(1)
 
 

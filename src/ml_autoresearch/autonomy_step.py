@@ -34,6 +34,7 @@ class AutonomyStepResult:
     agent_returncode: int
     ingestion: dict[str, object] | None
     reason: str | None = None
+    execution: dict[str, object] | None = None
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -44,6 +45,7 @@ class AutonomyStepResult:
             "agent_command": self.agent_command,
             "agent_returncode": self.agent_returncode,
             "ingestion": self.ingestion,
+            "execution": self.execution,
             "reason": self.reason,
         }
 
@@ -66,8 +68,13 @@ def load_configured_agent_command(project_root: Path) -> str | None:
     return value
 
 
-def run_autonomy_step(project_root: str | Path = Path("."), agent_command: str | None = None) -> AutonomyStepResult:
-    """Refresh the Agent Control Boundary, invoke the agent once, and ingest one primary handoff."""
+def run_autonomy_step(
+    project_root: str | Path = Path("."),
+    agent_command: str | None = None,
+    *,
+    execute_next_action: bool = False,
+) -> AutonomyStepResult:
+    """Refresh the Agent Control Boundary, invoke the agent once, ingest one primary handoff, and optionally execute one next action."""
 
     root = Path(project_root).resolve()
     boundary = prepare_agent_boundary(root)
@@ -96,6 +103,19 @@ def run_autonomy_step(project_root: str | Path = Path("."), agent_command: str |
     ingestion = collect_agent_handoff(root)
     status = _status_from_ingestion(ingestion)
     reason = ingestion.get("reason") if isinstance(ingestion.get("reason"), str) else None
+    execution = None
+    if status == "ingested" and execute_next_action:
+        try:
+            execution = execute_ingested_next_action(root, ingestion)
+        except Exception as exc:  # noqa: BLE001 - preserve ingestion record and stop for human review.
+            execution = {"status": "failed", "reason": str(exc)}
+            status = "execution_failed"
+            reason = str(exc)
+        else:
+            if execution.get("executed") is True:
+                ingestion["executed_next_action"] = True
+                ingestion["next_action_result"] = execution
+
     result = AutonomyStepResult(
         status=status,
         project_root=str(root),
@@ -105,6 +125,7 @@ def run_autonomy_step(project_root: str | Path = Path("."), agent_command: str |
         agent_returncode=completed.returncode,
         ingestion=ingestion,
         reason=reason,
+        execution=execution,
     )
     write_result_file(workspace, result)
     return result
@@ -159,8 +180,67 @@ def format_autonomy_step_summary(result: AutonomyStepResult) -> str:
         next_action = result.ingestion.get("next_action")
         if next_action:
             lines.append(f"Next action: {next_action}")
+    if result.execution is not None:
+        lines.append(f"Next action execution: {result.execution.get('status')}")
     lines.append(f"Result file: {Path(result.agent_workspace) / RESULT_FILENAME}")
     return "\n".join(lines)
+
+
+def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> dict[str, object]:
+    """Execute at most one Harness-owned next action selected by a successful handoff ingestion."""
+
+    handoff_type = ingestion.get("handoff_type")
+    next_action = ingestion.get("next_action")
+    if handoff_type == "candidate_submission" and next_action == "run_candidate":
+        candidate_path = _required_relative_path(root, ingestion, "canonical_path")
+        from ml_autoresearch.execution import NativeBackend
+        from ml_autoresearch.runs import submit_candidate
+
+        run = submit_candidate(
+            candidate_path,
+            root / "runs",
+            backend=NativeBackend(),
+            ledger_path=root / "research-ledger.jsonl",
+            require_proposal=True,
+        )
+        return {
+            "status": "completed",
+            "executed": True,
+            "action": "run_candidate",
+            "run_id": run.run_id,
+            "run_dir": str(run.run_dir),
+            "run_status": run.status.value,
+            "rejection_reason": run.rejection_reason,
+            "failure_classification": run.failure_classification.value if run.failure_classification is not None else None,
+        }
+    if handoff_type == "evaluation_request" and next_action == "run_post_run_evaluation":
+        request_path = _required_relative_path(root, ingestion, "canonical_path")
+        from ml_autoresearch.evaluation_requests import run_post_run_evaluation
+
+        evaluation = run_post_run_evaluation(
+            request_path,
+            runs_root=root / "runs",
+            ledger_path=root / "research-ledger.jsonl",
+        )
+        return {
+            "status": "completed",
+            "executed": True,
+            "action": "run_post_run_evaluation",
+            "evaluation_id": evaluation["evaluation_id"],
+            "evaluation": evaluation["evaluation"],
+            "ledger_events": evaluation["ledger_events"],
+        }
+    return {"status": "skipped", "executed": False, "reason": f"no executable Harness action for {handoff_type!r}"}
+
+
+def _required_relative_path(root: Path, payload: dict[str, object], field: str) -> Path:
+    value = payload.get(field)
+    if not isinstance(value, str) or not value:
+        raise AutonomyStepError(f"ingestion result missing {field}")
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise AutonomyStepError(f"ingestion result {field} must be a relative path inside the project root")
+    return root / path
 
 
 def _agent_command_argv(agent_command: str) -> list[str]:
