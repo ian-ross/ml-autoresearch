@@ -91,6 +91,7 @@ Initial event types:
 - `evaluation_requested`
 - `evaluation_completed`
 - `campaign_report_written`
+- `agent_handoff_ingested`
 - `campaign_paused`
 
 Example:
@@ -105,6 +106,8 @@ ml-autoresearch record-research-event \
 `research_note_written` events include `note_path` and may include `run_id` for a single-Run note. Notes with Research Figures may also include `figure_provenance_path` pointing to the note section or sidecar provenance file, or `figure_provenance` metadata containing the same validated source Run/Evaluation IDs, source artifact paths, and selection reasons documented in `research-notes/README.md`.
 
 Campaign Reports and Campaign Pause Conditions are documented in `docs/campaign-report-format.md`. Prefer `ml-autoresearch record-campaign-report` and `ml-autoresearch pause-campaign` over the generic event command for those event types so the approved pause vocabulary and optional report linkage are used consistently.
+
+`agent_handoff_ingested` events audit Agent Handoff Ingestion separately from Candidate Experiment execution or Post-Run Evaluation execution. They require `handoff_type`, `artifact_id`, `source_path`, and `canonical_path`; supported handoff types are `candidate_submission`, `evaluation_request`, `capability_request`, `research_note`, and `campaign_report`. They may include type-specific linkage fields such as `candidate_id`, `request_id`, `note_path`, `report_path`, and `run_id`.
 
 ## Run lifecycle emission
 

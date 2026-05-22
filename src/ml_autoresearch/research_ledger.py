@@ -123,6 +123,28 @@ class CampaignReportWritten(_LedgerEvent):
     report_path: str = Field(min_length=1)
 
 
+AgentHandoffTypeValue = Literal[
+    "candidate_submission",
+    "evaluation_request",
+    "capability_request",
+    "research_note",
+    "campaign_report",
+]
+
+
+class AgentHandoffIngested(_LedgerEvent):
+    event_type: Literal["agent_handoff_ingested"] = "agent_handoff_ingested"
+    handoff_type: AgentHandoffTypeValue
+    artifact_id: str = Field(min_length=1)
+    source_path: str = Field(min_length=1)
+    canonical_path: str = Field(min_length=1)
+    candidate_id: str | None = Field(default=None, min_length=1)
+    request_id: str | None = Field(default=None, min_length=1)
+    note_path: str | None = Field(default=None, min_length=1)
+    report_path: str | None = Field(default=None, min_length=1)
+    run_id: str | None = Field(default=None, min_length=1)
+
+
 CAMPAIGN_PAUSE_CONDITIONS: tuple[str, ...] = (
     "budget_exhausted",
     "repeated_failures",
@@ -162,6 +184,7 @@ _EVENT_SCHEMAS: dict[str, type[_LedgerEvent]] = {
     "evaluation_requested": EvaluationRequested,
     "evaluation_completed": EvaluationCompleted,
     "campaign_report_written": CampaignReportWritten,
+    "agent_handoff_ingested": AgentHandoffIngested,
     "campaign_paused": CampaignPaused,
 }
 

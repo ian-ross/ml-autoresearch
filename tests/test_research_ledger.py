@@ -116,6 +116,104 @@ def test_record_research_event_preserves_append_only_history(tmp_path: Path):
     assert read_jsonl(ledger) == [first, second]
 
 
+def test_agent_handoff_ingested_event_records_validated_primary_handoff(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    event = record_research_event(
+        "agent_handoff_ingested",
+        {
+            "handoff_type": "candidate_submission",
+            "artifact_id": "submission-001",
+            "source_path": "agent-workspace/submissions/candidate-001",
+            "canonical_path": "submissions/candidate-001",
+            "candidate_id": "candidate-001",
+            "run_id": "run_20260522_120000_abcdef",
+        },
+        ledger_path=ledger,
+    )
+
+    assert event["event_type"] == "agent_handoff_ingested"
+    assert event["handoff_type"] == "candidate_submission"
+    assert event["artifact_id"] == "submission-001"
+    assert event["source_path"] == "agent-workspace/submissions/candidate-001"
+    assert event["canonical_path"] == "submissions/candidate-001"
+    assert event["candidate_id"] == "candidate-001"
+    assert event["run_id"] == "run_20260522_120000_abcdef"
+    assert read_jsonl(ledger) == [event]
+
+
+def test_agent_handoff_ingested_event_supports_all_handoff_types_and_optional_links(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    cases = [
+        ("evaluation_request", {"request_id": "eval-request-001", "run_id": "run_abc"}),
+        ("capability_request", {"request_id": "capability-request-001"}),
+        ("research_note", {"note_path": "research-notes/note.md", "run_id": "run_abc"}),
+        ("campaign_report", {"report_path": "campaign-reports/report.md"}),
+    ]
+
+    events = []
+    for handoff_type, extra_fields in cases:
+        events.append(
+            record_research_event(
+                "agent_handoff_ingested",
+                {
+                    "handoff_type": handoff_type,
+                    "artifact_id": f"{handoff_type}-artifact",
+                    "source_path": f"agent-workspace/{handoff_type}.md",
+                    "canonical_path": f"canonical/{handoff_type}.md",
+                    **extra_fields,
+                },
+                ledger_path=ledger,
+            )
+        )
+
+    assert [event["handoff_type"] for event in events] == [case[0] for case in cases]
+    assert events[0]["request_id"] == "eval-request-001"
+    assert events[2]["note_path"] == "research-notes/note.md"
+    assert events[3]["report_path"] == "campaign-reports/report.md"
+    assert read_jsonl(ledger) == events
+
+
+def test_agent_handoff_ingested_event_rejects_bad_schema_without_corrupting_ledger(tmp_path: Path):
+    ledger = tmp_path / "research-ledger.jsonl"
+    existing = record_research_event(
+        "agent_handoff_ingested",
+        {
+            "handoff_type": "research_note",
+            "artifact_id": "note-001",
+            "source_path": "agent-workspace/research-notes/note.md",
+            "canonical_path": "research-notes/note.md",
+            "note_path": "research-notes/note.md",
+        },
+        ledger_path=ledger,
+    )
+
+    with pytest.raises(ResearchLedgerError, match="handoff_type"):
+        record_research_event(
+            "agent_handoff_ingested",
+            {
+                "handoff_type": "raw_ledger_event",
+                "artifact_id": "bad-001",
+                "source_path": "agent-workspace/raw.json",
+                "canonical_path": "raw.json",
+            },
+            ledger_path=ledger,
+        )
+    with pytest.raises(ResearchLedgerError, match="canonical_path"):
+        record_research_event(
+            "agent_handoff_ingested",
+            {
+                "handoff_type": "research_note",
+                "artifact_id": "bad-002",
+                "source_path": "agent-workspace/research-notes/bad.md",
+            },
+            ledger_path=ledger,
+        )
+
+    assert read_jsonl(ledger) == [existing]
+
+
 def test_research_note_written_event_can_reference_figure_provenance_path(tmp_path: Path):
     ledger = tmp_path / "research-ledger.jsonl"
 
