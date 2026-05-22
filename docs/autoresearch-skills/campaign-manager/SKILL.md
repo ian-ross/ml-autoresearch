@@ -7,7 +7,7 @@ description: Orchestrate one Autonomous Research Iteration for ML Autoresearch c
 
 ## Use
 
-Use this top-level skill to run or review exactly one Autonomous Research Iteration. It coordinates focused skills and stops when a Campaign Pause Conditions decision requires human review.
+Use this top-level skill to run or review exactly one Autonomous Research Iteration. When invoked by an Autonomy Step, one Autonomy Step means one primary handoff outcome, then stop. It coordinates focused skills and stops when a Campaign Pause Conditions decision requires human review.
 
 ## Read first
 

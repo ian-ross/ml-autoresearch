@@ -68,6 +68,41 @@ def test_agent_control_boundary_docs_describe_lightweight_image_dependency_bound
     assert "heavy ML/runtime dependencies belong to the outer Harness and Candidate Execution Boundary" in text
 
 
+def test_agent_control_boundary_docs_define_autonomy_step_operator_workflow() -> None:
+    text = DOC_PATH.read_text()
+
+    assert "`ml-autoresearch autonomy-step`" in text
+    assert "ADR 0007" in text
+    assert "generated `prompt.txt`" in text
+    assert "one-primary-handoff rule" in text
+    assert "one primary research handoff outcome" in text
+    assert "`.INGESTED.json` marker" in text
+    assert "`agent-work/autonomy-step-result.json`" in text
+    assert "--execute-next-action" in text
+    assert "Agent Handoff Ingestion is not Candidate Experiment Run execution" in text
+    assert "is not\nPost-Run Evaluation execution" in text
+
+
+def test_agent_control_boundary_docs_cover_manual_autonomy_step_checklist() -> None:
+    text = DOC_PATH.read_text()
+
+    assert "### Manual test checklist" in text
+    for case in [
+        "Candidate Submission",
+        "Research Note",
+        "Capability Request",
+        "Evaluation Request",
+        "Campaign Report",
+        "No handoff",
+        "Duplicate artifact",
+        "Multi-handoff failure",
+    ]:
+        assert case in text
+    assert "next_action: run_candidate" in text
+    assert "next_action:\n  run_post_run_evaluation" in text
+    assert "fails before copying, ledger updates, index updates, or marker creation" in text
+
+
 def test_agent_control_boundary_docs_define_root_config_schema() -> None:
     text = DOC_PATH.read_text()
 

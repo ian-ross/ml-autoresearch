@@ -74,6 +74,8 @@ def test_prepare_agent_boundary_writes_agent_workspace_path_instructions(tmp_pat
     assert "`docs/` -> `/docs/`" in instructions
     assert "`research-notes/` -> `/history/research-notes/` for prior notes" in instructions
     assert "write new draft Research Notes under `research-notes/`" in instructions
+    assert "One Autonomy Step means one primary handoff outcome, then stop." in instructions
+    assert "Do not\nproduce a second Candidate Submission" in instructions
     assert "Use `ml-autoresearch-agent`, not `ml-autoresearch`" in instructions
 
 

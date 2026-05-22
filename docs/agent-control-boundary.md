@@ -22,6 +22,72 @@ Prompt the inner agent with these operational rules:
   files, side-channel artifacts, environment inspection, subprocesses, or
   network workarounds.
 
+## Autonomy Step operator workflow
+
+`ml-autoresearch autonomy-step` is the operator command for one Harness-owned
+Autonomy Step. As described by [ADR 0007](adr/0007-autonomy-steps-ingest-one-agent-handoff-before-execution.md), an
+Autonomy Step refreshes the Agent Control Boundary, invokes the agent once with
+a generated `prompt.txt`, performs Agent Handoff Ingestion for exactly one
+primary handoff outcome, writes `agent-work/autonomy-step-result.json`, and then
+stops unless the operator explicitly enables one bounded Harness-owned next
+action.
+
+The generated `prompt.txt` tells the inner agent to read `AGENTS.md`, use the
+campaign-manager skill, choose exactly one primary research handoff outcome, and
+stop after the first primary outcome. The one-primary-handoff rule applies to
+Candidate Submissions, Research Notes, Capability Requests, Evaluation Requests,
+and Campaign Reports. If the agent is blocked, it writes either one Campaign
+Report or one Capability Request, not both. If no useful handoff is safe, it may
+stop without producing a handoff.
+
+Agent Handoff Ingestion is not Candidate Experiment Run execution and is not
+Post-Run Evaluation execution. Ingestion is the Harness-owned audit step that
+validates one artifact, copies it from the Agent Workspace to the canonical
+project location, rejects duplicate canonical destinations, records Research
+Ledger events, updates canonical indexes when applicable, and writes an
+`.INGESTED.json` marker beside the source artifact only after canonical state is
+updated. Candidate Experiment execution happens later through the Candidate
+Experiment Runner. Post-Run Evaluation execution happens later through the
+Post-Run Evaluation subsystem. `autonomy-step --execute-next-action` may execute
+one selected Harness-owned next action after successful ingestion: submit one
+Candidate Experiment Run for an ingested Candidate Submission, or run one
+Post-Run Evaluation for an ingested Evaluation Request.
+
+The result file, `agent-work/autonomy-step-result.json`, records the agent
+command, return code, ingestion status, handoff type, canonical path, next
+action, optional next-action execution result, and failure reason. Inspect this
+file together with the source-side ingestion marker before starting another
+Autonomy Step or graduating the workflow into a future bounded autonomous
+iteration loop.
+
+### Manual test checklist
+
+Use a disposable workspace and run one case per Autonomy Step:
+
+- Candidate Submission: agent creates one queued Candidate Experiment under
+  `submissions/`; ingestion copies it to `candidates/`, records the handoff, and
+  reports `next_action: run_candidate` without executing a Run unless
+  `--execute-next-action` is set.
+- Research Note: agent creates one Research Note under `research-notes/`;
+  ingestion copies it to canonical `research-notes/`, updates
+  `EXPERIMENT_INDEX.md`, records the handoff, and writes an ingestion marker.
+- Capability Request: agent creates one Capability Request under
+  `capability-requests/`; ingestion copies it to canonical state and stops for
+  human-gated review rather than self-approving contract or policy expansion.
+- Evaluation Request: agent creates one Evaluation Request under
+  `evaluation-requests/`; ingestion records `next_action:
+  run_post_run_evaluation` without running the Post-Run Evaluation unless
+  `--execute-next-action` is set.
+- Campaign Report: agent creates one Campaign Report under `campaign-reports/`;
+  ingestion copies it and stops for human campaign review or pause handling.
+- No handoff: agent exits successfully without creating primary handoff
+  artifacts; `autonomy-step-result.json` reports `no_handoff` and
+  `stop_for_human`.
+- Duplicate artifact: the canonical destination already exists; ingestion fails before copying, ledger updates, index updates, or marker creation.
+- Multi-handoff failure: the Agent Workspace contains more than one primary
+  handoff outcome, or more than one artifact for a primary handoff type;
+  ingestion fails and the operator must resolve the workspace before continuing.
+
 ## Filesystem layout
 
 ### Writable Agent Workspace

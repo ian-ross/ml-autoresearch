@@ -63,4 +63,5 @@ def test_campaign_manager_delegates_to_focused_skills() -> None:
     for skill_name in REQUIRED_SKILLS:
         if skill_name != "campaign-manager":
             assert f"../{skill_name}/SKILL.md" in text
+    assert "one Autonomy Step means one primary handoff outcome, then stop" in text
     assert "Do not continue automatically after a pause decision" in text
