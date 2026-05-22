@@ -22,6 +22,7 @@ from ml_autoresearch.agent_handoffs import (
     ingest_evaluation_request,
     ingest_research_note,
 )
+from ml_autoresearch.autonomy_step import AutonomyStepError, format_autonomy_step_summary, run_autonomy_step
 from ml_autoresearch.campaign_controls import (
     CampaignControlError,
     record_campaign_pause,
@@ -114,6 +115,28 @@ def prepare_agent_boundary_command(
     except (AgentBoundaryError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
+
+
+@app.command("autonomy-step")
+def autonomy_step_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-boundary.toml.")] = Path("."),
+    agent_command: Annotated[
+        str | None,
+        typer.Option(
+            "--agent-command",
+            help="Agent command to invoke inside agent-work; defaults to [autonomy_step].agent_command or pi.",
+        ),
+    ] = None,
+) -> None:
+    """Run one Autonomy Step: prepare boundary, invoke agent once, then ingest one handoff."""
+
+    try:
+        result = run_autonomy_step(project_root, agent_command=agent_command)
+    except (AutonomyStepError, AgentBoundaryError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    typer.echo(format_autonomy_step_summary(result))
+    if result.status in {"agent_failed", "ingestion_failed"}:
+        raise typer.Exit(1)
 
 
 @app.command("ingest-agent-handoff")
