@@ -7,7 +7,10 @@ import pytest
 
 from ml_autoresearch.agent_handoffs import (
     AgentHandoffIngestionError,
+    ingest_campaign_report,
     ingest_candidate_submission,
+    ingest_capability_request,
+    ingest_evaluation_request,
     ingest_research_note,
 )
 
@@ -27,6 +30,9 @@ def write_project(root: Path) -> None:
     (root / "candidates").mkdir()
     (root / "agent-work" / "submissions").mkdir(parents=True)
     (root / "agent-work" / "research-notes").mkdir(parents=True)
+    (root / "agent-work" / "capability-requests").mkdir(parents=True)
+    (root / "agent-work" / "evaluation-requests").mkdir(parents=True)
+    (root / "agent-work" / "campaign-reports").mkdir(parents=True)
     (root / "research-notes").mkdir()
     (root / "research-ledger.jsonl").write_text("")
     (root / "EXPERIMENT_INDEX.md").write_text(
@@ -310,4 +316,216 @@ def test_ingest_candidate_submission_validates_metadata_and_candidate_before_cop
 
     assert not (tmp_path / "candidates" / "agent_candidate").exists()
     assert not (source / "INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def write_capability_request(root: Path, filename: str = "capability-temporal-inputs.yaml", **overrides: object) -> Path:
+    import yaml
+
+    data = {
+        "request_id": "capability-temporal-inputs",
+        "capability_type": "contract_surface",
+        "blocked_hypothesis": "Temporal context could improve thin contrail segmentation.",
+        "current_contract_insufficiency": "The current contract only exposes single-frame RGB inputs.",
+        "expected_research_value": "Test whether adjacent frames reduce false negatives.",
+        "safety_reproducibility_risks": "Temporal grouping must remain Harness-owned.",
+        "minimal_harness_change": "Add an allowlisted temporal input mode.",
+        "candidate_authority_requested": "none",
+        "example_follow_up_experiments": ["Compare single-frame RGB against temporal RGB clips."],
+        "priority": "medium",
+    }
+    data.update(overrides)
+    path = root / "agent-work" / "capability-requests" / filename
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+    return path
+
+
+def write_evaluation_request(root: Path, filename: str = "eval-threshold-sweep-run-123.yaml", **overrides: object) -> Path:
+    import yaml
+
+    data = {
+        "request_id": "eval-threshold-sweep-run-123",
+        "target_run_id": "run_123",
+        "evaluation_mode": "threshold_sweep",
+        "diagnostic_question": "Which threshold best separates thin masks?",
+        "expected_decision_impact": "Decide whether low Dice is thresholding or representation failure.",
+        "parameters": {"threshold_sweep": {"min": 0.1, "max": 0.9, "steps": 9}, "artifact_count": 4},
+        "artifact_budget": {"max_artifacts": 6, "max_runtime_seconds": 120},
+    }
+    data.update(overrides)
+    path = root / "agent-work" / "evaluation-requests" / filename
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+    return path
+
+
+def write_campaign_report(
+    root: Path,
+    filename: str = "2026-05-10-status.md",
+    *,
+    pause_condition: str = "none",
+) -> Path:
+    path = root / "agent-work" / "campaign-reports" / filename
+    path.write_text(
+        "# Campaign Report: GVCCS\n\n"
+        "## Summary\nAutonomy smoke loop status.\n\n"
+        "## Current best Result\n- Run: none\n\n"
+        "## Recent Runs\n| Run | Candidate Experiment | Status | Key Result | Note |\n| --- | --- | --- | --- | --- |\n\n"
+        "## Failures\n| Run | Failure classification | Symptom | Follow-up |\n| --- | --- | --- | --- |\n\n"
+        "## Pending Capability Requests\n| Request | Status | Why it matters | Blocking? |\n| --- | --- | --- | --- |\n\n"
+        "## Budget use\n- Wall-clock budget used: unknown\n\n"
+        "## Next hypothesis\nContinue with the next bounded Candidate Experiment.\n\n"
+        "## Pause recommendation\n"
+        f"- Pause condition: {pause_condition}\n"
+        "- Human decision needed: no\n"
+    )
+    return path
+
+
+def test_ingest_capability_request_copies_to_canonical_records_events_and_stops(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_capability_request(tmp_path)
+
+    result = ingest_capability_request(tmp_path)
+
+    assert result["status"] == "ingested"
+    assert result["handoff_type"] == "capability_request"
+    assert result["request_id"] == "capability-temporal-inputs"
+    assert result["canonical_path"] == "capability-requests/capability-temporal-inputs.yaml"
+    assert result["next_action"] == "stop_for_human"
+    assert result["executed_next_action"] is False
+    assert (tmp_path / "capability-requests" / source.name).read_text() == source.read_text()
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert [event["event_type"] for event in events] == ["agent_handoff_ingested", "capability_request_created"]
+    assert events[0]["handoff_type"] == "capability_request"
+    assert events[0]["request_id"] == "capability-temporal-inputs"
+    assert events[1]["request_path"] == "capability-requests/capability-temporal-inputs.yaml"
+    assert json.loads((source.parent / f"{source.name}.INGESTED.json").read_text())["canonical_path"] == result["canonical_path"]
+
+
+def test_ingest_evaluation_request_copies_without_recording_execution_event(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_evaluation_request(tmp_path)
+
+    result = ingest_evaluation_request(tmp_path)
+
+    assert result["handoff_type"] == "evaluation_request"
+    assert result["request_id"] == "eval-threshold-sweep-run-123"
+    assert result["run_id"] == "run_123"
+    assert result["next_action"] == "run_post_run_evaluation"
+    assert result["executed_next_action"] is False
+    assert (tmp_path / "evaluation-requests" / source.name).read_text() == source.read_text()
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert [event["event_type"] for event in events] == ["agent_handoff_ingested"]
+    assert events[0]["handoff_type"] == "evaluation_request"
+    assert events[0]["run_id"] == "run_123"
+    assert "evaluation_requested" not in (tmp_path / "research-ledger.jsonl").read_text()
+
+
+def test_ingest_campaign_report_copies_records_events_and_selects_next_action(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_campaign_report(tmp_path, pause_condition="scheduled_check_in")
+
+    result = ingest_campaign_report(tmp_path)
+
+    assert result["handoff_type"] == "campaign_report"
+    assert result["report_path"] == "campaign-reports/2026-05-10-status.md"
+    assert result["next_action"] == "pause_campaign"
+    assert result["executed_next_action"] is False
+    assert (tmp_path / "campaign-reports" / source.name).read_text() == source.read_text()
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert [event["event_type"] for event in events] == ["agent_handoff_ingested", "campaign_report_written"]
+    assert events[0]["handoff_type"] == "campaign_report"
+    assert events[1]["report_path"] == "campaign-reports/2026-05-10-status.md"
+
+
+def test_request_and_report_ingestion_create_canonical_directories_lazily(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    (tmp_path / "capability-requests").rmdir() if (tmp_path / "capability-requests").exists() else None
+    source = write_capability_request(tmp_path)
+
+    ingest_capability_request(tmp_path)
+
+    assert (tmp_path / "capability-requests" / source.name).is_file()
+
+
+def test_request_and_report_ingestion_fail_closed_for_duplicate_and_invalid_artifacts(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    capability = write_capability_request(tmp_path, priority="invalid")
+
+    with pytest.raises(AgentHandoffIngestionError, match="priority"):
+        ingest_capability_request(tmp_path)
+
+    assert not (tmp_path / "capability-requests" / capability.name).exists()
+    assert not (capability.parent / f"{capability.name}.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+    capability.unlink()
+    evaluation = write_evaluation_request(tmp_path)
+    (tmp_path / "evaluation-requests").mkdir()
+    (tmp_path / "evaluation-requests" / evaluation.name).write_text("existing\n")
+    with pytest.raises(AgentHandoffIngestionError, match="already exists"):
+        ingest_evaluation_request(tmp_path)
+    assert (tmp_path / "evaluation-requests" / evaluation.name).read_text() == "existing\n"
+    assert not (evaluation.parent / f"{evaluation.name}.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+    evaluation.unlink()
+    report = write_campaign_report(tmp_path, pause_condition="agent whim")
+    with pytest.raises(AgentHandoffIngestionError, match="Pause condition"):
+        ingest_campaign_report(tmp_path)
+    assert not (tmp_path / "campaign-reports" / report.name).exists()
+    assert not (report.parent / f"{report.name}.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def test_non_executing_handoff_cli_commands_report_next_actions(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    write_evaluation_request(tmp_path)
+
+    completed = run_cli(tmp_path, "ingest-evaluation-request")
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["next_action"] == "run_post_run_evaluation"
+    assert payload["executed_next_action"] is False
+    assert not (tmp_path / "runs").exists()
+
+
+def test_capability_request_ingestion_fails_closed_for_duplicate_destination(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_capability_request(tmp_path)
+    (tmp_path / "capability-requests").mkdir()
+    (tmp_path / "capability-requests" / source.name).write_text("existing\n")
+
+    with pytest.raises(AgentHandoffIngestionError, match="already exists"):
+        ingest_capability_request(tmp_path)
+
+    assert (tmp_path / "capability-requests" / source.name).read_text() == "existing\n"
+    assert not (source.parent / f"{source.name}.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def test_evaluation_request_ingestion_fails_before_side_effects_for_invalid_request(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_evaluation_request(tmp_path, target_run_id="../unsafe")
+
+    with pytest.raises(AgentHandoffIngestionError, match="target_run_id"):
+        ingest_evaluation_request(tmp_path)
+
+    assert not (tmp_path / "evaluation-requests" / source.name).exists()
+    assert not (source.parent / f"{source.name}.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def test_campaign_report_ingestion_fails_closed_for_duplicate_destination(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_campaign_report(tmp_path)
+    (tmp_path / "campaign-reports").mkdir()
+    (tmp_path / "campaign-reports" / source.name).write_text("existing\n")
+
+    with pytest.raises(AgentHandoffIngestionError, match="already exists"):
+        ingest_campaign_report(tmp_path)
+
+    assert (tmp_path / "campaign-reports" / source.name).read_text() == "existing\n"
+    assert not (source.parent / f"{source.name}.INGESTED.json").exists()
     assert (tmp_path / "research-ledger.jsonl").read_text() == ""

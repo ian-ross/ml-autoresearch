@@ -10,7 +10,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from ml_autoresearch.campaign_controls import PAUSE_CONDITIONS
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.capability_requests import CapabilityRequestError, validate_capability_request_file
+from ml_autoresearch.evaluation_requests import EvaluationRequestError, validate_evaluation_request_file
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
 from ml_autoresearch.research_notes import ResearchNoteFigureError, validate_research_note_figure_provenance
 from ml_autoresearch.submissions import (
@@ -140,6 +143,141 @@ def ingest_research_note(project_root: str | Path = Path(".")) -> dict[str, obje
     }
 
 
+def ingest_capability_request(project_root: str | Path = Path(".")) -> dict[str, object]:
+    """Ingest exactly one un-ingested Agent Workspace Capability Request."""
+
+    root = Path(project_root).resolve()
+    source = _discover_one_uningested_file(root / "agent-work" / "capability-requests", "Capability Request", {".yaml", ".yml"})
+    try:
+        request = validate_capability_request_file(source)
+    except CapabilityRequestError as exc:
+        raise AgentHandoffIngestionError(str(exc)) from exc
+    assert request.request_id is not None
+    canonical = root / "capability-requests" / source.name
+    if canonical.exists():
+        raise AgentHandoffIngestionError(f"canonical Capability Request already exists: {canonical}")
+
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, canonical)
+    canonical_relative = _relative_posix(canonical, root)
+    source_relative = _relative_posix(source, root)
+    handoff_event = record_research_event(
+        "agent_handoff_ingested",
+        {
+            "handoff_type": "capability_request",
+            "artifact_id": request.request_id,
+            "source_path": source_relative,
+            "canonical_path": canonical_relative,
+            "request_id": request.request_id,
+        },
+        ledger_path=root / CANONICAL_RESEARCH_LEDGER,
+    )
+    request_event = record_research_event(
+        "capability_request_created",
+        {"request_id": request.request_id, "request_path": canonical_relative},
+        ledger_path=root / CANONICAL_RESEARCH_LEDGER,
+    )
+    _write_file_ingestion_marker_last(source, "capability_request", request.request_id, canonical_relative)
+    return {
+        "status": "ingested",
+        "handoff_type": "capability_request",
+        "request_id": request.request_id,
+        "source_path": source_relative,
+        "canonical_path": canonical_relative,
+        "ledger_events": [handoff_event, request_event],
+        "next_action": "stop_for_human",
+        "executed_next_action": False,
+    }
+
+
+def ingest_evaluation_request(project_root: str | Path = Path(".")) -> dict[str, object]:
+    """Ingest exactly one un-ingested Agent Workspace Evaluation Request without executing it."""
+
+    root = Path(project_root).resolve()
+    source = _discover_one_uningested_file(root / "agent-work" / "evaluation-requests", "Evaluation Request", {".yaml", ".yml"})
+    try:
+        request = validate_evaluation_request_file(source)
+    except EvaluationRequestError as exc:
+        raise AgentHandoffIngestionError(str(exc)) from exc
+    assert request.request_id is not None
+    canonical = root / "evaluation-requests" / source.name
+    if canonical.exists():
+        raise AgentHandoffIngestionError(f"canonical Evaluation Request already exists: {canonical}")
+
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, canonical)
+    canonical_relative = _relative_posix(canonical, root)
+    source_relative = _relative_posix(source, root)
+    handoff_event = record_research_event(
+        "agent_handoff_ingested",
+        {
+            "handoff_type": "evaluation_request",
+            "artifact_id": request.request_id,
+            "source_path": source_relative,
+            "canonical_path": canonical_relative,
+            "request_id": request.request_id,
+            "run_id": request.target_run_id,
+        },
+        ledger_path=root / CANONICAL_RESEARCH_LEDGER,
+    )
+    _write_file_ingestion_marker_last(source, "evaluation_request", request.request_id, canonical_relative)
+    return {
+        "status": "ingested",
+        "handoff_type": "evaluation_request",
+        "request_id": request.request_id,
+        "run_id": request.target_run_id,
+        "source_path": source_relative,
+        "canonical_path": canonical_relative,
+        "ledger_events": [handoff_event],
+        "next_action": "run_post_run_evaluation",
+        "executed_next_action": False,
+    }
+
+
+def ingest_campaign_report(project_root: str | Path = Path(".")) -> dict[str, object]:
+    """Ingest exactly one un-ingested Agent Workspace Campaign Report."""
+
+    root = Path(project_root).resolve()
+    source = _discover_one_uningested_file(root / "agent-work" / "campaign-reports", "Campaign Report", {".md"})
+    text = _validate_campaign_report(source)
+    pause_condition = _campaign_report_pause_condition(text)
+    canonical = root / "campaign-reports" / source.name
+    if canonical.exists():
+        raise AgentHandoffIngestionError(f"canonical Campaign Report already exists: {canonical}")
+
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, canonical)
+    canonical_relative = _relative_posix(canonical, root)
+    source_relative = _relative_posix(source, root)
+    handoff_event = record_research_event(
+        "agent_handoff_ingested",
+        {
+            "handoff_type": "campaign_report",
+            "artifact_id": source.name,
+            "source_path": source_relative,
+            "canonical_path": canonical_relative,
+            "report_path": canonical_relative,
+        },
+        ledger_path=root / CANONICAL_RESEARCH_LEDGER,
+    )
+    report_event = record_research_event(
+        "campaign_report_written",
+        {"report_path": canonical_relative},
+        ledger_path=root / CANONICAL_RESEARCH_LEDGER,
+    )
+    _write_file_ingestion_marker_last(source, "campaign_report", source.name, canonical_relative)
+    return {
+        "status": "ingested",
+        "handoff_type": "campaign_report",
+        "report_path": canonical_relative,
+        "source_path": source_relative,
+        "canonical_path": canonical_relative,
+        "ledger_events": [handoff_event, report_event],
+        "next_action": "pause_campaign" if pause_condition is not None else "stop_for_human",
+        "executed_next_action": False,
+    }
+
+
 def _discover_one_uningested_submission(submissions_root: Path) -> Path:
     if not submissions_root.is_dir():
         raise AgentHandoffIngestionError(f"Candidate Submission Queue does not exist: {submissions_root}")
@@ -151,6 +289,19 @@ def _discover_one_uningested_submission(submissions_root: Path) -> Path:
             f"expected exactly one un-ingested Candidate Submission in {submissions_root}, found {len(submissions)}"
         )
     return submissions[0]
+
+
+def _discover_one_uningested_file(directory: Path, handoff_name: str, suffixes: set[str]) -> Path:
+    if not directory.is_dir():
+        raise AgentHandoffIngestionError(f"Agent Workspace {handoff_name} directory does not exist: {directory}")
+    files = sorted(
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix in suffixes and not _file_marker_path(path).exists()
+    )
+    if len(files) != 1:
+        raise AgentHandoffIngestionError(f"expected exactly one un-ingested {handoff_name} in {directory}, found {len(files)}")
+    return files[0]
 
 
 def _discover_one_uningested_research_note(notes_root: Path) -> Path:
@@ -166,6 +317,47 @@ def _discover_one_uningested_research_note(notes_root: Path) -> Path:
             f"expected exactly one un-ingested Research Note in {notes_root}, found {len(notes)}"
         )
     return notes[0]
+
+
+def _validate_campaign_report(report_path: Path) -> str:
+    try:
+        text = report_path.read_text()
+    except OSError as exc:
+        raise AgentHandoffIngestionError(f"cannot read Campaign Report: {exc}") from exc
+    if not text.strip():
+        raise AgentHandoffIngestionError(f"Campaign Report is empty: {report_path}")
+    required_headings = [
+        "## Summary",
+        "## Current best Result",
+        "## Recent Runs",
+        "## Failures",
+        "## Pending Capability Requests",
+        "## Budget use",
+        "## Next hypothesis",
+        "## Pause recommendation",
+    ]
+    missing = [heading for heading in required_headings if heading not in text]
+    if missing:
+        raise AgentHandoffIngestionError(f"Campaign Report missing required headings: {', '.join(missing)}")
+    _campaign_report_pause_condition(text)
+    return text
+
+
+def _campaign_report_pause_condition(report_text: str) -> str | None:
+    for line in report_text.splitlines():
+        normalized = line.strip()
+        prefix = "- Pause condition:"
+        if normalized.startswith(prefix):
+            value = normalized[len(prefix) :].strip()
+            if value in {"", "none"}:
+                return None
+            if value not in PAUSE_CONDITIONS:
+                supported = ", ".join(["none", *PAUSE_CONDITIONS])
+                raise AgentHandoffIngestionError(
+                    f"Campaign Report Pause condition must be one of: {supported} (got {value!r})"
+                )
+            return value
+    raise AgentHandoffIngestionError("Campaign Report missing Pause condition line")
 
 
 def _validate_research_note(note_path: Path) -> str:
@@ -294,7 +486,22 @@ def _description_suffix(description: str | None) -> str:
 
 
 def _research_note_marker_path(note_path: Path) -> Path:
-    return note_path.with_name(f"{note_path.name}.{INGESTION_MARKER}")
+    return _file_marker_path(note_path)
+
+
+def _file_marker_path(path: Path) -> Path:
+    return path.with_name(f"{path.name}.{INGESTION_MARKER}")
+
+
+def _write_file_ingestion_marker_last(source: Path, handoff_type: str, artifact_id: str, canonical_path: str) -> None:
+    marker = {
+        "status": "ingested",
+        "handoff_type": handoff_type,
+        "artifact_id": artifact_id,
+        "canonical_path": canonical_path,
+        "ingested_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
+    _file_marker_path(source).write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n")
 
 
 def _write_research_note_ingestion_marker_last(source_note: Path, canonical_path: str) -> None:

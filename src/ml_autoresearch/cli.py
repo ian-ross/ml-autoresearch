@@ -13,7 +13,14 @@ from typing import Annotated, Literal
 import typer
 
 from ml_autoresearch.agent_boundary import AgentBoundaryError, prepare_agent_boundary
-from ml_autoresearch.agent_handoffs import AgentHandoffIngestionError, ingest_candidate_submission, ingest_research_note
+from ml_autoresearch.agent_handoffs import (
+    AgentHandoffIngestionError,
+    ingest_campaign_report,
+    ingest_candidate_submission,
+    ingest_capability_request,
+    ingest_evaluation_request,
+    ingest_research_note,
+)
 from ml_autoresearch.campaign_controls import (
     CampaignControlError,
     record_campaign_pause,
@@ -129,6 +136,45 @@ def ingest_research_note_command(
 
     try:
         result = ingest_research_note(project_root)
+    except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+
+
+@app.command("ingest-capability-request")
+def ingest_capability_request_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/capability-requests.")] = Path("."),
+) -> None:
+    """Ingest one Agent Workspace Capability Request into canonical capability-requests/."""
+
+    try:
+        result = ingest_capability_request(project_root)
+    except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+
+
+@app.command("ingest-evaluation-request")
+def ingest_evaluation_request_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/evaluation-requests.")] = Path("."),
+) -> None:
+    """Ingest one Agent Workspace Evaluation Request without executing it."""
+
+    try:
+        result = ingest_evaluation_request(project_root)
+    except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+
+
+@app.command("ingest-campaign-report")
+def ingest_campaign_report_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/campaign-reports.")] = Path("."),
+) -> None:
+    """Ingest one Agent Workspace Campaign Report into canonical campaign-reports/."""
+
+    try:
+        result = ingest_campaign_report(project_root)
     except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
