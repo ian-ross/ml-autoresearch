@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from ml_autoresearch.agent_handoffs import AgentHandoffIngestionError, ingest_candidate_submission
+from ml_autoresearch.agent_handoffs import (
+    AgentHandoffIngestionError,
+    ingest_candidate_submission,
+    ingest_research_note,
+)
 
 
 def run_cli(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -22,6 +26,8 @@ def run_cli(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def write_project(root: Path) -> None:
     (root / "candidates").mkdir()
     (root / "agent-work" / "submissions").mkdir(parents=True)
+    (root / "agent-work" / "research-notes").mkdir(parents=True)
+    (root / "research-notes").mkdir()
     (root / "research-ledger.jsonl").write_text("")
     (root / "EXPERIMENT_INDEX.md").write_text(
         "# Experiment Index\n"
@@ -33,6 +39,124 @@ def write_project(root: Path) -> None:
         "\n"
         "## Chronological Research Notes\n"
     )
+
+
+def write_research_note(root: Path, filename: str = "2026-05-09-agent-note.md", title: str | None = "Agent Note") -> Path:
+    note = root / "agent-work" / "research-notes" / filename
+    heading = f"# {title}\n\n" if title is not None else ""
+    note.write_text(
+        heading
+        + "## Summary\n"
+        + "Agent-authored Research Note for ingestion.\n\n"
+        + "## Decision\n"
+        + "Continue the Autonomous Research Iteration.\n"
+    )
+    return note
+
+
+def test_ingest_one_research_note_copies_to_canonical_updates_index_and_records_events(tmp_path: Path):
+    write_project(tmp_path)
+    source = write_research_note(tmp_path)
+
+    result = ingest_research_note(tmp_path)
+
+    assert result["status"] == "ingested"
+    assert result["handoff_type"] == "research_note"
+    assert result["note_path"] == "research-notes/2026-05-09-agent-note.md"
+    assert result["next_action"] == "continue_autonomy"
+    assert result["executed_next_action"] is False
+    canonical = tmp_path / "research-notes" / "2026-05-09-agent-note.md"
+    assert canonical.read_text() == source.read_text()
+    assert source.is_file()
+
+    index = (tmp_path / "EXPERIMENT_INDEX.md").read_text()
+    assert "[`Agent Note`](research-notes/2026-05-09-agent-note.md)" in index
+
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert [event["event_type"] for event in events] == ["agent_handoff_ingested", "research_note_written"]
+    assert events[0]["handoff_type"] == "research_note"
+    assert events[0]["artifact_id"] == "2026-05-09-agent-note.md"
+    assert events[0]["source_path"] == "agent-work/research-notes/2026-05-09-agent-note.md"
+    assert events[0]["canonical_path"] == "research-notes/2026-05-09-agent-note.md"
+    assert events[0]["note_path"] == "research-notes/2026-05-09-agent-note.md"
+    assert events[1]["note_path"] == "research-notes/2026-05-09-agent-note.md"
+    marker = json.loads((source.parent / "2026-05-09-agent-note.md.INGESTED.json").read_text())
+    assert marker["handoff_type"] == "research_note"
+    assert marker["canonical_path"] == "research-notes/2026-05-09-agent-note.md"
+
+
+def test_ingest_research_note_uses_filename_title_fallback(tmp_path: Path):
+    write_project(tmp_path)
+    write_research_note(tmp_path, filename="2026-05-10-no-heading-note.md", title=None)
+
+    ingest_research_note(tmp_path)
+
+    index = (tmp_path / "EXPERIMENT_INDEX.md").read_text()
+    assert "[`2026 05 10 No Heading Note`](research-notes/2026-05-10-no-heading-note.md)" in index
+
+
+def test_ingest_research_note_fails_before_side_effects_for_empty_or_malformed_notes(tmp_path: Path):
+    write_project(tmp_path)
+    source = tmp_path / "agent-work" / "research-notes" / "empty.md"
+    source.write_text("\n")
+
+    with pytest.raises(AgentHandoffIngestionError, match="empty"):
+        ingest_research_note(tmp_path)
+
+    assert not (tmp_path / "research-notes" / "empty.md").exists()
+    assert not (source.parent / "empty.md.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+    assert "empty.md" not in (tmp_path / "EXPERIMENT_INDEX.md").read_text()
+
+    source.write_text(
+        "# Bad figures\n\n"
+        "```research-figures\n"
+        "figures:\n"
+        "  - figure_id: missing-source\n"
+        "    source_artifact_path: runs/x/figure.png\n"
+        "    reason: Demonstrate validation.\n"
+        "```\n"
+    )
+    with pytest.raises(AgentHandoffIngestionError, match="Research Figure"):
+        ingest_research_note(tmp_path)
+    assert not (tmp_path / "research-notes" / "empty.md").exists()
+    assert not (source.parent / "empty.md.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
+def test_ingest_research_note_fails_closed_for_duplicate_destination_and_multiple_notes(tmp_path: Path):
+    write_project(tmp_path)
+    source = write_research_note(tmp_path)
+    existing = tmp_path / "research-notes" / source.name
+    existing.write_text("existing\n")
+
+    with pytest.raises(AgentHandoffIngestionError, match="already exists"):
+        ingest_research_note(tmp_path)
+
+    assert existing.read_text() == "existing\n"
+    assert not (source.parent / f"{source.name}.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+    assert source.name not in (tmp_path / "EXPERIMENT_INDEX.md").read_text()
+
+    existing.unlink()
+    write_research_note(tmp_path, filename="2026-05-10-other-note.md")
+    with pytest.raises(AgentHandoffIngestionError, match="expected exactly one"):
+        ingest_research_note(tmp_path)
+
+
+def test_ingest_research_note_cli_reports_next_action_without_infrastructure_work(tmp_path: Path):
+    write_project(tmp_path)
+    write_research_note(tmp_path)
+
+    completed = run_cli(tmp_path, "ingest-research-note")
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "ingested"
+    assert payload["next_action"] == "continue_autonomy"
+    assert payload["executed_next_action"] is False
+    assert (tmp_path / "research-notes" / "2026-05-09-agent-note.md").is_file()
+    assert not (tmp_path / "runs").exists()
 
 
 def write_submission(root: Path, candidate_id: str = "agent_candidate") -> Path:
