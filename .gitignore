@@ -5,7 +5,7 @@ __pycache__/
 
 # Generated run artifacts
 runs/
-containers/ml-autoresearch-agent/
+containers/ml-autoresearch-agent
 .make/
 agent-reference/
 agent-history/
