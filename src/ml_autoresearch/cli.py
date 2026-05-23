@@ -22,7 +22,12 @@ from ml_autoresearch.agent_handoffs import (
     ingest_evaluation_request,
     ingest_research_note,
 )
-from ml_autoresearch.autonomy_step import AutonomyStepError, format_autonomy_step_summary, run_autonomy_step
+from ml_autoresearch.autonomy_step import (
+    AutonomyStepError,
+    execute_outstanding_next_action,
+    format_autonomy_step_summary,
+    run_autonomy_step,
+)
 from ml_autoresearch.campaign_controls import (
     CampaignControlError,
     record_campaign_pause,
@@ -143,6 +148,21 @@ def autonomy_step_command(
         _exit_with_error(exc)
     typer.echo(format_autonomy_step_summary(result))
     if result.status in {"agent_failed", "ingestion_failed", "execution_failed"}:
+        raise typer.Exit(1)
+
+
+@app.command("execute-next-action")
+def execute_next_action_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/autonomy-step-result.json.")] = Path("."),
+) -> None:
+    """Execute the outstanding Harness-owned next action from the previous Autonomy Step."""
+
+    try:
+        result = execute_outstanding_next_action(project_root)
+    except (AutonomyStepError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    typer.echo(format_autonomy_step_summary(result))
+    if result.status == "execution_failed":
         raise typer.Exit(1)
 
 

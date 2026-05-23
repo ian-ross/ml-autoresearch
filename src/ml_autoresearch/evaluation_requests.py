@@ -147,7 +147,7 @@ def run_post_run_evaluation(
         raise EvaluationRequestError(f"target Run is missing run_metadata.json: {request.target_run_id}")
 
     evaluation_id = _evaluation_id(request.request_id)
-    relative_evaluation_dir = Path("evaluations") / evaluation_id
+    relative_evaluation_dir = Path("outputs") / "evaluations" / evaluation_id
     evaluation_dir = run_dir / relative_evaluation_dir
     if evaluation_dir.exists():
         raise EvaluationRequestError(f"evaluation already exists: {evaluation_id}")

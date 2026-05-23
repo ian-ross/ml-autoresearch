@@ -147,6 +147,31 @@ def test_autonomy_step_uses_configured_agent_command_when_cli_option_is_absent(t
     assert result["status"] == "no_handoff"
 
 
+def test_autonomy_step_default_pi_command_records_sessions_beside_agent_workspace(tmp_path: Path, monkeypatch):
+    import ml_autoresearch.autonomy_step as autonomy_step
+
+    write_project(tmp_path)
+    captured = {}
+
+    def fake_run(command: list[str], *, cwd: Path, check: bool):
+        captured["command"] = command
+        captured["cwd"] = cwd
+
+        class Completed:
+            returncode = 0
+
+        return Completed()
+
+    monkeypatch.setattr(autonomy_step.subprocess, "run", fake_run)
+
+    result = run_autonomy_step(tmp_path)
+
+    assert result.status == "no_handoff"
+    assert captured["cwd"] == tmp_path / "agent-work"
+    assert captured["command"][:3] == ["pi", "--session-dir", "../agent-sessions"]
+    assert (tmp_path / "agent-sessions").is_dir()
+
+
 class FakeNativeBackend:
     name = "fake-native"
 
@@ -216,7 +241,7 @@ def test_autonomy_step_dry_run_evaluation_request_does_not_record_evaluation_req
     assert result.ingestion["next_action"] == "run_post_run_evaluation"
     assert result.ingestion["executed_next_action"] is False
     assert "evaluation_requested" not in (tmp_path / "research-ledger.jsonl").read_text()
-    assert not (tmp_path / "runs" / "run_123" / "evaluations").exists()
+    assert not (tmp_path / "runs" / "run_123" / "outputs" / "evaluations").exists()
 
 
 def test_autonomy_step_execute_evaluation_request_runs_post_run_evaluation_once(tmp_path: Path):
@@ -230,13 +255,56 @@ def test_autonomy_step_execute_evaluation_request_runs_post_run_evaluation_once(
     assert result.ingestion is not None
     assert result.ingestion["executed_next_action"] is True
     assert result.ingestion["next_action_result"]["action"] == "run_post_run_evaluation"
-    assert (tmp_path / "runs" / "run_123" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "summary.json").is_file()
+    assert (tmp_path / "runs" / "run_123" / "outputs" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "summary.json").is_file()
     events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
     assert [event["event_type"] for event in events] == [
         "agent_handoff_ingested",
         "evaluation_requested",
         "evaluation_completed",
     ]
+
+
+def test_execute_next_action_cli_runs_outstanding_action_from_previous_autonomy_step(tmp_path: Path):
+    write_project(tmp_path)
+    _write_completed_run(tmp_path, "run_123")
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _evaluation_request_agent_body())
+    result = run_autonomy_step(tmp_path, agent_command=fake_command)
+    assert result.ingestion is not None
+    assert result.ingestion["executed_next_action"] is False
+
+    completed = run_cli(tmp_path, "execute-next-action", "--project-root", str(tmp_path))
+
+    assert completed.returncode == 0, completed.stderr
+    assert "Next action execution: completed" in completed.stdout
+    assert (tmp_path / "runs" / "run_123" / "outputs" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "summary.json").is_file()
+    result_file = json.loads((tmp_path / "agent-work" / "autonomy-step-result.json").read_text())
+    assert result_file["ingestion"]["executed_next_action"] is True
+    assert result_file["ingestion"]["next_action_result"]["action"] == "run_post_run_evaluation"
+    assert result_file["execution"]["executed"] is True
+
+
+def test_execute_next_action_cli_reruns_legacy_evaluation_result_missing_outputs_artifact(tmp_path: Path):
+    write_project(tmp_path)
+    _write_completed_run(tmp_path, "run_123")
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _evaluation_request_agent_body())
+    result = run_autonomy_step(tmp_path, agent_command=fake_command)
+    assert result.ingestion is not None
+    result_payload = result.to_json()
+    result_payload["ingestion"]["executed_next_action"] = True
+    result_payload["ingestion"]["next_action_result"] = {
+        "action": "run_post_run_evaluation",
+        "executed": True,
+        "status": "completed",
+        "evaluation_id": "eval_eval-threshold-sweep-run-123",
+    }
+    (tmp_path / "agent-work" / "autonomy-step-result.json").write_text(json.dumps(result_payload))
+
+    completed = run_cli(tmp_path, "execute-next-action", "--project-root", str(tmp_path))
+
+    assert completed.returncode == 0, completed.stderr
+    assert "Next action execution: completed" in completed.stdout
+    assert (tmp_path / "runs" / "run_123" / "outputs" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "evaluation_metadata.json").is_file()
+
 
 
 def test_autonomy_step_execute_next_action_skips_non_executable_handoff_types(tmp_path: Path):

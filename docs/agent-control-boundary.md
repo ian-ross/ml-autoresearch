@@ -51,14 +51,18 @@ Experiment Runner. Post-Run Evaluation execution happens later through the
 Post-Run Evaluation subsystem. `autonomy-step --execute-next-action` may execute
 one selected Harness-owned next action after successful ingestion: submit one
 Candidate Experiment Run for an ingested Candidate Submission, or run one
-Post-Run Evaluation for an ingested Evaluation Request.
+Post-Run Evaluation for an ingested Evaluation Request. If the operator ran the
+Autonomy Step without `--execute-next-action`, `ml-autoresearch
+execute-next-action` reads the previous `agent-work/autonomy-step-result.json`
+and executes the same outstanding Harness-owned next action later.
 
 The result file, `agent-work/autonomy-step-result.json`, records the agent
 command, return code, ingestion status, handoff type, canonical path, next
-action, optional next-action execution result, and failure reason. Inspect this
-file together with the source-side ingestion marker before starting another
-Autonomy Step or graduating the workflow into a future bounded autonomous
-iteration loop.
+action, optional next-action execution result, and failure reason. The default
+Pi invocation stores Pi session JSONL files in `agent-sessions/`, a gitignored
+sibling of `agent-work/`. Inspect the result file, the source-side ingestion
+marker, and the matching Pi session record before starting another Autonomy Step
+or graduating the workflow into a future bounded autonomous iteration loop.
 
 ### Manual test checklist
 

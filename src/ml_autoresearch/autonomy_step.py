@@ -13,7 +13,7 @@ from pathlib import Path
 from ml_autoresearch.agent_boundary import prepare_agent_boundary
 from ml_autoresearch.agent_handoffs import collect_agent_handoff
 
-DEFAULT_AGENT_COMMAND = "pi"
+DEFAULT_AGENT_COMMAND = "pi --session-dir ../agent-sessions"
 RESULT_FILENAME = "autonomy-step-result.json"
 PROMPT_FILENAME = "prompt.txt"
 
@@ -83,6 +83,8 @@ def run_autonomy_step(
     prompt_path.write_text(render_autonomy_step_prompt())
 
     configured_command = agent_command or load_configured_agent_command(root) or DEFAULT_AGENT_COMMAND
+    if configured_command == DEFAULT_AGENT_COMMAND:
+        (root / "agent-sessions").mkdir(exist_ok=True)
     command = _agent_command_argv(configured_command) + ["-p", f"@{PROMPT_FILENAME}"]
     completed = subprocess.run(command, cwd=workspace, check=False)
 
@@ -186,6 +188,67 @@ def format_autonomy_step_summary(result: AutonomyStepResult) -> str:
     return "\n".join(lines)
 
 
+def execute_outstanding_next_action(project_root: str | Path = Path(".")) -> AutonomyStepResult:
+    """Execute the outstanding Harness-owned next action from the previous Autonomy Step result."""
+
+    root = Path(project_root).resolve()
+    result_path = root / "agent-work" / RESULT_FILENAME
+    if not result_path.is_file():
+        raise AutonomyStepError(f"previous Autonomy Step result not found: {result_path}")
+    payload = json.loads(result_path.read_text())
+    ingestion = payload.get("ingestion")
+    if not isinstance(ingestion, dict):
+        raise AutonomyStepError("previous Autonomy Step result has no ingested handoff")
+
+    execution = None
+    status = str(payload.get("status", "ingested"))
+    reason = payload.get("reason") if isinstance(payload.get("reason"), str) else None
+    if ingestion.get("status") != "ingested":
+        execution = {"status": "skipped", "executed": False, "reason": "previous handoff was not ingested"}
+    elif ingestion.get("executed_next_action") is True and _executed_next_action_artifact_exists(root, ingestion):
+        execution = {"status": "skipped", "executed": False, "reason": "next action already executed"}
+    else:
+        try:
+            execution = execute_ingested_next_action(root, ingestion)
+        except Exception as exc:  # noqa: BLE001 - preserve ingestion record and stop for human review.
+            execution = {"status": "failed", "reason": str(exc)}
+            status = "execution_failed"
+            reason = str(exc)
+        else:
+            if execution.get("executed") is True:
+                status = "ingested"
+                reason = None
+                ingestion["executed_next_action"] = True
+                ingestion["next_action_result"] = execution
+
+    result = AutonomyStepResult(
+        status=status,
+        project_root=str(root),
+        agent_workspace=str(root / "agent-work"),
+        prompt_path=str(root / "agent-work" / PROMPT_FILENAME),
+        agent_command=_string_list(payload.get("agent_command")),
+        agent_returncode=int(payload.get("agent_returncode", 0)),
+        ingestion=ingestion,
+        reason=reason,
+        execution=execution,
+    )
+    write_result_file(root / "agent-work", result)
+    return result
+
+
+def _executed_next_action_artifact_exists(root: Path, ingestion: dict[str, object]) -> bool:
+    """Return whether a recorded executed next action has its current canonical artifact."""
+
+    if ingestion.get("handoff_type") == "evaluation_request" and ingestion.get("next_action") == "run_post_run_evaluation":
+        request_path = _required_relative_path(root, ingestion, "canonical_path")
+        from ml_autoresearch.evaluation_requests import _evaluation_id, validate_evaluation_request_file
+
+        request = validate_evaluation_request_file(request_path)
+        assert request.request_id is not None
+        return (root / "runs" / request.target_run_id / "outputs" / "evaluations" / _evaluation_id(request.request_id) / "evaluation_metadata.json").is_file()
+    return True
+
+
 def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> dict[str, object]:
     """Execute at most one Harness-owned next action selected by a successful handoff ingestion."""
 
@@ -248,6 +311,12 @@ def _agent_command_argv(agent_command: str) -> list[str]:
     if not argv:
         raise AutonomyStepError("agent command must be non-empty")
     return argv
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _status_from_ingestion(ingestion: dict[str, object]) -> str:

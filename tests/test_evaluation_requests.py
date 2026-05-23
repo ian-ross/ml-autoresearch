@@ -90,12 +90,12 @@ def test_post_run_evaluation_requires_valid_request_and_links_artifacts_to_reque
     result = run_post_run_evaluation(request_path, runs_root=runs_root, ledger_path=ledger)
 
     assert result["evaluation_id"] == "eval_eval-threshold-sweep-run-123"
-    evaluation_dir = runs_root / "run_123" / "evaluations" / "eval_eval-threshold-sweep-run-123"
+    evaluation_dir = runs_root / "run_123" / "outputs" / "evaluations" / "eval_eval-threshold-sweep-run-123"
     metadata = json.loads((evaluation_dir / "evaluation_metadata.json").read_text())
     summary = json.loads((evaluation_dir / "summary.json").read_text())
     assert metadata["request_id"] == "eval-threshold-sweep-run-123"
     assert metadata["parent_run_id"] == "run_123"
-    assert metadata["artifacts"]["summary"] == "evaluations/eval_eval-threshold-sweep-run-123/summary.json"
+    assert metadata["artifacts"]["summary"] == "outputs/evaluations/eval_eval-threshold-sweep-run-123/summary.json"
     assert summary["request_id"] == "eval-threshold-sweep-run-123"
     assert summary["parent_run_id"] == "run_123"
 
@@ -104,7 +104,7 @@ def test_post_run_evaluation_requires_valid_request_and_links_artifacts_to_reque
     assert rows[0]["evaluation_request_id"] == "eval-threshold-sweep-run-123"
     assert rows[0]["run_id"] == "run_123"
     assert rows[1]["evaluation_id"] == "eval_eval-threshold-sweep-run-123"
-    assert rows[1]["artifact_metadata_path"] == str((runs_root / "run_123" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "evaluation_metadata.json").resolve())
+    assert rows[1]["artifact_metadata_path"] == str((runs_root / "run_123" / "outputs" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "evaluation_metadata.json").resolve())
 
 
 def test_failed_evaluation_request_validation_does_not_create_artifacts_or_success_ledger_event(tmp_path: Path) -> None:
@@ -116,7 +116,7 @@ def test_failed_evaluation_request_validation_does_not_create_artifacts_or_succe
     with pytest.raises(EvaluationRequestError):
         run_post_run_evaluation(request_path, runs_root=runs_root, ledger_path=ledger)
 
-    assert not (runs_root / "run_123" / "evaluations").exists()
+    assert not (runs_root / "run_123" / "outputs" / "evaluations").exists()
     assert not ledger.exists()
 
 

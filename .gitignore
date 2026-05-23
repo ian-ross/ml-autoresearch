@@ -9,5 +9,6 @@ containers/ml-autoresearch-agent
 .make/
 agent-reference/
 agent-history/
+agent-sessions/
 agent-work/
 

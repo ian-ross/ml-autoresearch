@@ -36,8 +36,8 @@ The command requires a validated Evaluation Request. Invalid modes or out-of-bou
 Evaluation outputs are written under the parent Run:
 
 ```text
-runs/<run_id>/evaluations/<evaluation_id>/evaluation_metadata.json
-runs/<run_id>/evaluations/<evaluation_id>/summary.json
+runs/<run_id>/outputs/evaluations/<evaluation_id>/evaluation_metadata.json
+runs/<run_id>/outputs/evaluations/<evaluation_id>/summary.json
 ```
 
 `evaluation_metadata.json` links the output to `request_id`, `parent_run_id`, the approved mode, validated parameters, and relative artifact paths.
