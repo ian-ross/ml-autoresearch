@@ -1,0 +1,21 @@
+request_id: eval_2026_05_22_run_20260510_failure_buckets
+target_run_id: run_20260510_165335_b458c3
+evaluation_mode: failure_bucket_review
+diagnostic_question: >-
+  Across the full Working Validation Split, which false-positive-heavy,
+  false-negative-heavy, empty-mask false-positive, and missed-positive cases
+  explain the remaining errors for the current best lower-weight Line Target
+  auxiliary Small U-Net?
+expected_decision_impact: >-
+  Use the bounded failure buckets to decide whether the next Candidate
+  Experiment should tune the decision threshold or line auxiliary weight, add an
+  approved augmentation policy, or move to another contract-supported loss or
+  auxiliary-target variation.
+parameters:
+  primary_threshold: 0.5
+  batch_size: 16
+  artifact_count: 24
+  failure_bucket_count: 6
+artifact_budget:
+  max_artifacts: 24
+  max_runtime_seconds: 1800

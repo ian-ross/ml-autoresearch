@@ -23,6 +23,12 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 | `candidates/single_frame_small_unet_line_auxiliary` | [`README.md`](candidates/single_frame_small_unet_line_auxiliary/README.md) | [`2026-05-08 small U-Net line auxiliary target`](research-notes/2026-05-08-small-unet-line-auxiliary.md) | `run_20260507_193004_0b4688`; `eval_20260508_100735_6fea74`; compared to `run_20260506_045020_84aac5` / `eval_20260507_104724_a96db5` | Promising challenger; modest Dice/recall gain, tune auxiliary weight next. |
 | `candidates/single_frame_small_unet_line_auxiliary_w010` | [`README.md`](candidates/single_frame_small_unet_line_auxiliary_w010/README.md) | Pending full GVCCS Research Note. | Pending GVCCS Run; compare to `run_20260506_045020_84aac5` and `run_20260507_193004_0b4688`. | Introduced; tests lower Line Target auxiliary weight `0.10`. |
 
+| `candidates/single_frame_small_unet_line_auxiliary_w010_light_combined` | [`README.md`](candidates/single_frame_small_unet_line_auxiliary_w010_light_combined/README.md) — Small U-Net single-frame segmentation candidate with line auxiliary target weight 0.10 and Harness-owned light combined augmentation. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_small_unet_line_auxiliary_w010_light_geometric` | [`README.md`](candidates/single_frame_small_unet_line_auxiliary_w010_light_geometric/README.md) — Small U-Net single-frame segmentation candidate with line auxiliary target weight 0.10 and Harness-owned light geometric augmentation. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_small_unet_line_auxiliary_w010_light_photometric` | [`README.md`](candidates/single_frame_small_unet_line_auxiliary_w010_light_photometric/README.md) — Small U-Net single-frame segmentation candidate with line auxiliary target weight 0.10 and Harness-owned light photometric augmentation. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
 ## Chronological Research Notes
 
 - [`2026-05-04 baseline GVCCS tiny subset`](research-notes/2026-05-04-baseline-gvccs-tiny-subset.md)
@@ -31,3 +37,7 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 - [`2026-05-06 small U-Net shuffled realistic training`](research-notes/2026-05-06-small-unet-shuffled-realistic-training.md)
 - [`2026-05-07 small U-Net post-run evaluation`](research-notes/2026-05-07-small-unet-post-run-evaluation.md)
 - [`2026-05-08 small U-Net line auxiliary target`](research-notes/2026-05-08-small-unet-line-auxiliary.md)
+- [`Research Note: Lower-weight Line Target auxiliary Small U-Net`](research-notes/2026-05-22-small-unet-line-auxiliary-w010.md)
+- [`2026-05-23 lower-weight Line Target auxiliary evaluation follow-up`](research-notes/2026-05-23-line-auxiliary-w010-evaluation.md)
+- [`2026-05-25 light-combined augmentation regression`](research-notes/2026-05-25-light-combined-augmentation-regression.md)
+- [`2026-05-25 light-geometric augmentation regression`](research-notes/2026-05-25-light-geometric-augmentation-regression.md)

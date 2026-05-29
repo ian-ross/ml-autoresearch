@@ -4,7 +4,6 @@ __pycache__/
 *.py[cod]
 
 # Generated run artifacts
-runs/
 containers/ml-autoresearch-agent
 .make/
 agent-reference/
