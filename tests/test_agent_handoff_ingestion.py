@@ -433,7 +433,7 @@ def test_ingest_evaluation_request_copies_without_recording_execution_event(tmp_
 
 def test_ingest_campaign_report_copies_records_events_and_selects_next_action(tmp_path: Path) -> None:
     write_project(tmp_path)
-    source = write_campaign_report(tmp_path, pause_condition="scheduled_check_in")
+    source = write_campaign_report(tmp_path, pause_condition="`scheduled_check_in`")
 
     result = ingest_campaign_report(tmp_path)
 

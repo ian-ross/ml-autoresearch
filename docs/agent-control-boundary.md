@@ -49,12 +49,14 @@ Ledger events, updates canonical indexes when applicable, and writes an
 updated. Candidate Experiment execution happens later through the Candidate
 Experiment Runner. Post-Run Evaluation execution happens later through the
 Post-Run Evaluation subsystem. `autonomy-step --execute-next-action` may execute
-one selected Harness-owned next action after successful ingestion: submit one
-Candidate Experiment Run for an ingested Candidate Submission, or run one
-Post-Run Evaluation for an ingested Evaluation Request. If the operator ran the
+one selected Harness-owned next action after successful ingestion: submit and
+run one Candidate Experiment Run for an ingested Candidate Submission, or run
+one Post-Run Evaluation for an ingested Evaluation Request. If the operator ran the
 Autonomy Step without `--execute-next-action`, `ml-autoresearch
 execute-next-action` reads the previous `agent-work/autonomy-step-result.json`
-and executes the same outstanding Harness-owned next action later.
+and executes the same outstanding Harness-owned next action later. Candidate
+Run next actions use the project-root `candidate-execution.toml` Candidate
+Execution Boundary policy rather than Agent Control Boundary settings.
 
 The result file, `agent-work/autonomy-step-result.json`, records the agent
 command, return code, ingestion status, handoff type, canonical path, next
@@ -70,8 +72,10 @@ Use a disposable workspace and run one case per Autonomy Step:
 
 - Candidate Submission: agent creates one queued Candidate Experiment under
   `submissions/`; ingestion copies it to `candidates/`, records the handoff, and
-  reports `next_action: run_candidate` without executing a Run unless
-  `--execute-next-action` is set.
+  reports `next_action: run_candidate` without submitting or training a Run unless
+  `--execute-next-action` is set. If a prior execution only reached an accepted
+  Run, `execute-next-action` must continue that accepted Run rather than treating
+  acceptance as a completed `run_candidate` action.
 - Research Note: agent creates one Research Note under `research-notes/`;
   ingestion copies it to canonical `research-notes/`, updates
   `EXPERIMENT_INDEX.md`, records the handoff, and writes an ingestion marker.

@@ -180,10 +180,13 @@ class FakeNativeBackend:
         return OperationResult(backend=self.name, operation="smoke_test")
 
     def train_synthetic(self, run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n") -> OperationResult:
-        raise AssertionError("candidate submission next-action execution must submit exactly one Run, not train it")
+        raise AssertionError("candidate submission next-action execution must not train synthetic data")
 
     def train_gvccs(self, run_dir: str | Path, data_root: str | Path, *, max_samples: int | None = None, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n") -> OperationResult:
-        raise AssertionError("candidate submission next-action execution must not train GVCCS data")
+        outputs = Path(run_dir, "outputs")
+        outputs.mkdir(exist_ok=True)
+        (outputs / "final_metrics.json").write_text('{"val/dice": 0.5}\n')
+        return OperationResult(backend=self.name, operation="train_gvccs")
 
     def evaluate_run(self, run_dir: str | Path, *, data_root: str | Path | None = None, max_artifact_samples: int = 12) -> OperationResult:
         raise AssertionError("candidate submission next-action execution must not evaluate")
@@ -203,10 +206,13 @@ def test_autonomy_step_dry_run_candidate_submission_reports_next_action_without_
     assert not (tmp_path / "runs").exists()
 
 
-def test_autonomy_step_execute_candidate_submission_submits_one_run_after_ingestion(tmp_path: Path, monkeypatch):
+def test_autonomy_step_execute_candidate_submission_runs_one_run_after_ingestion(tmp_path: Path, monkeypatch):
     import ml_autoresearch.execution as execution
 
     write_project(tmp_path)
+    data_root = tmp_path / "gvccs"
+    data_root.mkdir()
+    _write_completed_run(tmp_path, "run_prior", data_root=data_root)
     monkeypatch.setattr(execution, "NativeBackend", FakeNativeBackend)
     fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
 
@@ -217,15 +223,17 @@ def test_autonomy_step_execute_candidate_submission_submits_one_run_after_ingest
     assert result.ingestion["executed_next_action"] is True
     execution_result = result.ingestion["next_action_result"]
     assert execution_result["action"] == "run_candidate"
-    assert execution_result["run_status"] == "accepted"
+    assert execution_result["run_status"] == "completed"
     runs = sorted((tmp_path / "runs").glob("run_*"))
-    assert len(runs) == 1
+    assert len(runs) == 2
     events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
     assert [event["event_type"] for event in events] == [
         "agent_handoff_ingested",
         "proposal_created",
         "candidate_created",
         "candidate_submitted",
+        "run_started",
+        "run_completed",
     ]
 
 
@@ -262,6 +270,90 @@ def test_autonomy_step_execute_evaluation_request_runs_post_run_evaluation_once(
         "evaluation_requested",
         "evaluation_completed",
     ]
+
+
+def test_execute_next_action_cli_continues_accepted_candidate_run_from_previous_action(tmp_path: Path, monkeypatch):
+    import ml_autoresearch.execution as execution
+
+    write_project(tmp_path)
+    data_root = tmp_path / "gvccs"
+    data_root.mkdir()
+    _write_completed_run(tmp_path, "run_prior", data_root=data_root)
+    monkeypatch.setattr(execution, "NativeBackend", FakeNativeBackend)
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
+    result = run_autonomy_step(tmp_path, agent_command=fake_command)
+    assert result.ingestion is not None
+    from ml_autoresearch.autonomy_step import execute_ingested_next_action
+    execution_result = execute_ingested_next_action(tmp_path, result.ingestion)
+    assert execution_result["run_status"] == "completed"
+
+    # Simulate the pre-fix state: a candidate had been accepted, but not trained, and
+    # execute-next-action had marked the accepted run as already executed.
+    accepted_run = next(path for path in (tmp_path / "runs").glob("run_*") if path.name != "run_prior")
+    metadata = json.loads((accepted_run / "run_metadata.json").read_text())
+    metadata["status"] = "accepted"
+    (accepted_run / "run_metadata.json").write_text(json.dumps(metadata) + "\n")
+    result_payload = result.to_json()
+    assert result_payload["ingestion"] is not None
+    result_payload["ingestion"]["executed_next_action"] = True
+    result_payload["ingestion"]["next_action_result"] = {
+        "action": "run_candidate",
+        "executed": True,
+        "status": "completed",
+        "run_id": accepted_run.name,
+        "run_dir": str(accepted_run),
+        "run_status": "accepted",
+    }
+    (tmp_path / "agent-work" / "autonomy-step-result.json").write_text(json.dumps(result_payload))
+
+    from ml_autoresearch.autonomy_step import execute_outstanding_next_action
+
+    continuation = execute_outstanding_next_action(tmp_path)
+
+    assert continuation.execution is not None
+    assert continuation.execution["status"] == "completed"
+    result_file = json.loads((tmp_path / "agent-work" / "autonomy-step-result.json").read_text())
+    assert result_file["ingestion"]["next_action_result"]["run_status"] == "completed"
+    assert json.loads((accepted_run / "run_metadata.json").read_text())["status"] == "completed"
+
+
+
+def test_execute_next_action_resubmits_candidate_when_recorded_accepted_run_was_deleted(tmp_path: Path, monkeypatch):
+    import ml_autoresearch.execution as execution
+
+    write_project(tmp_path)
+    data_root = tmp_path / "gvccs"
+    data_root.mkdir()
+    _write_completed_run(tmp_path, "run_prior", data_root=data_root)
+    monkeypatch.setattr(execution, "NativeBackend", FakeNativeBackend)
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
+    result = run_autonomy_step(tmp_path, agent_command=fake_command)
+    assert result.ingestion is not None
+    deleted_run = tmp_path / "runs" / "run_deleted"
+    result_payload = result.to_json()
+    assert result_payload["ingestion"] is not None
+    result_payload["ingestion"]["executed_next_action"] = True
+    result_payload["ingestion"]["next_action_result"] = {
+        "action": "run_candidate",
+        "executed": True,
+        "status": "completed",
+        "run_id": deleted_run.name,
+        "run_dir": str(deleted_run),
+        "run_status": "accepted",
+    }
+    (tmp_path / "agent-work" / "autonomy-step-result.json").write_text(json.dumps(result_payload))
+
+    from ml_autoresearch.autonomy_step import execute_outstanding_next_action
+
+    continuation = execute_outstanding_next_action(tmp_path)
+
+    assert continuation.execution is not None
+    assert continuation.execution["status"] == "completed"
+    assert continuation.execution["run_status"] == "completed"
+    completed_runs = [path for path in (tmp_path / "runs").glob("run_*") if path.name != "run_prior"]
+    assert len(completed_runs) == 1
+    assert json.loads((completed_runs[0] / "run_metadata.json").read_text())["status"] == "completed"
+
 
 
 def test_execute_next_action_cli_runs_outstanding_action_from_previous_autonomy_step(tmp_path: Path):
@@ -440,7 +532,10 @@ artifact_budget:
 """
 
 
-def _write_completed_run(root: Path, run_id: str) -> None:
+def _write_completed_run(root: Path, run_id: str, *, data_root: Path | None = None) -> None:
     run_dir = root / "runs" / run_id
     run_dir.mkdir(parents=True)
-    (run_dir / "run_metadata.json").write_text(json.dumps({"run_id": run_id, "status": "completed"}) + "\n")
+    metadata = {"run_id": run_id, "status": "completed"}
+    if data_root is not None:
+        metadata["dataset"] = {"host_data_path": str(data_root)}
+    (run_dir / "run_metadata.json").write_text(json.dumps(metadata) + "\n")

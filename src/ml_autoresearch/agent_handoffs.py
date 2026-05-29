@@ -444,7 +444,7 @@ def _campaign_report_pause_condition(report_text: str) -> str | None:
         normalized = line.strip()
         prefix = "- Pause condition:"
         if normalized.startswith(prefix):
-            value = normalized[len(prefix) :].strip()
+            value = normalized[len(prefix) :].strip().strip("`")
             if value in {"", "none"}:
                 return None
             if value not in PAUSE_CONDITIONS:

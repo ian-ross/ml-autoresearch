@@ -142,6 +142,39 @@ def run_candidate_with_gvccs_data(
     )
 
 
+def train_accepted_run_with_gvccs_data(
+    run_dir: str | Path,
+    data_root: str | Path,
+    *,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+    backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
+) -> RunSubmission:
+    """Synchronously train an already accepted Candidate Experiment Run on local GVCCS data."""
+
+    path = Path(run_dir)
+    metadata = _read_metadata(path)
+    if metadata.get("status") != RunStatus.ACCEPTED.value:
+        raise ValueError(f"accepted Run required for training continuation: {path}")
+    data_path = _validate_host_data_root(data_root)
+    selected_backend = backend or NativeBackend()
+    return _train_accepted_run(
+        RunSubmission(str(metadata.get("run_id") or path.name), path, RunStatus.ACCEPTED),
+        lambda accepted_run_dir: selected_backend.train_gvccs(
+            accepted_run_dir,
+            data_path,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        ),
+        backend=selected_backend,
+        dataset=_gvccs_dataset_metadata(data_path),
+        ledger_path=_resolve_ledger_path(path.parent, ledger_path),
+    )
+
+
 def _run_candidate_synthetic_training(
     candidate_dir: str | Path,
     runs_root: str | Path,
@@ -280,7 +313,17 @@ def _run_candidate_training(
     )
     if run.status != RunStatus.ACCEPTED:
         return run
+    return _train_accepted_run(run, trainer, backend=backend, dataset=dataset, ledger_path=resolved_ledger_path)
 
+
+def _train_accepted_run(
+    run: RunSubmission,
+    trainer,
+    *,
+    backend: ExecutionBackend | None = None,
+    dataset: dict[str, object] | None = None,
+    ledger_path: str | Path,
+) -> RunSubmission:
     metadata = _read_metadata(run.run_dir)
     created_at = str(metadata["created_at"])
     candidate_source = Path(str(metadata["candidate_source"]["path"]))
@@ -288,9 +331,10 @@ def _run_candidate_training(
     record_research_event(
         "run_started",
         {"run_id": run.run_id, "candidate_id": candidate_id},
-        ledger_path=resolved_ledger_path,
+        ledger_path=ledger_path,
     )
     repair_lineage = metadata.get("repair_lineage") if isinstance(metadata.get("repair_lineage"), dict) else None
+    execution_backend = metadata.get("execution_backend")
     _write_metadata(
         run.run_dir,
         run_id=run.run_id,
@@ -301,7 +345,7 @@ def _run_candidate_training(
         rejection_reason=None,
         smoke_failure_reason=None,
         training_failure_reason=None,
-        execution_backend=metadata.get("execution_backend"),
+        execution_backend=execution_backend,
         dataset=dataset,
         repair_lineage=repair_lineage,
     )
@@ -322,12 +366,12 @@ def _run_candidate_training(
             smoke_failure_reason=None,
             training_failure_reason=reason,
             failure_classification=RunFailureClassification.RESOURCE_FAILURE,
-            execution_backend=metadata.get("execution_backend"),
+            execution_backend=execution_backend,
             dataset=dataset,
             training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
             repair_lineage=repair_lineage,
         )
-        _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
+        _record_run_failed(ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
     except (TrainingError, RuntimeError, GVCCSDataError) as exc:
         reason = str(exc)
@@ -349,12 +393,12 @@ def _run_candidate_training(
             smoke_failure_reason=None,
             training_failure_reason=reason,
             failure_classification=classification,
-            execution_backend=metadata.get("execution_backend"),
+            execution_backend=execution_backend,
             dataset=dataset,
             training_lifecycle=failure_lifecycle,
             repair_lineage=repair_lineage,
         )
-        _record_run_failed(resolved_ledger_path, run.run_id, reason, classification)
+        _record_run_failed(ledger_path, run.run_id, reason, classification)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, classification)
 
     _write_metadata(
@@ -368,12 +412,12 @@ def _run_candidate_training(
         smoke_failure_reason=None,
         training_failure_reason=None,
         artifacts=_artifacts_from_training_result(training_result),
-        execution_backend=metadata.get("execution_backend"),
+        execution_backend=execution_backend,
         dataset=dataset,
         training_lifecycle=_merge_training_lifecycle(training_result, resource_lifecycle or {}),
         repair_lineage=repair_lineage,
     )
-    _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
+    _record_run_completed(ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 

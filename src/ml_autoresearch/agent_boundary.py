@@ -154,7 +154,14 @@ def _refresh_history_snapshot(project_root: Path, history_dir: Path) -> None:
         raise AgentBoundaryError(f"missing Research Ledger: {ledger}")
     shutil.copy2(ledger, history_dir / "research-ledger.jsonl")
     for dirname in HISTORY_DIRS:
-        (history_dir / dirname).mkdir(parents=True)
+        source = project_root / dirname
+        destination = history_dir / dirname
+        if source.exists():
+            if not source.is_dir():
+                raise AgentBoundaryError(f"history source path is not a directory: {source}")
+            shutil.copytree(source, destination)
+        else:
+            destination.mkdir(parents=True)
 
 
 def _ensure_workspace(workspace_dir: Path) -> None:

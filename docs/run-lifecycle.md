@@ -68,6 +68,8 @@ ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --s
 
 `run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Docker synthetic training and smoke testing use no data mount. Docker GVCCS training validates the host `--data-root`, mounts it read-only at `/data`, and records dataset metadata in `run_metadata.json`.
 
+Harness-owned autonomous next actions read project-local `candidate-execution.toml` for the Candidate Execution Boundary policy. This file captures the backend, Docker image, GPU policy, rootless/user policy, local GVCCS `data_root`, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
+
 GVCCS example:
 
 ```bash

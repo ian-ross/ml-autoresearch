@@ -239,6 +239,17 @@ def execute_outstanding_next_action(project_root: str | Path = Path(".")) -> Aut
 def _executed_next_action_artifact_exists(root: Path, ingestion: dict[str, object]) -> bool:
     """Return whether a recorded executed next action has its current canonical artifact."""
 
+    if ingestion.get("handoff_type") == "candidate_submission" and ingestion.get("next_action") == "run_candidate":
+        result = ingestion.get("next_action_result")
+        if not isinstance(result, dict):
+            return False
+        run_status = result.get("run_status")
+        if run_status == "accepted":
+            return False
+        if run_status in {"completed", "failed", "rejected", "smoke_failed"}:
+            run_dir = result.get("run_dir")
+            return isinstance(run_dir, str) and (Path(run_dir) / "run_metadata.json").is_file()
+        return False
     if ingestion.get("handoff_type") == "evaluation_request" and ingestion.get("next_action") == "run_post_run_evaluation":
         request_path = _required_relative_path(root, ingestion, "canonical_path")
         from ml_autoresearch.evaluation_requests import _evaluation_id, validate_evaluation_request_file
@@ -256,16 +267,56 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
     next_action = ingestion.get("next_action")
     if handoff_type == "candidate_submission" and next_action == "run_candidate":
         candidate_path = _required_relative_path(root, ingestion, "canonical_path")
-        from ml_autoresearch.execution import NativeBackend
-        from ml_autoresearch.runs import submit_candidate
+        from ml_autoresearch.candidate_execution_config import execution_backend_from_config, load_candidate_execution_config
+        from ml_autoresearch.runs import RunStatus, RunSubmission, submit_candidate, train_accepted_run_with_gvccs_data
 
-        run = submit_candidate(
-            candidate_path,
-            root / "runs",
-            backend=NativeBackend(),
-            ledger_path=root / "research-ledger.jsonl",
-            require_proposal=True,
-        )
+        config = load_candidate_execution_config(root)
+        data_root = config.data_root or _infer_gvccs_data_root(root)
+        backend = execution_backend_from_config(config)
+        previous_result = ingestion.get("next_action_result")
+        run = None
+        if isinstance(previous_result, dict) and previous_result.get("run_status") == "accepted":
+            previous_run_dir = previous_result.get("run_dir")
+            if isinstance(previous_run_dir, str) and previous_run_dir:
+                previous_run_path = Path(previous_run_dir)
+                previous_metadata_path = previous_run_path / "run_metadata.json"
+                if previous_metadata_path.is_file():
+                    previous_metadata = json.loads(previous_metadata_path.read_text())
+                    previous_status = previous_metadata.get("status")
+                    if previous_status == RunStatus.ACCEPTED.value:
+                        run = train_accepted_run_with_gvccs_data(
+                            previous_run_path,
+                            data_root,
+                            max_samples=config.max_samples,
+                            max_prediction_samples=config.max_prediction_samples,
+                            prediction_sample_policy=config.prediction_sample_policy,
+                            backend=backend,
+                            ledger_path=root / "research-ledger.jsonl",
+                        )
+                    elif previous_status in {status.value for status in RunStatus}:
+                        run = RunSubmission(str(previous_metadata.get("run_id") or previous_run_path.name), previous_run_path, RunStatus(str(previous_status)))
+                    else:
+                        raise AutonomyStepError(
+                            f"recorded accepted Run has unknown status {previous_status!r}: {previous_run_path}"
+                        )
+        if run is None:
+            run = submit_candidate(
+                candidate_path,
+                root / "runs",
+                backend=backend,
+                ledger_path=root / "research-ledger.jsonl",
+                require_proposal=True,
+            )
+            if run.status.value == "accepted":
+                run = train_accepted_run_with_gvccs_data(
+                    run.run_dir,
+                    data_root,
+                    max_samples=config.max_samples,
+                    max_prediction_samples=config.max_prediction_samples,
+                    prediction_sample_policy=config.prediction_sample_policy,
+                    backend=backend,
+                    ledger_path=root / "research-ledger.jsonl",
+                )
         return {
             "status": "completed",
             "executed": True,
@@ -294,6 +345,29 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
             "ledger_events": evaluation["ledger_events"],
         }
     return {"status": "skipped", "executed": False, "reason": f"no executable Harness action for {handoff_type!r}"}
+
+
+def _infer_gvccs_data_root(root: Path) -> Path:
+    candidates: list[Path] = []
+    runs_root = root / "runs"
+    if runs_root.is_dir():
+        for metadata_path in sorted(runs_root.glob("run_*/run_metadata.json"), reverse=True):
+            try:
+                metadata = json.loads(metadata_path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            dataset = metadata.get("dataset")
+            if not isinstance(dataset, dict):
+                continue
+            host_data_path = dataset.get("host_data_path")
+            if isinstance(host_data_path, str) and host_data_path:
+                candidates.append(Path(host_data_path))
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    raise AutonomyStepError(
+        "cannot execute run_candidate next action: no prior completed Run with an accessible GVCCS dataset host_data_path"
+    )
 
 
 def _required_relative_path(root: Path, payload: dict[str, object], field: str) -> Path:

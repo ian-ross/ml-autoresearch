@@ -33,6 +33,12 @@ allow_egress = true
 
 def test_prepare_agent_boundary_generates_layout_and_preserves_workspace_outputs(tmp_path: Path):
     write_project(tmp_path)
+    (tmp_path / "runs" / "run_123" / "outputs" / "evaluations" / "eval_abc").mkdir(parents=True)
+    (tmp_path / "runs" / "run_123" / "outputs" / "evaluations" / "eval_abc" / "summary.json").write_text('{"ok": true}\n')
+    (tmp_path / "candidates" / "candidate_123").mkdir(parents=True)
+    (tmp_path / "candidates" / "candidate_123" / "manifest.yaml").write_text("name: candidate_123\n")
+    (tmp_path / "research-notes").mkdir()
+    (tmp_path / "research-notes" / "note.md").write_text("# Note\n")
     preserved = tmp_path / "agent-work" / "scratch" / "keep.txt"
     preserved.parent.mkdir(parents=True)
     preserved.write_text("do not delete\n")
@@ -46,8 +52,9 @@ def test_prepare_agent_boundary_generates_layout_and_preserves_workspace_outputs
     assert (tmp_path / "agent-reference" / "CONTEXT.md").read_text() == "context v1\n"
     assert (tmp_path / "agent-reference" / "EXPERIMENT_INDEX.md").read_text() == "index v1\n"
     assert (tmp_path / "agent-history" / "research-ledger.jsonl").read_text() == '{"event_type":"proposal_created"}\n'
-    for relative in ["candidates", "runs", "research-notes"]:
-        assert (tmp_path / "agent-history" / relative).is_dir()
+    assert (tmp_path / "agent-history" / "runs" / "run_123" / "outputs" / "evaluations" / "eval_abc" / "summary.json").read_text() == '{"ok": true}\n'
+    assert (tmp_path / "agent-history" / "candidates" / "candidate_123" / "manifest.yaml").read_text() == "name: candidate_123\n"
+    assert (tmp_path / "agent-history" / "research-notes" / "note.md").read_text() == "# Note\n"
     for relative in [
         "drafts/candidates",
         "submissions",
@@ -210,6 +217,8 @@ def test_prepare_agent_boundary_replaces_existing_snapshot_contents_instead_of_a
     (stale_history_root / "stale.txt").write_text("stale")
     (stale_history_root / "old-dir").mkdir()
     (stale_history_root / "old-dir" / "keep.txt").write_text("keep")
+    (tmp_path / "runs" / "run_new").mkdir(parents=True)
+    (tmp_path / "runs" / "run_new" / "run_metadata.json").write_text("{}\n")
 
     completed = run_cli(tmp_path, "prepare-agent-boundary")
 
@@ -218,6 +227,7 @@ def test_prepare_agent_boundary_replaces_existing_snapshot_contents_instead_of_a
     assert not (stale_reference_root / "old-dir").exists()
     assert not (stale_history_root / "stale.txt").exists()
     assert not (stale_history_root / "old-dir").exists()
+    assert (tmp_path / "agent-history" / "runs" / "run_new" / "run_metadata.json").read_text() == "{}\n"
     for relative in ["candidates", "runs", "research-notes"]:
         assert (tmp_path / "agent-history" / relative).is_dir()
 

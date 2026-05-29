@@ -1,0 +1,14 @@
+[candidate_execution]
+# Candidate Execution Boundary policy used by Harness-owned autonomous next actions.
+# Manual CLI flags on `run-candidate` can still override behavior for ad hoc runs.
+backend = "docker"
+docker_image = "ml-autoresearch-runner:local"
+docker_enable_gpu = true
+docker_rootless_container_root = true
+
+# Local GVCCS Dataset root mounted read-only into Docker at /data.
+data_root = "/net/d16/data/iross/GVCCS"
+
+# Bounded run defaults for autonomous candidate execution.
+max_prediction_samples = 2
+prediction_sample_policy = "first_n"
