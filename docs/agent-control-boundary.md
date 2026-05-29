@@ -22,6 +22,38 @@ Prompt the inner agent with these operational rules:
   files, side-channel artifacts, environment inspection, subprocesses, or
   network workarounds.
 
+## Autonomous iteration loop
+
+`ml-autoresearch run-autonomous-iteration` is the bounded loop command built on
+Autonomy Steps. It requires `--notify-email` and at least one of `--max-steps`
+or `--max-duration`; if both limits are provided, the first reached limit stops
+the loop. The duration syntax is `N`, `Ns`, `Nm`, or `Nh`. Time limits are checked
+between steps: an in-flight agent step, Candidate Experiment Run, or Post-Run
+Evaluation is allowed to finish before the loop decides whether to start another
+step.
+
+The loop always executes Harness-owned next actions for executable handoffs. It
+continues after Research Notes, completed Candidate Runs, and completed
+Post-Run Evaluations. It stops for step/time limits, agent failure, ingestion
+failure, execution failure, no handoff, Capability Requests, Campaign Reports,
+campaign pauses, and other human-review outcomes. Before starting, it rejects a
+dirty Agent Workspace containing un-ingested primary handoff artifacts so stale
+manual outputs cannot be mistaken for new autonomous work.
+
+On completion the loop writes `agent-work/autonomous-iteration-result.json` and
+sends a Mailjet plain-text completion email. Mailjet settings live in local
+`notification.toml` at the project root:
+
+```toml
+[mailjet]
+api_key = "..."
+api_secret = "..."
+from_email = "verified-sender@example.com"
+from_name = "ML Autoresearch"
+```
+
+Real credentials should be kept local and out of version control.
+
 ## Autonomy Step operator workflow
 
 `ml-autoresearch autonomy-step` is the operator command for one Harness-owned

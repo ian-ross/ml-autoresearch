@@ -22,6 +22,12 @@ from ml_autoresearch.agent_handoffs import (
     ingest_evaluation_request,
     ingest_research_note,
 )
+from ml_autoresearch.autonomous_iteration import (
+    AutonomousIterationError,
+    format_autonomous_iteration_summary,
+    parse_duration_seconds,
+    run_autonomous_iteration,
+)
 from ml_autoresearch.autonomy_step import (
     AutonomyStepError,
     execute_outstanding_next_action,
@@ -149,6 +155,39 @@ def autonomy_step_command(
     typer.echo(format_autonomy_step_summary(result))
     if result.status in {"agent_failed", "ingestion_failed", "execution_failed"}:
         raise typer.Exit(1)
+
+
+@app.command("run-autonomous-iteration")
+def run_autonomous_iteration_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-boundary.toml and notification.toml.")] = Path("."),
+    agent_command: Annotated[
+        str | None,
+        typer.Option(
+            "--agent-command",
+            help="Agent command to invoke inside agent-work; defaults to [autonomy_step].agent_command or pi.",
+        ),
+    ] = None,
+    max_steps: Annotated[int | None, typer.Option("--max-steps", help="Maximum Autonomy Steps to complete before stopping.")] = None,
+    max_duration: Annotated[
+        str | None,
+        typer.Option("--max-duration", help="Maximum elapsed duration before starting another step: N, Ns, Nm, or Nh."),
+    ] = None,
+    notify_email: Annotated[str, typer.Option("--notify-email", help="Email address to notify when the loop completes.")] = ...,
+) -> None:
+    """Run a bounded autonomous iteration loop and send a completion email."""
+
+    try:
+        max_duration_seconds = parse_duration_seconds(max_duration) if max_duration is not None else None
+        result = run_autonomous_iteration(
+            project_root,
+            agent_command=agent_command,
+            max_steps=max_steps,
+            max_duration_seconds=max_duration_seconds,
+            notify_email=notify_email,
+        )
+    except (AutonomousIterationError, AutonomyStepError, AgentBoundaryError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    typer.echo(format_autonomous_iteration_summary(result))
 
 
 @app.command("execute-next-action")
