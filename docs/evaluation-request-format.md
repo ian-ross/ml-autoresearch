@@ -33,12 +33,27 @@ ml-autoresearch run-post-run-evaluation \
 
 The command requires a validated Evaluation Request. Invalid modes or out-of-bounds parameters fail before artifacts or successful evaluation ledger events are created.
 
-Evaluation outputs are written under the parent Run:
+Evaluation outputs are written under the parent Run. Every request-gated evaluation writes:
 
 ```text
 runs/<run_id>/outputs/evaluations/<evaluation_id>/evaluation_metadata.json
 runs/<run_id>/outputs/evaluations/<evaluation_id>/summary.json
 ```
+
+`failure_bucket_review` also runs bounded Whole-Validation Failure Analysis and writes:
+
+```text
+runs/<run_id>/outputs/evaluations/<evaluation_id>/aggregate_metrics.json
+runs/<run_id>/outputs/evaluations/<evaluation_id>/per_sample_metrics.jsonl
+runs/<run_id>/outputs/evaluations/<evaluation_id>/threshold_sweep.json
+runs/<run_id>/outputs/evaluations/<evaluation_id>/diagnostic_samples/samples.json
+runs/<run_id>/outputs/evaluations/<evaluation_id>/diagnostic_samples/sample_*.png
+```
+
+Diagnostic samples are selected deterministically from Harness-owned buckets such
+as `worst_by_dice`, `false_positive_heavy`, `false_negative_heavy`,
+`empty_mask_false_positives`, and `missed_positive_masks`, within the validated
+artifact budget.
 
 `evaluation_metadata.json` links the output to `request_id`, `parent_run_id`, the approved mode, validated parameters, and relative artifact paths.
 

@@ -169,6 +169,8 @@ def run_post_run_evaluation(
         "artifacts": {"summary": str(summary_rel)},
     }
     _write_json(evaluation_dir / "summary.json", summary)
+    if request.evaluation_mode == "failure_bucket_review":
+        metadata = _run_failure_bucket_review(request, run_dir, evaluation_id, evaluation_dir, metadata)
     _write_json(evaluation_dir / "evaluation_metadata.json", metadata)
 
     requested_event = record_research_event(
@@ -197,6 +199,80 @@ def run_post_run_evaluation(
         "evaluation": metadata,
         "ledger_events": [requested_event, completed_event],
         "evaluation_id": evaluation_id,
+    }
+
+
+def _run_failure_bucket_review(
+    request: EvaluationRequest,
+    run_dir: Path,
+    evaluation_id: str,
+    evaluation_dir: Path,
+    base_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Run bounded Whole-Validation Failure Analysis behind the failure-bucket request gate."""
+
+    from ml_autoresearch.evaluations import (
+        DEFAULT_EVALUATION_THRESHOLD,
+        _evaluate_gvccs_validation_split,
+        _model_artifact_from_best_metrics,
+        _read_json,
+        _resolve_data_root,
+    )
+
+    run_metadata = _read_json(run_dir / "run_metadata.json")
+    if run_metadata.get("status") != "completed":
+        raise EvaluationRequestError(f"target Run must be completed, got status: {run_metadata.get('status')}")
+    threshold = request.parameters.primary_threshold
+    if threshold is None:
+        threshold = DEFAULT_EVALUATION_THRESHOLD
+    max_artifact_samples = request.parameters.artifact_count
+    if max_artifact_samples is None:
+        max_artifact_samples = min(request.parameters.failure_bucket_count or 1, request.artifact_budget.max_artifacts)
+    if max_artifact_samples < 1:
+        raise EvaluationRequestError("failure_bucket_review requires at least one diagnostic artifact")
+
+    data_root = _resolve_data_root(run_metadata, None)
+    model_artifact = _model_artifact_from_best_metrics(run_dir)
+    aggregate, per_sample_records, threshold_sweep, diagnostic_manifest = _evaluate_gvccs_validation_split(
+        run_dir=run_dir,
+        data_root=data_root,
+        model_artifact_path=run_dir / model_artifact,
+        threshold=threshold,
+        evaluation_dir=evaluation_dir,
+        max_artifact_samples=max_artifact_samples,
+    )
+    _write_json(
+        evaluation_dir / "aggregate_metrics.json",
+        {
+            "evaluation_id": evaluation_id,
+            "split": "val",
+            "threshold": threshold,
+            "sample_count": len(per_sample_records),
+            "metrics": aggregate,
+        },
+    )
+    with (evaluation_dir / "per_sample_metrics.jsonl").open("w") as handle:
+        for record in per_sample_records:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+    _write_json(evaluation_dir / "threshold_sweep.json", threshold_sweep)
+    diagnostics_dir = evaluation_dir / "diagnostic_samples"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(diagnostics_dir / "samples.json", diagnostic_manifest)
+
+    return {
+        **base_metadata,
+        "status": "completed",
+        "split": "val",
+        "threshold": threshold,
+        "data_root": str(data_root),
+        "model_artifact": model_artifact,
+        "artifacts": {
+            **base_metadata["artifacts"],
+            "aggregate_metrics": "aggregate_metrics.json",
+            "per_sample_metrics": "per_sample_metrics.jsonl",
+            "threshold_sweep": "threshold_sweep.json",
+            "diagnostic_samples": "diagnostic_samples/samples.json",
+        },
     }
 
 

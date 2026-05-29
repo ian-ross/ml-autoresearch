@@ -6,6 +6,7 @@ from pathlib import Path
 
 import torch
 
+from ml_autoresearch.evaluation_requests import run_post_run_evaluation
 from ml_autoresearch.evaluations import _select_failure_bucket_indices, _threshold_sweep_summary, evaluate_run
 from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data
 
@@ -139,6 +140,53 @@ def test_evaluate_run_api_writes_run_scoped_validation_artifacts(tmp_path: Path)
     assert events[0]["evaluation_request_id"] == result.evaluation_request_id
     assert events[0]["request_path"] == str(result.request_path)
     assert events[1]["evaluation_id"] == result.evaluation_id
+
+
+def test_request_gated_failure_bucket_review_writes_metrics_and_diagnostic_artifacts(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", "tests/fixtures/gvccs_like", max_samples=4)
+    assert run.status == RunStatus.COMPLETED
+    request_path = tmp_path / "evaluation-request.yaml"
+    request_path.write_text(
+        f"""
+request_id: eval-failure-buckets
+ target_run_id: {run.run_id}
+evaluation_mode: failure_bucket_review
+diagnostic_question: Which validation samples explain the precision-recall tradeoff?
+expected_decision_impact: Decide whether to tune recall or accept the current model.
+parameters:
+  primary_threshold: 0.4
+  artifact_count: 1
+  failure_bucket_count: 3
+artifact_budget:
+  max_artifacts: 2
+  max_runtime_seconds: 120
+""".replace("\n target_run_id", "\ntarget_run_id")
+    )
+    ledger = tmp_path / "ledger.jsonl"
+
+    result = run_post_run_evaluation(request_path, runs_root=tmp_path / "runs", ledger_path=ledger)
+
+    evaluation_dir = run.run_dir / "outputs" / "evaluations" / "eval_eval-failure-buckets"
+    assert result["evaluation_id"] == "eval_eval-failure-buckets"
+    assert (evaluation_dir / "aggregate_metrics.json").is_file()
+    assert (evaluation_dir / "per_sample_metrics.jsonl").is_file()
+    assert (evaluation_dir / "threshold_sweep.json").is_file()
+    diagnostic_manifest = json.loads((evaluation_dir / "diagnostic_samples" / "samples.json").read_text())
+    assert diagnostic_manifest["threshold"] == 0.4
+    assert diagnostic_manifest["max_artifact_samples"] == 1
+    assert diagnostic_manifest["samples"]
+    diagnostic = diagnostic_manifest["samples"][0]
+    assert "bucket_memberships" in diagnostic
+    assert (evaluation_dir / "diagnostic_samples" / diagnostic["paths"]["overlay"]).is_file()
+    assert (evaluation_dir / "diagnostic_samples" / diagnostic["paths"]["probability_heatmap"]).is_file()
+    metadata = json.loads((evaluation_dir / "evaluation_metadata.json").read_text())
+    assert metadata["status"] == "completed"
+    assert metadata["evaluation_mode"] == "failure_bucket_review"
+    assert metadata["artifacts"]["aggregate_metrics"] == "aggregate_metrics.json"
+    events = read_jsonl(ledger)
+    assert [event["event_type"] for event in events] == ["evaluation_requested", "evaluation_completed"]
+    assert events[1]["artifact_metadata_path"] == str((evaluation_dir / "evaluation_metadata.json").resolve())
 
 
 def test_evaluate_run_api_records_failed_metadata_for_missing_model_artifact(tmp_path: Path):
