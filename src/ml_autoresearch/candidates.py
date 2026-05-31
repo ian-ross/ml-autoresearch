@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 class CandidateValidationError(ValueError):
@@ -34,10 +34,18 @@ class DataManifest(BaseModel):
 class AuxiliaryTargetManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: Literal["line"]
-    output: Literal["line_logits"]
+    name: Literal["line", "boundary"]
+    output: Literal["line_logits", "boundary_logits"]
     loss: Literal["weighted_bce"]
     weight: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def output_matches_target(self) -> "AuxiliaryTargetManifest":
+        expected_outputs = {"line": "line_logits", "boundary": "boundary_logits"}
+        expected = expected_outputs[self.name]
+        if self.output != expected:
+            raise ValueError(f"{self.name} auxiliary target must use {expected}")
+        return self
 
 
 class RepairLineage(BaseModel):

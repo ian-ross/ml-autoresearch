@@ -7,7 +7,12 @@ import yaml
 
 from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture
 from ml_autoresearch.synthetic import SyntheticContrailDataset
-from ml_autoresearch.training import _best_validation_metrics, _data_loader_for_sampling, _dataset_with_augmentation_policy
+from ml_autoresearch.training import (
+    _best_validation_metrics,
+    _data_loader_for_sampling,
+    _dataset_with_augmentation_policy,
+    derive_boundary_target_v1,
+)
 
 
 def write_trainable_candidate(root: Path, *, max_epochs: int = 1, augmentation_policy: str | None = None) -> Path:
@@ -294,6 +299,59 @@ training:
     return candidate
 
 
+def write_boundary_aux_trainable_candidate(root: Path) -> Path:
+    candidate = root / "candidate"
+    candidate.mkdir()
+    (candidate / "manifest.yaml").write_text(
+        """
+name: boundary_aux_trainable_candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: boundary
+    output: boundary_logits
+    loss: weighted_bce
+    weight: 0.10
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+    (candidate / "model.py").write_text(
+        "from torch import nn\n"
+        "class Tiny(nn.Module):\n"
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.encoder = nn.Sequential(nn.Conv2d(3, 4, 3, padding=1), nn.ReLU())\n"
+        "        self.mask = nn.Conv2d(4, 1, 1)\n"
+        "        self.boundary = nn.Conv2d(4, 1, 1)\n"
+        "    def forward(self, x):\n"
+        "        features = self.encoder(x)\n"
+        "        return {'mask_logits': self.mask(features), 'boundary_logits': self.boundary(features)}\n"
+        "def build_model(input_spec, output_spec):\n"
+        "    return Tiny()\n"
+    )
+    return candidate
+
+
+def test_boundary_target_derivation_is_deterministic_mask_edge_band():
+    mask = torch.zeros((1, 1, 5, 5), dtype=torch.float32)
+    mask[:, :, 1:4, 1:4] = 1.0
+
+    boundary = derive_boundary_target_v1(mask)
+
+    expected = torch.tensor(
+        [[[[1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [1, 1, 0, 1, 1], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]]],
+        dtype=torch.float32,
+    )
+    assert torch.equal(boundary, expected)
+    assert torch.equal(derive_boundary_target_v1(torch.zeros_like(mask)), torch.zeros_like(mask))
+
+
 def test_line_auxiliary_training_records_primary_auxiliary_and_total_losses(tmp_path: Path):
     candidate = write_line_aux_trainable_candidate(tmp_path)
 
@@ -313,3 +371,20 @@ def test_line_auxiliary_training_records_primary_auxiliary_and_total_losses(tmp_
     assert final["val/total_loss"] == val_record["val/total_loss"]
     samples = json.loads((run.run_dir / "outputs" / "prediction_samples" / "samples.json").read_text())
     assert samples["status"] == "completed"
+
+
+def test_boundary_auxiliary_training_records_boundary_loss(tmp_path: Path):
+    candidate = write_boundary_aux_trainable_candidate(tmp_path)
+
+    run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs", max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    records = [json.loads(line) for line in (run.run_dir / "outputs" / "metrics.jsonl").read_text().splitlines()]
+    train_record = next(record for record in records if record["split"] == "train")
+    assert set(train_record) >= {"loss", "mask_loss", "aux/boundary_loss"}
+    val_record = next(record for record in records if record["split"] == "val")
+    assert set(val_record) >= {"val/loss", "val/aux/boundary_loss", "val/total_loss"}
+    assert val_record["val/total_loss"] >= val_record["val/loss"]
+
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
+    assert set(final) >= {"train/aux/boundary_loss", "val/aux/boundary_loss", "val/total_loss"}

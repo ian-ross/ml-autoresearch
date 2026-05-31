@@ -155,6 +155,48 @@ def test_smoke_test_requires_requested_line_logits(tmp_path: Path):
     assert summary["output"]["names"] == ["mask_logits", "line_logits"]
 
 
+BOUNDARY_AUX_MANIFEST = """auxiliary_targets:
+  - name: boundary
+    output: boundary_logits
+    loss: weighted_bce
+    weight: 0.10
+"""
+
+
+BOUNDARY_AUX_MODEL = """
+from torch import nn
+
+class Tiny(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mask = nn.Conv2d(3, 1, kernel_size=1)
+        self.boundary = nn.Conv2d(3, 1, kernel_size=1)
+    def forward(self, x):
+        return {"mask_logits": self.mask(x), "boundary_logits": self.boundary(x)}
+
+def build_model(input_spec, output_spec):
+    assert output_spec == {
+        "form": "mask_logits",
+        "shape": [1, 128, 128],
+        "auxiliary_outputs": [{"target": "boundary", "name": "boundary_logits", "shape": [1, 128, 128]}],
+    }
+    return Tiny()
+""".strip() + "\n"
+
+
+def test_smoke_test_requires_requested_boundary_logits(tmp_path: Path):
+    candidate = write_candidate(tmp_path, BOUNDARY_AUX_MODEL, auxiliary_targets=BOUNDARY_AUX_MANIFEST)
+
+    run = submit_candidate(candidate, tmp_path / "runs")
+
+    assert run.status == RunStatus.ACCEPTED
+    summary = json.loads((run.run_dir / "outputs" / "model_summary.json").read_text())
+    assert summary["output_spec"]["auxiliary_outputs"] == [
+        {"target": "boundary", "name": "boundary_logits", "shape": [1, 128, 128]}
+    ]
+    assert summary["output"]["names"] == ["mask_logits", "boundary_logits"]
+
+
 @pytest.mark.parametrize(
     ("model_py", "expected_reason"),
     [

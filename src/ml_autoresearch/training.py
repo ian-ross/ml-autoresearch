@@ -367,6 +367,15 @@ def derive_line_target_v1(target_mask: torch.Tensor) -> torch.Tensor:
     return F.max_pool2d(target_mask.float(), kernel_size=3, stride=1, padding=1).clamp(0.0, 1.0)
 
 
+def derive_boundary_target_v1(target_mask: torch.Tensor) -> torch.Tensor:
+    """Derive the v1 Harness-owned Boundary Target as a deterministic one-pixel edge band."""
+
+    mask = target_mask.float().clamp(0.0, 1.0)
+    dilated = F.max_pool2d(mask, kernel_size=3, stride=1, padding=1)
+    eroded = -F.max_pool2d(-mask, kernel_size=3, stride=1, padding=1)
+    return (dilated - eroded).clamp(0.0, 1.0)
+
+
 def weighted_bce_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     positive_weight = torch.tensor(4.0, dtype=logits.dtype, device=logits.device)
     return F.binary_cross_entropy_with_logits(logits, target, pos_weight=positive_weight)
@@ -377,12 +386,21 @@ def _auxiliary_losses(
 ) -> dict[str, torch.Tensor]:
     losses: dict[str, torch.Tensor] = {}
     for target in auxiliary_targets:
-        if target.get("name") != "line" or target.get("loss") != "weighted_bce":
+        name = str(target.get("name"))
+        if target.get("loss") != "weighted_bce" or name not in {"line", "boundary"}:
             raise TrainingError(f"unsupported auxiliary target in resolved manifest: {target}")
-        line_target = derive_line_target_v1(target_mask)
+        auxiliary_target = _derive_auxiliary_target(name, target_mask)
         weight = float(target["weight"])
-        losses["line"] = weight * weighted_bce_loss(outputs[str(target["output"])], line_target)
+        losses[name] = weight * weighted_bce_loss(outputs[str(target["output"])], auxiliary_target)
     return losses
+
+
+def _derive_auxiliary_target(name: str, target_mask: torch.Tensor) -> torch.Tensor:
+    if name == "line":
+        return derive_line_target_v1(target_mask)
+    if name == "boundary":
+        return derive_boundary_target_v1(target_mask)
+    raise TrainingError(f"unsupported auxiliary target: {name}")
 
 
 def _evaluate(

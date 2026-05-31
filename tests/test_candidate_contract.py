@@ -435,10 +435,41 @@ training:
     assert auxiliary.weight == pytest.approx(0.25)
 
 
+def test_candidate_manifest_accepts_boundary_auxiliary_target(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: boundary_aux
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: boundary
+    output: boundary_logits
+    loss: weighted_bce
+    weight: 0.10
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    manifest = validate_candidate_directory(candidate)
+
+    assert len(manifest.auxiliary_targets) == 1
+    auxiliary = manifest.auxiliary_targets[0]
+    assert auxiliary.name == "boundary"
+    assert auxiliary.output == "boundary_logits"
+    assert auxiliary.loss == "weighted_bce"
+    assert auxiliary.weight == pytest.approx(0.10)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("name", "boundary"),
         ("output", "wrong_logits"),
         ("loss", "bce_dice"),
     ],
@@ -473,6 +504,34 @@ training:
     message = str(excinfo.value)
     assert f"auxiliary_targets.0.{field}" in message
     assert value in message
+
+
+def test_auxiliary_target_name_must_match_output(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: mismatched_aux
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: boundary
+    output: line_logits
+    loss: weighted_bce
+    weight: 0.25
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate)
+
+    assert "boundary auxiliary target must use boundary_logits" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("weight", [-0.01, 1.01])
