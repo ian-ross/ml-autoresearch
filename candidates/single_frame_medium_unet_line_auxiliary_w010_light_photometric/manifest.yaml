@@ -1,0 +1,18 @@
+name: single_frame_medium_unet_line_auxiliary_w010_light_photometric
+description: Medium-capacity single-frame U-Net with Harness-derived line auxiliary target at weight 0.10 and light photometric augmentation.
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: line
+    output: line_logits
+    loss: weighted_bce
+    weight: 0.10
+data:
+  sampling_policy: deterministic_shuffle
+  augmentation_policy: light_photometric
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 16
+  max_epochs: 30

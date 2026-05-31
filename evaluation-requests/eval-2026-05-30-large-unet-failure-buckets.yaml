@@ -1,0 +1,21 @@
+request_id: eval_2026_05_30_large_unet_failure_buckets
+target_run_id: run_20260530_073538_f7c8b7
+evaluation_mode: failure_bucket_review
+diagnostic_question: >-
+  Does the new best large-capacity U-Net with Line Target auxiliary at weight 0.10
+  preserve acceptable whole-validation failure behavior after gaining recall, or did
+  the higher-recall profile introduce excessive false-positive area, empty-mask false
+  positives, or diffuse over-segmentation outside the saved first-N examples?
+expected_decision_impact: >-
+  Use the failure buckets to decide whether to continue from the base-32 family with
+  precision-oriented refinements, treat base-32 as the current capacity sweet spot, or
+  avoid further capacity scaling if the Dice gain is driven by unacceptable false
+  positives despite the improved aggregate score.
+parameters:
+  primary_threshold: 0.5
+  batch_size: 16
+  artifact_count: 24
+  failure_bucket_count: 4
+artifact_budget:
+  max_artifacts: 24
+  max_runtime_seconds: 1800

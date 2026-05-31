@@ -29,6 +29,22 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 
 | `candidates/single_frame_small_unet_line_auxiliary_w010_light_photometric` | [`README.md`](candidates/single_frame_small_unet_line_auxiliary_w010_light_photometric/README.md) — Small U-Net single-frame segmentation candidate with line auxiliary target weight 0.10 and Harness-owned light photometric augmentation. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
 
+| `candidates/single_frame_medium_unet_line_auxiliary_w010` | [`README.md`](candidates/single_frame_medium_unet_line_auxiliary_w010/README.md) — Medium-capacity single-frame U-Net with Harness-derived line auxiliary target at weight 0.10. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_medium_unet_line_auxiliary_w005` | [`README.md`](candidates/single_frame_medium_unet_line_auxiliary_w005/README.md) — Medium-capacity single-frame U-Net with Harness-derived line auxiliary target at weight 0.05 for a recall-oriented follow-up. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_medium_unet_line_auxiliary_w010_light_photometric` | [`README.md`](candidates/single_frame_medium_unet_line_auxiliary_w010_light_photometric/README.md) — Medium-capacity single-frame U-Net with Harness-derived line auxiliary target at weight 0.10 and light photometric augmentation. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_large_unet_line_auxiliary_w010` | [`README.md`](candidates/single_frame_large_unet_line_auxiliary_w010/README.md) — Larger single-frame U-Net with Harness-derived line auxiliary target at weight 0.10. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_wide_unet_line_auxiliary_w010` | [`README.md`](candidates/single_frame_wide_unet_line_auxiliary_w010/README.md) — Wider single-frame U-Net with Harness-derived line auxiliary target at weight 0.10. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_auxiliary_w010` | [`README.md`](candidates/single_frame_xwide_unet_line_auxiliary_w010/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target at weight 0.10. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target and bottleneck dropout regularization. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_attention_dropout` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_attention_dropout/README.md) — Extra-wide single-frame U-Net with line auxiliary target, bottleneck dropout, and lightweight decoder attention gates on skip features. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
 ## Chronological Research Notes
 
 - [`2026-05-04 baseline GVCCS tiny subset`](research-notes/2026-05-04-baseline-gvccs-tiny-subset.md)
@@ -41,3 +57,15 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 - [`2026-05-23 lower-weight Line Target auxiliary evaluation follow-up`](research-notes/2026-05-23-line-auxiliary-w010-evaluation.md)
 - [`2026-05-25 light-combined augmentation regression`](research-notes/2026-05-25-light-combined-augmentation-regression.md)
 - [`2026-05-25 light-geometric augmentation regression`](research-notes/2026-05-25-light-geometric-augmentation-regression.md)
+- [`2026-05-29 light-photometric augmentation near miss`](research-notes/2026-05-29-light-photometric-augmentation-near-miss.md)
+- [`2026-05-29 medium U-Net Line Target auxiliary improvement`](research-notes/2026-05-29-medium-unet-line-auxiliary-w010-improvement.md)
+- [`2026-05-30 medium U-Net Line Target auxiliary w0.05 regression`](research-notes/2026-05-30-medium-unet-line-auxiliary-w005-regression.md)
+- [`2026-05-30 medium U-Net light photometric augmentation regression`](research-notes/2026-05-30-medium-unet-light-photometric-regression.md)
+- [`2026-05-30 large U-Net Line Target auxiliary improvement`](research-notes/2026-05-30-large-unet-line-auxiliary-w010-improvement.md)
+- [`2026-05-30 wide U-Net Line Target auxiliary improvement`](research-notes/2026-05-30-wide-unet-line-auxiliary-w010-improvement.md)
+- [`2026-05-30 wide U-Net failure-bucket evaluation`](research-notes/2026-05-30-wide-unet-failure-bucket-evaluation.md)
+- [`2026-05-30 extra-wide U-Net Line Target auxiliary improvement`](research-notes/2026-05-30-xwide-unet-line-auxiliary-w010-improvement.md)
+- [`2026-05-30 xwide U-Net failure-bucket evaluation`](research-notes/2026-05-30-xwide-unet-failure-bucket-evaluation.md)
+- [`2026-05-31 xwide U-Net bottleneck dropout improvement`](research-notes/2026-05-31-xwide-unet-dropout-improvement.md)
+- [`2026-05-31 xwide dropout failure-bucket evaluation`](research-notes/2026-05-31-xwide-dropout-failure-bucket-evaluation.md)
+- [`2026-05-31 xwide attention-dropout regression`](research-notes/2026-05-31-xwide-attention-dropout-regression.md)
