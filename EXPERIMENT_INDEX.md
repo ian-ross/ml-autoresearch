@@ -45,6 +45,8 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 
 | `candidates/single_frame_xwide_unet_line_aux_w010_attention_dropout` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_attention_dropout/README.md) — Extra-wide single-frame U-Net with line auxiliary target, bottleneck dropout, and lightweight decoder attention gates on skip features. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
 
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p015` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p015/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target and slightly stronger bottleneck dropout regularization. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
 ## Chronological Research Notes
 
 - [`2026-05-04 baseline GVCCS tiny subset`](research-notes/2026-05-04-baseline-gvccs-tiny-subset.md)
@@ -69,3 +71,4 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 - [`2026-05-31 xwide U-Net bottleneck dropout improvement`](research-notes/2026-05-31-xwide-unet-dropout-improvement.md)
 - [`2026-05-31 xwide dropout failure-bucket evaluation`](research-notes/2026-05-31-xwide-dropout-failure-bucket-evaluation.md)
 - [`2026-05-31 xwide attention-dropout regression`](research-notes/2026-05-31-xwide-attention-dropout-regression.md)
+- [`2026-05-31 xwide U-Net stronger bottleneck dropout regression`](research-notes/2026-05-31-xwide-dropout-p015-regression.md)
