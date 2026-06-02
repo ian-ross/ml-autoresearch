@@ -79,8 +79,9 @@ def run_autonomy_step(
     root = Path(project_root).resolve()
     boundary = prepare_agent_boundary(root)
     workspace = Path(boundary["agent_workspace"])
+    _remove_stale_loop_result_files(workspace)
     prompt_path = workspace / PROMPT_FILENAME
-    prompt_path.write_text(render_autonomy_step_prompt())
+    prompt_path.write_text(render_autonomy_step_prompt(root))
 
     configured_command = agent_command or load_configured_agent_command(root) or DEFAULT_AGENT_COMMAND
     if configured_command == DEFAULT_AGENT_COMMAND:
@@ -133,9 +134,19 @@ def run_autonomy_step(
     return result
 
 
-def render_autonomy_step_prompt() -> str:
+def _remove_stale_loop_result_files(workspace: Path) -> None:
+    """Remove previous loop result files before invoking the next agent step."""
+
+    for filename in (RESULT_FILENAME, "autonomous-iteration-result.json"):
+        path = workspace / filename
+        if path.exists():
+            path.unlink()
+
+
+def render_autonomy_step_prompt(project_root: Path | None = None) -> str:
     """Render the one-step prompt written inside the Agent Workspace."""
 
+    campaign_state = _campaign_state_prompt(project_root) if project_root is not None else ""
     return (
         "You are inside the ML Autoresearch Agent Control Boundary for exactly one Autonomy Step.\n"
         "\n"
@@ -144,6 +155,7 @@ def render_autonomy_step_prompt() -> str:
         "Work one step at a time: choose and complete exactly one primary research handoff outcome.\n"
         "Do not continue to a second primary outcome after producing the first one.\n"
         "\n"
+        f"{campaign_state}"
         "Allowed primary handoff outcomes (choose exactly one if you hand off work):\n"
         "- one Candidate Submission under submissions/\n"
         "- one Research Note under research-notes/\n"
@@ -155,6 +167,77 @@ def render_autonomy_step_prompt() -> str:
         "or one Capability Request, not both. If no useful handoff is safe, stop without fabricating artifacts.\n"
         "Use ml-autoresearch-agent, not ml-autoresearch, for allowed inner-boundary commands.\n"
     )
+
+
+def _campaign_state_prompt(project_root: Path) -> str:
+    state = _latest_campaign_pause_resume_state(project_root)
+    if state is None:
+        return ""
+    if state["status"] == "resumed":
+        return (
+            "Campaign resume state:\n"
+            f"- Human campaign review is complete: {state['reason']}.\n"
+            "- Do not treat earlier scheduled_check_in or resolved capability-request pause recommendations as active blockers.\n"
+            "- Continue from the latest Research Ledger, Research Notes, and Campaign Reports unless a new pause condition is met.\n"
+            "\n"
+        )
+    if state["status"] == "paused":
+        return (
+            "Campaign pause state:\n"
+            f"- Latest Campaign Report recommends pause for `{state['reason']}`.\n"
+            "- Stop for human review unless a newer campaign_resumed ledger event clears this pause.\n"
+            "\n"
+        )
+    return ""
+
+
+def _latest_campaign_pause_resume_state(project_root: Path) -> dict[str, str] | None:
+    ledger_path = project_root / "research-ledger.jsonl"
+    if not ledger_path.is_file():
+        return None
+    latest_pause_index: int | None = None
+    latest_pause_reason: str | None = None
+    latest_resume_index: int | None = None
+    latest_resume_reason: str | None = None
+    for index, line in enumerate(ledger_path.read_text().splitlines()):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        event_type = event.get("event_type")
+        if event_type == "campaign_resumed":
+            latest_resume_index = index
+            latest_resume_reason = str(event.get("reason") or "human_review_complete")
+        elif event_type == "campaign_paused":
+            latest_pause_index = index
+            latest_pause_reason = str(event.get("reason") or "unknown")
+        elif event_type == "campaign_report_written":
+            report_path = event.get("report_path")
+            reason = _campaign_report_pause_reason(project_root, report_path) if isinstance(report_path, str) else None
+            if reason and reason != "none":
+                latest_pause_index = index
+                latest_pause_reason = reason
+    if latest_resume_index is not None and (latest_pause_index is None or latest_resume_index > latest_pause_index):
+        return {"status": "resumed", "reason": latest_resume_reason or "human_review_complete"}
+    if latest_pause_index is not None:
+        return {"status": "paused", "reason": latest_pause_reason or "unknown"}
+    return None
+
+
+def _campaign_report_pause_reason(project_root: Path, report_path: str) -> str | None:
+    path = Path(report_path)
+    if not path.is_absolute():
+        path = project_root / path
+    if not path.is_file():
+        return None
+    prefix = "- Pause condition:"
+    for line in path.read_text().splitlines():
+        normalized = line.strip()
+        if normalized.startswith(prefix):
+            return normalized[len(prefix) :].strip().strip("`")
+    return None
 
 
 def write_result_file(workspace: Path, result: AutonomyStepResult) -> Path:

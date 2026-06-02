@@ -248,6 +248,8 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         (project_root / "agent-history" / "runs", "/history/runs"),
         (project_root / "agent-history" / "research-notes", "/history/research-notes"),
         (project_root / "docs", "/docs"),
+        (project_root / "src" / "ml_autoresearch", "/usr/local/lib/python3.12/site-packages/ml_autoresearch"),
+        (project_root / "src" / "ml_autoresearch", "/usr/local/lib/python3.12/dist-packages/ml_autoresearch"),
     ]
     mount_entries = [_format_mount(path, target) for path, target in mounts]
     mount_entries.extend(_format_mount(mount.path, mount.target) for mount in config.data_mounts)

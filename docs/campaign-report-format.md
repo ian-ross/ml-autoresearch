@@ -83,3 +83,16 @@ ml-autoresearch pause-campaign \
 ```
 
 The command/API records a `campaign_paused` event containing `reason` and, when available, `report_path`.
+
+## Resuming after human review
+
+After a human resolves the pause condition, record a resume event before starting another autonomous iteration:
+
+```bash
+ml-autoresearch resume-campaign \
+  --reason human_review_complete \
+  --report-path campaign-reports/2026-06-01-resume.md \
+  --ledger-path research-ledger.jsonl
+```
+
+The command/API records a `campaign_resumed` event. New Autonomy Step prompts explicitly tell the agent not to treat earlier `scheduled_check_in` or resolved capability-request pause recommendations as active blockers when a newer resume event exists.

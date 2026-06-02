@@ -2,9 +2,9 @@
 
 This document describes the currently implemented local Candidate Experiment source contract. A Candidate Experiment is submitted as a local directory, not as an archive.
 
-The current tracer-bullet implementation supports Single-Frame RGB Input, mask-only primary output, optional Harness-derived per-pixel Line Target auxiliary output, `bce_dice`, auxiliary `weighted_bce`, and `adamw`. Broader v1 contract surface such as temporal inputs, additional auxiliary targets, additional losses, and pretrained weight requests is documented as planned capability in `docs/harness-capabilities.md` and `docs/top-level-plan.md`.
+The current tracer-bullet implementation supports Single-Frame RGB Input, mask-only primary output, optional Harness-derived per-pixel Line Target and Boundary Target auxiliary outputs, `bce_dice`, auxiliary `weighted_bce`, and `adamw`. Broader v1 contract surface such as temporal inputs, additional primary losses, and pretrained weight requests is documented as planned capability in `docs/harness-capabilities.md` and `docs/top-level-plan.md`.
 
-Per-pixel Auxiliary Target support is recorded in `docs/adr/0005-per-pixel-auxiliary-targets-in-the-candidate-experiment-contract.md`. The first implemented public surface is the Line Target only.
+Per-pixel Auxiliary Target support is recorded in `docs/adr/0005-per-pixel-auxiliary-targets-in-the-candidate-experiment-contract.md`. The implemented public auxiliary-target surface includes Line Target (`line_logits`) and Boundary Target (`boundary_logits`).
 
 ## Minimal layout
 
@@ -60,24 +60,29 @@ Rejected:
 
 ## Auxiliary targets
 
-Candidate manifests may request the first Harness-owned per-pixel Auxiliary Target:
+Candidate manifests may request Harness-owned per-pixel Auxiliary Targets:
 
 ```yaml
 auxiliary_targets:
   - name: line
     output: line_logits
     loss: weighted_bce
-    weight: 0.25
+    weight: 0.10
+  - name: boundary
+    output: boundary_logits
+    loss: weighted_bce
+    weight: 0.05
 ```
 
-Rules for the initial surface:
+Rules for the implemented surface:
 
 - `auxiliary_targets` defaults to `[]`.
-- The only allowed target name is `line`.
-- `line` requires `output: line_logits`.
-- The only allowed auxiliary loss is `weighted_bce`.
+- Allowed target names are `line` and `boundary`.
+- `line` requires `output: line_logits`; `boundary` requires `output: boundary_logits`.
+- The only implemented auxiliary loss is `weighted_bce`.
 - `weight` must be between `0.0` and `1.0`.
 - Auxiliary-output models must return exactly `mask_logits` and requested auxiliary output keys; tensor shorthand remains valid only for mask-only candidates.
+- The Harness derives Line Target and Boundary Target tensors from the primary Contrail Mask; Candidate Experiment code must not derive targets or implement auxiliary losses.
 - Primary validation comparison remains based on Contrail Mask metrics, especially `val/dice`.
 
 ## Experiment Proposal contract

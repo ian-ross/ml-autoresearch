@@ -67,6 +67,29 @@ def record_campaign_pause(
     return result
 
 
+def record_campaign_resume(
+    reason: str,
+    *,
+    report_path: str | Path | None = None,
+    ledger_path: str | Path = CANONICAL_RESEARCH_LEDGER,
+) -> dict[str, object]:
+    """Record that human review has cleared a Campaign Pause Condition."""
+
+    normalized_reason = reason.strip() if isinstance(reason, str) else ""
+    if not normalized_reason:
+        raise CampaignControlError("resume reason must be non-empty")
+    fields = {"reason": normalized_reason}
+    normalized_report_path = None
+    if report_path is not None:
+        normalized_report_path = _normalize_required_path(report_path, "report_path")
+        fields["report_path"] = normalized_report_path
+    event = record_research_event("campaign_resumed", fields, ledger_path=ledger_path)
+    result: dict[str, object] = {"reason": normalized_reason, "ledger_event": event}
+    if normalized_report_path is not None:
+        result["report_path"] = normalized_report_path
+    return result
+
+
 def _normalize_required_path(path: str | Path, field_name: str) -> str:
     value = str(path)
     if not value:

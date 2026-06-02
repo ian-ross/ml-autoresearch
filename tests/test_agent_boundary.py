@@ -20,6 +20,8 @@ def write_project(root: Path, data_mounts: str = "") -> None:
     (root / "research-ledger.jsonl").write_text('{"event_type":"proposal_created"}\n')
     (root / "docs").mkdir()
     (root / "docs" / "guide.md").write_text("docs\n")
+    (root / "src" / "ml_autoresearch").mkdir(parents=True)
+    (root / "src" / "ml_autoresearch" / "__init__.py").write_text("\n")
     (root / "agent-boundary.toml").write_text(
         """
 [agent_control_boundary]
@@ -133,9 +135,12 @@ path = "{data_root}"
         'target="/history/runs"',
         'target="/history/research-notes"',
         'target="/docs"',
+        'target="/usr/local/lib/python3.12/site-packages/ml_autoresearch"',
+        'target="/usr/local/lib/python3.12/dist-packages/ml_autoresearch"',
         'target="/data/gvccs"',
     ]:
         assert target in fort_toml
+    assert f'path="{tmp_path / "src" / "ml_autoresearch"}"' in fort_toml
     assert f'path="{data_root}"' in fort_toml
     assert 'target="/data/gvccs", readonly=true' in fort_toml
     assert not old_dropin.exists()

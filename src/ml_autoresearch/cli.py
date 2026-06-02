@@ -38,12 +38,14 @@ from ml_autoresearch.campaign_controls import (
     CampaignControlError,
     record_campaign_pause,
     record_campaign_report_written,
+    record_campaign_resume,
 )
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs
+from ml_autoresearch.batches import get_batch_summary, list_batches
 
 CLI_DEFAULT_MAX_ARTIFACT_SAMPLES = 12
 
@@ -355,6 +357,24 @@ def pause_campaign_command(
     _echo_json(result)
 
 
+@app.command("resume-campaign")
+def resume_campaign_command(
+    reason: Annotated[str, typer.Option(help="Human-review reason for resuming the campaign.")] = "human_review_complete",
+    report_path: Annotated[Path | None, typer.Option(help="Optional Campaign Report path documenting the resume decision.")] = None,
+    ledger_path: Annotated[
+        Path,
+        typer.Option(help="Append-only Research Ledger JSONL path."),
+    ] = Path(CANONICAL_RESEARCH_LEDGER),
+) -> None:
+    """Record a campaign_resumed Research Ledger event after human review."""
+
+    try:
+        result = record_campaign_resume(reason, report_path=report_path, ledger_path=ledger_path)
+    except (CampaignControlError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+
+
 @app.command("record-research-event")
 def record_research_event_command(
     event_type: Annotated[str, typer.Option(help="Research Ledger event type to record.")],
@@ -495,6 +515,61 @@ def submit_candidate_command(
         raise typer.Exit(1)
 
 
+@app.command("run-experiment-batch")
+def run_experiment_batch_command(
+    batch: Annotated[Path, typer.Option(help="Path to a local Experiment Batch directory.")],
+    batches_root: Annotated[Path, typer.Option(help="Directory where Experiment Batch artifact directories are created.")],
+    runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
+    synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated contrail data.")] = False,
+    max_parallel_runs: Annotated[int, typer.Option("--max-parallel-runs", help="Harness-owned parallel Run cap, capped at 4.")] = 4,
+    max_prediction_samples: Annotated[
+        int,
+        typer.Option("--max-prediction-samples", help="Maximum number of qualitative prediction samples to write per Run."),
+    ] = 2,
+    prediction_sample_policy: Annotated[
+        Literal["first_n", "adjacent_and_scattered"],
+        typer.Option("--prediction-sample-policy", help="Harness-owned qualitative Prediction Sample Policy."),
+    ] = "first_n",
+    backend: Annotated[Literal["native", "docker"], typer.Option("--backend", help="Candidate Execution Boundary backend.")] = "docker",
+    docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
+    docker_enable_gpu: Annotated[
+        bool,
+        typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access by passing --gpus all to Docker runs."),
+    ] = False,
+    docker_user: Annotated[str | None, typer.Option("--docker-user", help="Container uid:gid for Docker runs.")] = None,
+    docker_rootless_container_root: Annotated[
+        bool,
+        typer.Option("--docker-rootless-container-root", help="Run as container root on rootless Docker to preserve output ownership."),
+    ] = False,
+    ledger_path: Annotated[
+        Path | None,
+        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to batches_root sibling research-ledger.jsonl."),
+    ] = None,
+) -> None:
+    """Validate and synchronously run a bounded Experiment Batch."""
+
+    if not synthetic_fixture:
+        raise typer.BadParameter("initial batch execution supports --synthetic-fixture")
+    from ml_autoresearch.batches import ExperimentBatchError, run_experiment_batch_with_synthetic_fixture
+
+    try:
+        result = run_experiment_batch_with_synthetic_fixture(
+            batch,
+            batches_root=batches_root,
+            runs_root=runs_root,
+            backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root),
+            max_parallel_runs=max_parallel_runs,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            ledger_path=ledger_path,
+        )
+    except (ExperimentBatchError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+    if result.get("status") != "completed":
+        raise typer.Exit(1)
+
+
 @app.command("run-candidate")
 def run_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
@@ -599,6 +674,17 @@ def _echo_table(rows: list[dict[str, object]]) -> None:
         typer.echo(
             f"{row.get('run_id', '')}\t{row.get('status', '')}\t{dice}\t{row.get('reason') or row.get('error', '')}"
         )
+
+
+def _echo_batch_table(rows: list[dict[str, object]]) -> None:
+    if not rows:
+        typer.echo("No local Experiment Batches found.")
+        return
+    typer.echo("batch_id\tstatus\truns")
+    for row in rows:
+        runs = row.get("runs")
+        run_count = len(runs) if isinstance(runs, list) else ""
+        typer.echo(f"{row.get('batch_id', '')}\t{row.get('status', '')}\t{run_count}")
 
 
 @app.command("evaluate-run")
@@ -713,6 +799,37 @@ def validate_docker_gpu_command(
         typer.echo(completed.stderr.rstrip(), err=True)
     if completed.returncode != 0:
         raise typer.Exit(completed.returncode)
+
+
+@app.command("list-batches")
+def list_batches_command(
+    batches_root: Annotated[Path, typer.Option(help="Directory containing local Experiment Batch artifact directories.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
+) -> None:
+    """List local Experiment Batches from the local batches/ artifact tree."""
+
+    rows = list_batches(batches_root)
+    if json_output:
+        _echo_json(rows)
+    else:
+        _echo_batch_table(rows)
+
+
+@app.command("batch-summary")
+def batch_summary_command(
+    batches_root: Annotated[Path, typer.Option(help="Directory containing local Experiment Batch artifact directories.")],
+    batch_id: Annotated[str, typer.Option(help="Experiment Batch identifier to inspect.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
+) -> None:
+    """Inspect one local Experiment Batch summary."""
+
+    summary = get_batch_summary(batches_root, batch_id)
+    if json_output:
+        _echo_json(summary)
+    else:
+        _echo_batch_table([summary])
+    if summary.get("status") in {"missing", "corrupt", "missing_metadata"}:
+        raise typer.Exit(1)
 
 
 @app.command("list-runs")

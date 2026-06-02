@@ -52,16 +52,17 @@ or:
 }
 ```
 
-The current tracer-bullet implementation also accepts the first optional auxiliary head when requested by the manifest:
+The current tracer-bullet implementation also accepts optional auxiliary heads when requested by the manifest:
 
 ```python
 {
     "mask_logits": Tensor,
-    "line_logits": Tensor,
+    "line_logits": Tensor,       # when Line Target is requested
+    "boundary_logits": Tensor,   # when Boundary Target is requested
 }
 ```
 
-`line_logits` is allowed only for the Harness-derived Line Target. Broader auxiliary heads such as `boundary_logits` remain planned contract surface. The Harness validates output names, shapes, and dtypes before real training and rejects unrequested or unknown output keys.
+`line_logits` is allowed only for the Harness-derived Line Target, and `boundary_logits` is allowed only for the Harness-derived Boundary Target. The Harness validates output names, shapes, and dtypes before real training and rejects unrequested or unknown output keys.
 
 ## Loss allowlist
 
@@ -75,12 +76,12 @@ Allowed v1 primary mask losses:
 
 The current tracer-bullet implementation supports only `bce_dice`; the broader v1 allowlist is planned contract surface.
 
-Allowed v1 auxiliary losses for planned `line_logits` and `boundary_logits`:
+Allowed v1 auxiliary losses for `line_logits` and `boundary_logits`:
 
 - `focal_bce`
 - `weighted_bce`
 
-The current tracer-bullet implementation supports `weighted_bce` for the Line Target only. The manifest may provide bounded loss weights and loss parameters, but the Harness owns implementation, validation, and defaults.
+The current tracer-bullet implementation supports `weighted_bce` for the Line Target and Boundary Target. The manifest may provide bounded auxiliary loss weights, but the Harness owns implementation, validation, positive weighting, and defaults. `focal_bce` remains planned contract surface.
 
 ## Metrics
 
@@ -196,19 +197,19 @@ Auxiliary targets are Harness-derived per-pixel training targets. They are used 
 
 ### Line Target
 
-A Line Target emphasizes thin centerline-like contrail structure. The Harness derives it from the Contrail Mask, for example by skeletonizing or thinning the mask and optionally dilating the result slightly for tolerance.
+A Line Target emphasizes thin centerline-like contrail structure. The current Harness v1 derivation is a deterministic small tolerance band around positive mask pixels. Future Research Problem implementations may replace this with skeletonization or thinning while preserving Harness ownership of target derivation.
 
 Candidate models may expose `line_logits` with shape `[B, 1, H, W]`. These are image-aligned per-pixel logits, not Hough-space logits or arbitrary line-parameter predictions.
 
 ### Boundary Target
 
-A Boundary Target emphasizes contrail edge geometry. The Harness derives it from the Contrail Mask, for example by computing a narrow band around the mask boundary using dilation/erosion or a distance transform.
+A Boundary Target emphasizes contrail edge geometry. The current Harness v1 derivation is a deterministic one-pixel edge band computed from dilation minus erosion of the Contrail Mask. Future Research Problem implementations may replace this with distance-transform variants while preserving Harness ownership of target derivation.
 
 Candidate models may expose `boundary_logits` with shape `[B, 1, H, W]`. These are image-aligned per-pixel logits, not object-detection boundaries or a separate segmentation class.
 
 ## Example auxiliary-loss use
 
-If a model returns mask, line, and boundary logits, the Harness can compute a combined training loss such as:
+If a model returns mask, line, and boundary logits, the Harness computes a combined training loss from the manifest-requested auxiliary targets. Conceptually:
 
 ```python
 line_target = derive_line_target(contrail_mask)
@@ -216,8 +217,8 @@ boundary_target = derive_boundary_target(contrail_mask)
 
 loss = (
     1.00 * bce_dice(mask_logits, contrail_mask)
-  + 0.25 * focal_bce(line_logits, line_target)
-  + 0.15 * focal_bce(boundary_logits, boundary_target)
+  + line_weight * weighted_bce(line_logits, line_target)
+  + boundary_weight * weighted_bce(boundary_logits, boundary_target)
 )
 ```
 

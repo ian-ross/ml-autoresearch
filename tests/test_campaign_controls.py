@@ -10,6 +10,7 @@ from ml_autoresearch.campaign_controls import (
     CampaignControlError,
     record_campaign_pause,
     record_campaign_report_written,
+    record_campaign_resume,
 )
 from ml_autoresearch.research_ledger import ResearchLedgerError, record_research_event
 
@@ -40,6 +41,19 @@ def test_campaign_pause_event_persists_valid_condition_and_optional_report_path(
     event = result["ledger_event"]
     assert event["event_type"] == "campaign_paused"
     assert event["reason"] == "scheduled_check_in"
+    assert event["report_path"] == str(report)
+    assert read_jsonl(ledger) == [event]
+
+
+def test_campaign_resume_event_records_human_review_completion(tmp_path: Path) -> None:
+    ledger = tmp_path / "research-ledger.jsonl"
+    report = tmp_path / "campaign-reports" / "2026-06-01-resume.md"
+
+    result = record_campaign_resume("human_review_complete", report_path=report, ledger_path=ledger)
+
+    event = result["ledger_event"]
+    assert event["event_type"] == "campaign_resumed"
+    assert event["reason"] == "human_review_complete"
     assert event["report_path"] == str(report)
     assert read_jsonl(ledger) == [event]
 
@@ -114,8 +128,30 @@ def test_campaign_control_cli_records_report_and_pause_events(tmp_path: Path) ->
     assert pause_completed.returncode == 0, pause_completed.stderr
     pause_payload = json.loads(pause_completed.stdout)
 
-    assert read_jsonl(ledger) == [report_payload["ledger_event"], pause_payload["ledger_event"]]
+    resume_completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ml_autoresearch.cli",
+            "resume-campaign",
+            "--reason",
+            "human_review_complete",
+            "--report-path",
+            str(report),
+            "--ledger-path",
+            str(ledger),
+        ],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert resume_completed.returncode == 0, resume_completed.stderr
+    resume_payload = json.loads(resume_completed.stdout)
+
+    assert read_jsonl(ledger) == [report_payload["ledger_event"], pause_payload["ledger_event"], resume_payload["ledger_event"]]
     assert pause_payload["ledger_event"]["reason"] == "storage_risk"
+    assert resume_payload["ledger_event"]["event_type"] == "campaign_resumed"
 
 
 def test_campaign_control_cli_reports_ledger_write_failure_without_traceback(tmp_path: Path) -> None:

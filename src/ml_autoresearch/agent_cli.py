@@ -8,6 +8,7 @@ from typing import Annotated
 
 import typer
 
+from ml_autoresearch.batches import get_batch_summary, list_batches
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.runs import get_best_runs, get_run_summary, list_runs
 
@@ -39,6 +40,48 @@ def _echo_table(rows: list[dict[str, object]]) -> None:
         typer.echo(
             f"{row.get('run_id', '')}\t{row.get('status', '')}\t{dice}\t{row.get('reason') or row.get('error', '')}"
         )
+
+
+def _echo_batch_table(rows: list[dict[str, object]]) -> None:
+    if not rows:
+        typer.echo("No local Experiment Batches found.")
+        return
+    typer.echo("batch_id\tstatus\truns")
+    for row in rows:
+        runs = row.get("runs")
+        run_count = len(runs) if isinstance(runs, list) else ""
+        typer.echo(f"{row.get('batch_id', '')}\t{row.get('status', '')}\t{run_count}")
+
+
+@app.command("list-batches")
+def list_batches_command(
+    batches_root: Annotated[Path, typer.Option(help="Directory containing local Experiment Batch artifact directories.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
+) -> None:
+    """List prior local Experiment Batches from a read-only batches/ artifact tree."""
+
+    rows = list_batches(batches_root)
+    if json_output:
+        _echo_json(rows)
+    else:
+        _echo_batch_table(rows)
+
+
+@app.command("batch-summary")
+def batch_summary_command(
+    batches_root: Annotated[Path, typer.Option(help="Directory containing local Experiment Batch artifact directories.")],
+    batch_id: Annotated[str, typer.Option(help="Experiment Batch identifier to inspect.")],
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
+) -> None:
+    """Inspect one prior local Experiment Batch summary."""
+
+    summary = get_batch_summary(batches_root, batch_id)
+    if json_output:
+        _echo_json(summary)
+    else:
+        _echo_batch_table([summary])
+    if summary.get("status") in {"missing", "corrupt", "missing_metadata"}:
+        raise typer.Exit(1)
 
 
 @app.command("list-runs")

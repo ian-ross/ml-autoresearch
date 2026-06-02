@@ -68,6 +68,21 @@ class CandidateSubmitted(_LedgerEvent):
     run_id: str = Field(min_length=1)
 
 
+class ExperimentBatchCreated(_LedgerEvent):
+    event_type: Literal["experiment_batch_created"] = "experiment_batch_created"
+    batch_id: str = Field(min_length=1)
+    batch_path: str = Field(min_length=1)
+    proposal_path: str = Field(min_length=1)
+    candidate_count: int = Field(ge=1, le=4)
+
+
+class ExperimentBatchCompleted(_LedgerEvent):
+    event_type: Literal["experiment_batch_completed"] = "experiment_batch_completed"
+    batch_id: str = Field(min_length=1)
+    status: Literal["completed", "partially_failed", "failed"]
+    run_count: int = Field(ge=0, le=4)
+
+
 class RunStarted(_LedgerEvent):
     event_type: Literal["run_started"] = "run_started"
     run_id: str = Field(min_length=1)
@@ -172,10 +187,18 @@ class CampaignPaused(_LedgerEvent):
     report_path: str | None = Field(default=None, min_length=1)
 
 
+class CampaignResumed(_LedgerEvent):
+    event_type: Literal["campaign_resumed"] = "campaign_resumed"
+    reason: str = Field(min_length=1)
+    report_path: str | None = Field(default=None, min_length=1)
+
+
 _EVENT_SCHEMAS: dict[str, type[_LedgerEvent]] = {
     "proposal_created": ProposalCreated,
     "candidate_created": CandidateCreated,
     "candidate_submitted": CandidateSubmitted,
+    "experiment_batch_created": ExperimentBatchCreated,
+    "experiment_batch_completed": ExperimentBatchCompleted,
     "run_started": RunStarted,
     "run_completed": RunCompleted,
     "run_failed": RunFailed,
@@ -186,6 +209,7 @@ _EVENT_SCHEMAS: dict[str, type[_LedgerEvent]] = {
     "campaign_report_written": CampaignReportWritten,
     "agent_handoff_ingested": AgentHandoffIngested,
     "campaign_paused": CampaignPaused,
+    "campaign_resumed": CampaignResumed,
 }
 
 

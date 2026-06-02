@@ -249,6 +249,40 @@ training:
     assert json.loads(valid.stdout)["status"] == "valid"
 
 
+def test_agent_cli_validate_candidate_accepts_boundary_auxiliary_target(tmp_path: Path):
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "manifest.yaml").write_text(
+        """
+name: boundary_aux_candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: boundary
+    output: boundary_logits
+    loss: weighted_bce
+    weight: 0.05
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+    (candidate / "model.py").write_text("raise RuntimeError('model.py should not be imported during static validation')\n")
+
+    completed = run_agent_cli("validate-candidate", "--candidate", str(candidate), "--no-require-proposal")
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "valid"
+    assert payload["manifest"]["auxiliary_targets"] == [
+        {"name": "boundary", "output": "boundary_logits", "loss": "weighted_bce", "weight": 0.05}
+    ]
+
+
 def test_agent_cli_validate_candidate_is_static_and_does_not_import_model_code(tmp_path: Path):
     candidate = tmp_path / "candidate"
     candidate.mkdir()

@@ -297,7 +297,10 @@ mounts = [
 
 The Agent Control Boundary image installs the base `ml-autoresearch` package and
 exposes the `ml-autoresearch-agent` console script for observation and static
-Candidate Experiment preparation. The image intentionally does not install PyTorch,
+Candidate Experiment preparation. During boundary preparation, the current
+Harness `src/ml_autoresearch` tree is mounted read-only over the image package
+path so agent-safe validation commands use the same Candidate Experiment Contract
+implementation as the outer Harness. The image intentionally does not install PyTorch,
 NVIDIA/CUDA libraries, Docker tooling, GPU utilities, or Run-execution
 dependencies. These heavy ML/runtime dependencies belong to the outer Harness and Candidate Execution Boundary, where Candidate Experiments are validated,
 smoke-tested, trained, and evaluated under Harness-owned policy.

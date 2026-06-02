@@ -40,7 +40,26 @@ RUN touch /tmp/agent-smoke/candidate/model.py \
     && ml-autoresearch-agent list-runs --runs-root /tmp/agent-smoke/runs >/dev/null \
     && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-smoke/candidate >/dev/null \
     && ml-autoresearch-agent prepare-candidate-submission --candidate /tmp/agent-smoke/candidate --submissions-root /tmp/agent-smoke/submissions >/dev/null \
-    && rm -rf /tmp/agent-smoke
+    && mkdir -p /tmp/agent-boundary-smoke/candidate \
+    && cat > /tmp/agent-boundary-smoke/candidate/manifest.yaml <<'EOF'
+name: boundary_aux_candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: boundary
+    output: boundary_logits
+    loss: weighted_bce
+    weight: 0.05
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+EOF
+RUN touch /tmp/agent-boundary-smoke/candidate/model.py \
+    && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-boundary-smoke/candidate --no-require-proposal >/dev/null \
+    && rm -rf /tmp/agent-smoke /tmp/agent-boundary-smoke
 
 WORKDIR /workspace
 CMD ["bash"]

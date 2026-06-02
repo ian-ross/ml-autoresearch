@@ -126,7 +126,7 @@ Provide initial candidates to exercise the loop:
 
 - single-frame UNet baseline.
 - temporal stack UNet baseline.
-- optional auxiliary-head UNet using implemented `line_logits`; `boundary_logits` remains planned contract surface.
+- optional auxiliary-head U-Net variants using implemented `line_logits` and `boundary_logits` Harness-derived auxiliary targets.
 
 ## First tracer-bullet milestone — complete
 
@@ -143,7 +143,7 @@ Completion evidence:
 - Docker-backed execution and initial hardening have been added around the local loop;
 - the test suite passes for the implemented tracer-bullet behavior.
 
-The milestone remains intentionally narrower than the broader v1 contract. Temporal inputs, Boundary Target auxiliary heads, additional primary losses, pretrained-weight workflows, MLflow persistence, async orchestration, and production sandbox claims are follow-on work, not blockers for leaving the first tracer bullet.
+The milestone remains intentionally narrower than the broader v1 contract. Temporal inputs, additional primary losses, pretrained-weight workflows, MLflow persistence, async orchestration, and production sandbox claims are follow-on work, not blockers for leaving the first tracer bullet. Boundary Target auxiliary heads have since been added to the implemented tracer-bullet contract.
 
 ### Success criteria
 

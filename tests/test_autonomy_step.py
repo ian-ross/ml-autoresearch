@@ -110,6 +110,60 @@ def test_autonomy_step_refreshes_agent_control_boundary_before_invocation(tmp_pa
     assert result["ingestion"]["next_action"] == "stop_for_human"
 
 
+def test_autonomy_step_prompt_tells_agent_when_human_resumed_after_pause_report(tmp_path: Path):
+    from ml_autoresearch.campaign_controls import record_campaign_report_written, record_campaign_resume
+
+    write_project(tmp_path)
+    report = tmp_path / "campaign-reports" / "2026-05-31-status.md"
+    report.parent.mkdir()
+    report.write_text(
+        """# Campaign Report: Test
+
+## Pause recommendation
+- Pause condition: `scheduled_check_in`
+- Human decision needed: yes.
+"""
+    )
+    ledger = tmp_path / "research-ledger.jsonl"
+    record_campaign_report_written("campaign-reports/2026-05-31-status.md", ledger_path=ledger)
+    record_campaign_resume("human_review_complete", report_path="campaign-reports/2026-06-01-resume.md", ledger_path=ledger)
+    fake_command = write_fake_agent(
+        tmp_path / "fake_agent.py",
+        """
+prompt = Path('prompt.txt').read_text()
+assert 'Human campaign review is complete' in prompt
+assert 'Do not treat earlier scheduled_check_in' in prompt
+Path('scratch/resume-prompt.txt').write_text(prompt)
+""",
+    )
+
+    result = run_autonomy_step(tmp_path, agent_command=fake_command)
+
+    assert result.status == "no_handoff"
+
+
+def test_autonomy_step_removes_stale_loop_result_files_before_agent_invocation(tmp_path: Path):
+    write_project(tmp_path)
+    workspace = tmp_path / "agent-work"
+    workspace.mkdir()
+    (workspace / "autonomy-step-result.json").write_text('{"stale": "pause_campaign"}\n')
+    (workspace / "autonomous-iteration-result.json").write_text('{"stop_reason": "campaign_paused"}\n')
+    fake_command = write_fake_agent(
+        tmp_path / "fake_agent.py",
+        """
+assert not Path('autonomy-step-result.json').exists()
+assert not Path('autonomous-iteration-result.json').exists()
+Path('scratch/stale-results-cleared.txt').write_text('yes')
+""",
+    )
+
+    result = run_autonomy_step(tmp_path, agent_command=fake_command)
+
+    assert result.status == "no_handoff"
+    assert (workspace / "scratch" / "stale-results-cleared.txt").read_text() == "yes"
+    assert (workspace / "autonomy-step-result.json").is_file()
+
+
 def test_autonomy_step_nonzero_agent_exit_writes_failure_result_and_does_not_ingest(tmp_path: Path):
     write_project(tmp_path)
     fake_command = write_fake_agent(
