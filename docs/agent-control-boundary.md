@@ -173,6 +173,7 @@ The VM exposes these read-only paths:
   - `/history/candidates/` — prior Candidate Experiment sources, when
     available.
   - `/history/runs/` — prior Run summaries/artifacts exposed by the Harness.
+  - `/history/batches/` — prior Experiment Batch summaries/artifacts exposed by the Harness.
   - `/history/research-notes/` — prior Research Notes.
 - `/docs` — trusted project documentation, including the Candidate Experiment
   Contract, Run lifecycle, request/report formats, and agent skill docs.
@@ -287,6 +288,7 @@ mounts = [
   {path="../agent-history", target="/history", readonly=true},
   {path="../agent-history/candidates", target="/history/candidates", readonly=true},
   {path="../agent-history/runs", target="/history/runs", readonly=true},
+  {path="../agent-history/batches", target="/history/batches", readonly=true},
   {path="../agent-history/research-notes", target="/history/research-notes", readonly=true},
   {path="../docs", target="/docs", readonly=true},
   {path="/path/to/gvccs", target="/data/gvccs", readonly=true},

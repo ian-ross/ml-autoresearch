@@ -13,9 +13,57 @@ SUBMISSION_TYPE = "candidate_experiment"
 REQUESTED_ACTION = "validate_and_queue_for_harness_execution"
 RELATIVE_CANDIDATE_PATH = "candidate"
 
+BATCH_SUBMISSION_SCHEMA_VERSION = "experiment_batch_submission.v1"
+BATCH_SUBMISSION_TYPE = "experiment_batch"
+BATCH_REQUESTED_ACTION = "validate_and_queue_batch_for_harness_execution"
+RELATIVE_BATCH_PATH = "experiment_batch"
+
 
 class CandidateSubmissionPreparationError(ValueError):
     """Raised when a draft Candidate Experiment cannot be prepared for handoff."""
+
+
+def prepare_experiment_batch_submission(batch_dir: str | Path, submissions_root: str | Path) -> dict[str, object]:
+    """Validate and copy a draft Experiment Batch into the submission queue."""
+
+    from ml_autoresearch.batches import ExperimentBatchError, validate_experiment_batch_directory
+
+    batch_path = Path(batch_dir)
+    batch_submission_id = batch_path.name
+    if not batch_submission_id:
+        raise CandidateSubmissionPreparationError("batch path must have a directory name")
+
+    submission_dir = Path(submissions_root) / batch_submission_id
+    if submission_dir.exists():
+        raise CandidateSubmissionPreparationError(f"submission directory already exists: {submission_dir}")
+
+    try:
+        candidates = validate_experiment_batch_directory(batch_path)
+    except ExperimentBatchError as exc:
+        raise CandidateSubmissionPreparationError(str(exc)) from exc
+
+    submission_dir.parent.mkdir(parents=True, exist_ok=True)
+    copied_batch_path = submission_dir / RELATIVE_BATCH_PATH
+    shutil.copytree(batch_path, copied_batch_path)
+
+    metadata = {
+        "schema_version": BATCH_SUBMISSION_SCHEMA_VERSION,
+        "submission_type": BATCH_SUBMISSION_TYPE,
+        "batch_submission_id": batch_submission_id,
+        "batch_path": RELATIVE_BATCH_PATH,
+        "requested_action": BATCH_REQUESTED_ACTION,
+    }
+    (submission_dir / "submission.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+
+    return {
+        "status": "prepared",
+        "batch_submission_id": batch_submission_id,
+        "submission_dir": str(submission_dir),
+        "batch_path": str(copied_batch_path),
+        "metadata_path": str(submission_dir / "submission.json"),
+        "candidate_count": len(candidates),
+        "submission": metadata,
+    }
 
 
 def prepare_candidate_submission(candidate_dir: str | Path, submissions_root: str | Path) -> dict[str, object]:

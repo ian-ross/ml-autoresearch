@@ -19,6 +19,7 @@ from ml_autoresearch.agent_handoffs import (
     ingest_campaign_report,
     ingest_candidate_submission,
     ingest_capability_request,
+    ingest_experiment_batch_submission,
     ingest_evaluation_request,
     ingest_research_note,
 )
@@ -233,6 +234,21 @@ def ingest_candidate_submission_command(
     except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
+
+
+@app.command("ingest-experiment-batch-submission")
+def ingest_experiment_batch_submission_command(
+    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/batch-submissions.")] = Path("."),
+) -> None:
+    """Ingest one Agent Workspace Experiment Batch Submission into canonical experiment-batches/."""
+
+    try:
+        result = ingest_experiment_batch_submission(project_root)
+    except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+    if result.get("status") == "ingestion_failed":
+        raise typer.Exit(1)
 
 
 @app.command("ingest-research-note")
@@ -521,6 +537,8 @@ def run_experiment_batch_command(
     batches_root: Annotated[Path, typer.Option(help="Directory where Experiment Batch artifact directories are created.")],
     runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
     synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated contrail data.")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root", help="Local GVCCS Dataset root for non-synthetic batch execution.")] = None,
+    max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of discovered GVCCS samples used.")] = None,
     max_parallel_runs: Annotated[int, typer.Option("--max-parallel-runs", help="Harness-owned parallel Run cap, capped at 4.")] = 4,
     max_prediction_samples: Annotated[
         int,
@@ -548,21 +566,36 @@ def run_experiment_batch_command(
 ) -> None:
     """Validate and synchronously run a bounded Experiment Batch."""
 
-    if not synthetic_fixture:
-        raise typer.BadParameter("initial batch execution supports --synthetic-fixture")
-    from ml_autoresearch.batches import ExperimentBatchError, run_experiment_batch_with_synthetic_fixture
+    from ml_autoresearch.batches import ExperimentBatchError, run_experiment_batch_with_gvccs_data, run_experiment_batch_with_synthetic_fixture
 
+    selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
-        result = run_experiment_batch_with_synthetic_fixture(
-            batch,
-            batches_root=batches_root,
-            runs_root=runs_root,
-            backend=_select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root),
-            max_parallel_runs=max_parallel_runs,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-            ledger_path=ledger_path,
-        )
+        if synthetic_fixture:
+            result = run_experiment_batch_with_synthetic_fixture(
+                batch,
+                batches_root=batches_root,
+                runs_root=runs_root,
+                backend=selected_backend,
+                max_parallel_runs=max_parallel_runs,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+                ledger_path=ledger_path,
+            )
+        else:
+            if data_root is None:
+                raise typer.BadParameter("--data-root is required unless --synthetic-fixture is set")
+            result = run_experiment_batch_with_gvccs_data(
+                batch,
+                batches_root=batches_root,
+                runs_root=runs_root,
+                data_root=data_root,
+                backend=selected_backend,
+                max_parallel_runs=max_parallel_runs,
+                max_samples=max_samples,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+                ledger_path=ledger_path,
+            )
     except (ExperimentBatchError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)

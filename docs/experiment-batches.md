@@ -27,7 +27,13 @@ experiment_batch/
         └── README.md
 ```
 
-`BATCH_PROPOSAL.md` records the shared hypothesis, shared comparison target, per-candidate rationale, decision criteria, success criteria, and requested budget/concurrency subject to Harness caps.
+`BATCH_PROPOSAL.md` records the shared hypothesis, shared comparison target, per-candidate variant rationale, decision criteria, success criteria, and requested budget/concurrency subject to Harness caps. The Harness validates these declarations before any Run is created.
+
+Agents can package a batch as one primary handoff with `prepare-experiment-batch-submission`; the Harness ingests it with `ingest-experiment-batch-submission` or as part of an Autonomy Step. Ingested source batches are copied to `experiment-batches/<batch_submission_id>/`; execution artifacts are still created under `batches/<batch_id>/`.
+
+## Execution
+
+Use `run-experiment-batch --synthetic-fixture` for synthetic fixture execution, or provide `--data-root` for GVCCS execution. Batch execution remains synchronous from the caller's perspective: the command returns only after all sibling Runs have completed or failed. The Harness records `experiment_batch_created`, `batch_candidate_created`, `batch_run_started`, and `experiment_batch_completed` Research Ledger events while preserving existing per-Run audit events.
 
 ## Artifacts
 

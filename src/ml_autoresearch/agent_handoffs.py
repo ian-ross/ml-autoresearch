@@ -17,6 +17,10 @@ from ml_autoresearch.evaluation_requests import EvaluationRequestError, validate
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
 from ml_autoresearch.research_notes import ResearchNoteFigureError, validate_research_note_figure_provenance
 from ml_autoresearch.submissions import (
+    BATCH_REQUESTED_ACTION,
+    BATCH_SUBMISSION_SCHEMA_VERSION,
+    BATCH_SUBMISSION_TYPE,
+    RELATIVE_BATCH_PATH,
     RELATIVE_CANDIDATE_PATH,
     REQUESTED_ACTION,
     SUBMISSION_SCHEMA_VERSION,
@@ -27,6 +31,7 @@ INGESTION_MARKER = "INGESTED.json"
 
 PRIMARY_HANDOFF_TYPES = (
     "candidate_submission",
+    "experiment_batch_submission",
     "evaluation_request",
     "capability_request",
     "research_note",
@@ -47,6 +52,18 @@ class CandidateSubmissionMetadata(BaseModel):
     submission_type: str = Field(min_length=1)
     candidate_id: str = Field(min_length=1)
     candidate_path: str = Field(min_length=1)
+    requested_action: str = Field(min_length=1)
+
+
+class ExperimentBatchSubmissionMetadata(BaseModel):
+    """Validated Agent Workspace Experiment Batch Submission metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(min_length=1)
+    submission_type: str = Field(min_length=1)
+    batch_submission_id: str = Field(min_length=1)
+    batch_path: str = Field(min_length=1)
     requested_action: str = Field(min_length=1)
 
 
@@ -81,6 +98,7 @@ def collect_agent_handoff(project_root: str | Path = Path(".")) -> dict[str, obj
 
     ingest = {
         "candidate_submission": ingest_candidate_submission,
+        "experiment_batch_submission": ingest_experiment_batch_submission,
         "evaluation_request": ingest_evaluation_request,
         "capability_request": ingest_capability_request,
         "research_note": ingest_research_note,
@@ -140,6 +158,57 @@ def ingest_candidate_submission(project_root: str | Path = Path(".")) -> dict[st
         "canonical_path": canonical_relative,
         "ledger_event": event,
         "next_action": "run_candidate",
+        "executed_next_action": False,
+    }
+
+
+def ingest_experiment_batch_submission(project_root: str | Path = Path(".")) -> dict[str, object]:
+    """Ingest exactly one un-ingested Experiment Batch Submission without executing it."""
+
+    from ml_autoresearch.batches import ExperimentBatchError, validate_experiment_batch_directory
+
+    root = Path(project_root).resolve()
+    submissions_root = root / "agent-work" / "batch-submissions"
+    source_dir = _discover_one_uningested_batch_submission(submissions_root)
+    metadata = _load_batch_submission_metadata(source_dir)
+    batch_submission_id = metadata.batch_submission_id
+    source_batch = _resolve_source_batch(source_dir, metadata)
+    canonical_batch = root / "experiment-batches" / batch_submission_id
+
+    if canonical_batch.exists():
+        raise AgentHandoffIngestionError(f"canonical Experiment Batch submission already exists: {canonical_batch}")
+
+    try:
+        candidates = validate_experiment_batch_directory(source_batch)
+    except ExperimentBatchError as exc:
+        raise AgentHandoffIngestionError(str(exc)) from exc
+
+    canonical_batch.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_batch, canonical_batch)
+    canonical_relative = _relative_posix(canonical_batch, root)
+    source_relative = _relative_posix(source_dir, root)
+
+    event = record_research_event(
+        "agent_handoff_ingested",
+        {
+            "handoff_type": "experiment_batch_submission",
+            "artifact_id": batch_submission_id,
+            "source_path": source_relative,
+            "canonical_path": canonical_relative,
+        },
+        ledger_path=root / CANONICAL_RESEARCH_LEDGER,
+    )
+    _write_ingestion_marker_last(source_dir, batch_submission_id, canonical_relative, handoff_type="experiment_batch_submission")
+
+    return {
+        "status": "ingested",
+        "handoff_type": "experiment_batch_submission",
+        "batch_submission_id": batch_submission_id,
+        "source_path": source_relative,
+        "canonical_path": canonical_relative,
+        "candidate_count": len(candidates),
+        "ledger_event": event,
+        "next_action": "run_experiment_batch",
         "executed_next_action": False,
     }
 
@@ -341,7 +410,8 @@ def _ingestion_failed(reason: str, handoff_types: list[str]) -> dict[str, object
 
 def _discover_uningested_primary_handoffs(root: Path) -> dict[str, list[Path]]:
     return {
-        "candidate_submission": _list_uningested_submissions(root / "agent-work" / "submissions"),
+        "candidate_submission": _list_uningested_submissions(root / "agent-work" / "submissions", "candidate_submission"),
+        "experiment_batch_submission": _list_uningested_submissions(root / "agent-work" / "batch-submissions", "experiment_batch_submission"),
         "evaluation_request": _list_uningested_files(
             root / "agent-work" / "evaluation-requests", {".yaml", ".yml"}, "evaluation_request"
         ),
@@ -353,13 +423,13 @@ def _discover_uningested_primary_handoffs(root: Path) -> dict[str, list[Path]]:
     }
 
 
-def _list_uningested_submissions(submissions_root: Path) -> list[Path]:
+def _list_uningested_submissions(submissions_root: Path, handoff_type: str) -> list[Path]:
     if not submissions_root.is_dir():
         return []
     return sorted(
         path
         for path in submissions_root.iterdir()
-        if path.is_dir() and not _has_valid_ingestion_marker(path / INGESTION_MARKER, "candidate_submission")
+        if path.is_dir() and not _has_valid_ingestion_marker(path / INGESTION_MARKER, handoff_type)
     )
 
 
@@ -386,10 +456,21 @@ def _list_uningested_research_notes(notes_root: Path) -> list[Path]:
 def _discover_one_uningested_submission(submissions_root: Path) -> Path:
     if not submissions_root.is_dir():
         raise AgentHandoffIngestionError(f"Candidate Submission Queue does not exist: {submissions_root}")
-    submissions = _list_uningested_submissions(submissions_root)
+    submissions = _list_uningested_submissions(submissions_root, "candidate_submission")
     if len(submissions) != 1:
         raise AgentHandoffIngestionError(
             f"expected exactly one un-ingested Candidate Submission in {submissions_root}, found {len(submissions)}"
+        )
+    return submissions[0]
+
+
+def _discover_one_uningested_batch_submission(submissions_root: Path) -> Path:
+    if not submissions_root.is_dir():
+        raise AgentHandoffIngestionError(f"Experiment Batch Submission Queue does not exist: {submissions_root}")
+    submissions = _list_uningested_submissions(submissions_root, "experiment_batch_submission")
+    if len(submissions) != 1:
+        raise AgentHandoffIngestionError(
+            f"expected exactly one un-ingested Experiment Batch Submission in {submissions_root}, found {len(submissions)}"
         )
     return submissions[0]
 
@@ -510,6 +591,46 @@ def _resolve_source_candidate(source_dir: Path, metadata: CandidateSubmissionMet
     return resolved
 
 
+def _load_batch_submission_metadata(source_dir: Path) -> ExperimentBatchSubmissionMetadata:
+    metadata_path = source_dir / "submission.json"
+    try:
+        raw: Any = json.loads(metadata_path.read_text())
+    except OSError as exc:
+        raise AgentHandoffIngestionError(f"cannot read submission.json: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise AgentHandoffIngestionError(f"invalid submission.json: {exc}") from exc
+    try:
+        metadata = ExperimentBatchSubmissionMetadata.model_validate(raw)
+    except ValidationError as exc:
+        raise AgentHandoffIngestionError(f"invalid submission.json: {exc}") from exc
+    expected = {
+        "schema_version": BATCH_SUBMISSION_SCHEMA_VERSION,
+        "submission_type": BATCH_SUBMISSION_TYPE,
+        "batch_path": RELATIVE_BATCH_PATH,
+        "requested_action": BATCH_REQUESTED_ACTION,
+    }
+    for field, value in expected.items():
+        if getattr(metadata, field) != value:
+            raise AgentHandoffIngestionError(
+                f"invalid submission.json: {field} must be {value!r} (got {getattr(metadata, field)!r})"
+            )
+    if metadata.batch_submission_id != source_dir.name:
+        raise AgentHandoffIngestionError(
+            f"invalid submission.json: batch_submission_id must match submission directory '{source_dir.name}'"
+        )
+    return metadata
+
+
+def _resolve_source_batch(source_dir: Path, metadata: ExperimentBatchSubmissionMetadata) -> Path:
+    batch_path = Path(metadata.batch_path)
+    if batch_path.is_absolute() or ".." in batch_path.parts:
+        raise AgentHandoffIngestionError("invalid submission.json: batch_path must be a relative child path")
+    resolved = source_dir / batch_path
+    if not resolved.is_dir():
+        raise AgentHandoffIngestionError(f"submission batch_path is not a directory: {resolved}")
+    return resolved
+
+
 def _append_candidate_to_experiment_index(index_path: Path, candidate_id: str, description: str | None) -> None:
     if not index_path.is_file():
         raise AgentHandoffIngestionError(f"missing Experiment Index: {index_path}")
@@ -627,14 +748,24 @@ def _write_research_note_ingestion_marker_last(source_note: Path, canonical_path
     _research_note_marker_path(source_note).write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n")
 
 
-def _write_ingestion_marker_last(source_dir: Path, candidate_id: str, canonical_path: str) -> None:
+def _write_ingestion_marker_last(
+    source_dir: Path,
+    artifact_id: str,
+    canonical_path: str,
+    *,
+    handoff_type: str = "candidate_submission",
+) -> None:
     marker = {
         "status": "ingested",
-        "handoff_type": "candidate_submission",
-        "candidate_id": candidate_id,
+        "handoff_type": handoff_type,
+        "artifact_id": artifact_id,
         "canonical_path": canonical_path,
         "ingested_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
+    if handoff_type == "candidate_submission":
+        marker["candidate_id"] = artifact_id
+    if handoff_type == "experiment_batch_submission":
+        marker["batch_submission_id"] = artifact_id
     (source_dir / INGESTION_MARKER).write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n")
 
 

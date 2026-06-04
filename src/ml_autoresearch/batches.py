@@ -12,7 +12,13 @@ from typing import Any
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import ExecutionBackend
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
-from ml_autoresearch.runs import RunSubmission, RunStatus, get_run_summary, run_candidate_with_synthetic_fixture
+from ml_autoresearch.runs import (
+    RunStatus,
+    get_run_summary,
+    submit_candidate,
+    train_accepted_run_with_gvccs_data,
+    train_accepted_run_with_synthetic_fixture,
+)
 
 MAX_BATCH_SIZE = 4
 MAX_PARALLEL_RUNS = 4
@@ -33,7 +39,76 @@ def run_experiment_batch_with_synthetic_fixture(
     prediction_sample_policy: str = "first_n",
     ledger_path: str | Path | None = None,
 ) -> dict[str, object]:
-    """Validate and synchronously execute a bounded Experiment Batch.
+    """Validate and synchronously execute a bounded synthetic-fixture Experiment Batch."""
+
+    return _run_experiment_batch(
+        batch_dir,
+        batches_root=batches_root,
+        runs_root=runs_root,
+        backend=backend,
+        max_parallel_runs=max_parallel_runs,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+        ledger_path=ledger_path,
+        train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_synthetic_fixture(
+            run_dir,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            backend=selected_backend,
+            ledger_path=resolved_ledger_path,
+        ),
+    )
+
+
+def run_experiment_batch_with_gvccs_data(
+    batch_dir: str | Path,
+    *,
+    batches_root: str | Path,
+    runs_root: str | Path,
+    data_root: str | Path,
+    backend: ExecutionBackend | None = None,
+    max_parallel_runs: int = MAX_PARALLEL_RUNS,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+    ledger_path: str | Path | None = None,
+) -> dict[str, object]:
+    """Validate and synchronously execute a bounded GVCCS Experiment Batch."""
+
+    return _run_experiment_batch(
+        batch_dir,
+        batches_root=batches_root,
+        runs_root=runs_root,
+        backend=backend,
+        max_parallel_runs=max_parallel_runs,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+        ledger_path=ledger_path,
+        train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_gvccs_data(
+            run_dir,
+            data_root,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            backend=selected_backend,
+            ledger_path=resolved_ledger_path,
+        ),
+    )
+
+
+def _run_experiment_batch(
+    batch_dir: str | Path,
+    *,
+    batches_root: str | Path,
+    runs_root: str | Path,
+    backend: ExecutionBackend | None,
+    max_parallel_runs: int,
+    max_prediction_samples: int,
+    prediction_sample_policy: str,
+    ledger_path: str | Path | None,
+    train_accepted,
+) -> dict[str, object]:
+    """Shared synchronous Experiment Batch executor.
 
     Static validation is all-or-nothing before any Run directory is created. Once
     execution starts, each Candidate Experiment gets its own Run and failures do
@@ -52,6 +127,8 @@ def run_experiment_batch_with_synthetic_fixture(
 
     proposal_copy = batch_artifact_dir / "BATCH_PROPOSAL.md"
     proposal_copy.write_text((batch_path / "BATCH_PROPOSAL.md").read_text())
+    candidate_records = [{"candidate_id": manifest.name, "source_path": str(path.resolve())} for path, manifest in candidates]
+    worker_count = max(1, min(max_parallel_runs, MAX_PARALLEL_RUNS, len(candidates)))
     _write_batch_metadata(
         batch_artifact_dir,
         batch_id=batch_id,
@@ -60,8 +137,8 @@ def run_experiment_batch_with_synthetic_fixture(
         updated_at=_now_iso(),
         source_path=batch_path,
         proposal_path=proposal_copy,
-        max_parallel_runs=min(max_parallel_runs, MAX_PARALLEL_RUNS),
-        candidates=[{"candidate_id": manifest.name, "source_path": str(path.resolve())} for path, manifest in candidates],
+        max_parallel_runs=worker_count,
+        candidates=candidate_records,
         runs=[],
     )
     record_research_event(
@@ -74,20 +151,29 @@ def run_experiment_batch_with_synthetic_fixture(
         },
         ledger_path=resolved_ledger_path,
     )
+    for record in candidate_records:
+        record_research_event(
+            "batch_candidate_created",
+            {
+                "batch_id": batch_id,
+                "candidate_id": str(record["candidate_id"]),
+                "candidate_path": str(record["source_path"]),
+            },
+            ledger_path=resolved_ledger_path,
+        )
 
-    worker_count = max(1, min(max_parallel_runs, MAX_PARALLEL_RUNS, len(candidates)))
     run_records: list[dict[str, object]] = []
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         future_to_candidate = {
             executor.submit(
-                run_candidate_with_synthetic_fixture,
+                _submit_and_train_batch_candidate,
                 candidate_path,
+                manifest.name,
+                batch_id,
                 runs_root_path,
-                max_prediction_samples=max_prediction_samples,
-                prediction_sample_policy=prediction_sample_policy,
-                backend=backend,
-                ledger_path=resolved_ledger_path,
-                require_proposal=False,
+                backend,
+                resolved_ledger_path,
+                train_accepted,
             ): (candidate_path, manifest.name)
             for candidate_path, manifest in candidates
         }
@@ -105,7 +191,6 @@ def run_experiment_batch_with_synthetic_fixture(
                     }
                 )
                 continue
-            _tag_run_with_batch(run.run_dir, batch_id=batch_id, candidate_id=candidate_id)
             summary = get_run_summary(runs_root_path, run.run_id)
             run_records.append(
                 {
@@ -132,7 +217,7 @@ def run_experiment_batch_with_synthetic_fixture(
         source_path=batch_path,
         proposal_path=proposal_copy,
         max_parallel_runs=worker_count,
-        candidates=[{"candidate_id": manifest.name, "source_path": str(path.resolve())} for path, manifest in candidates],
+        candidates=candidate_records,
         runs=run_records,
     )
     record_research_event(
@@ -141,6 +226,15 @@ def run_experiment_batch_with_synthetic_fixture(
         ledger_path=resolved_ledger_path,
     )
     return get_batch_summary(batches_root_path, batch_id)
+
+
+def validate_experiment_batch_directory(batch_dir: str | Path) -> list[dict[str, str]]:
+    """Statically validate an Experiment Batch source directory without creating Runs."""
+
+    return [
+        {"candidate_id": manifest.name, "source_path": str(path.resolve())}
+        for path, manifest in _validate_batch_directory(Path(batch_dir))
+    ]
 
 
 def list_batches(batches_root: str | Path) -> list[dict[str, object]]:
@@ -167,8 +261,7 @@ def _validate_batch_directory(batch_path: Path) -> list[tuple[Path, Any]]:
     if not batch_path.is_dir():
         raise ExperimentBatchError(f"Experiment Batch directory does not exist: {batch_path}")
     proposal = batch_path / "BATCH_PROPOSAL.md"
-    if not proposal.is_file() or not proposal.read_text().strip():
-        raise ExperimentBatchError("Experiment Batch requires a non-empty BATCH_PROPOSAL.md")
+    _validate_batch_proposal(proposal)
     candidates_root = batch_path / "candidates"
     if not candidates_root.is_dir():
         raise ExperimentBatchError("Experiment Batch requires a candidates/ directory")
@@ -196,6 +289,45 @@ def _validate_batch_directory(batch_path: Path) -> list[tuple[Path, Any]]:
     if errors:
         raise ExperimentBatchError("Experiment Batch static validation failed: " + "; ".join(errors))
     return validated
+
+
+def _validate_batch_proposal(proposal: Path) -> None:
+    if not proposal.is_file() or not proposal.read_text().strip():
+        raise ExperimentBatchError("Experiment Batch requires a non-empty BATCH_PROPOSAL.md")
+    text = proposal.read_text().lower()
+    required_phrases = {
+        "shared hypothesis": "shared hypothesis",
+        "shared comparison target": "shared comparison target",
+        "variant rationale": "per-candidate variant rationale",
+        "decision criteria": "expected ordering or decision criteria",
+        "success criteria": "batch-level success criteria",
+        "requested budget": "requested budget/concurrency",
+    }
+    missing = [label for phrase, label in required_phrases.items() if phrase not in text]
+    if missing:
+        raise ExperimentBatchError("BATCH_PROPOSAL.md is missing required content: " + ", ".join(missing))
+
+
+def _submit_and_train_batch_candidate(
+    candidate_path: Path,
+    candidate_id: str,
+    batch_id: str,
+    runs_root: Path,
+    backend: ExecutionBackend | None,
+    ledger_path: Path,
+    train_accepted,
+):
+    run = submit_candidate(candidate_path, runs_root, backend=backend, ledger_path=ledger_path, require_proposal=False)
+    _tag_run_with_batch(run.run_dir, batch_id=batch_id, candidate_id=candidate_id)
+    if run.status == RunStatus.ACCEPTED:
+        record_research_event(
+            "batch_run_started",
+            {"batch_id": batch_id, "candidate_id": candidate_id, "run_id": run.run_id},
+            ledger_path=ledger_path,
+        )
+        run = train_accepted(run.run_dir, backend, ledger_path)
+        _tag_run_with_batch(run.run_dir, batch_id=batch_id, candidate_id=candidate_id)
+    return run
 
 
 def _batch_status(run_records: list[dict[str, object]]) -> str:

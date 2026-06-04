@@ -11,6 +11,7 @@ from ml_autoresearch.agent_handoffs import (
     ingest_campaign_report,
     ingest_candidate_submission,
     ingest_capability_request,
+    ingest_experiment_batch_submission,
     ingest_evaluation_request,
     ingest_research_note,
 )
@@ -166,6 +167,68 @@ def test_ingest_research_note_cli_reports_next_action_without_infrastructure_wor
     assert not (tmp_path / "runs").exists()
 
 
+def write_batch_submission(root: Path, batch_id: str = "agent_batch") -> Path:
+    submission = root / "agent-work" / "batch-submissions" / batch_id
+    batch = submission / "experiment_batch"
+    candidates = batch / "candidates"
+    candidates.mkdir(parents=True)
+    (batch / "BATCH_PROPOSAL.md").write_text(
+        """# Batch Proposal
+
+## Shared hypothesis
+Small variants should train.
+
+## Shared comparison target
+Baseline run.
+
+## Per-candidate variant rationale
+Each candidate isolates one small variant.
+
+## Decision criteria
+Compare validation Dice.
+
+## Success criteria
+At least one variant completes.
+
+## Requested budget/concurrency
+Request two Runs with Harness-owned concurrency.
+"""
+    )
+    for candidate_id in ["batch_a", "batch_b"]:
+        candidate = candidates / candidate_id
+        candidate.mkdir()
+        (candidate / "manifest.yaml").write_text(
+            f"""
+name: {candidate_id}
+description: Batch candidate.
+input_mode: single_frame_rgb
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".lstrip()
+        )
+        (candidate / "model.py").write_text("raise RuntimeError('must not execute during ingestion')\n")
+        (candidate / "README.md").write_text(f"# {candidate_id}\n")
+    (submission / "submission.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "experiment_batch_submission.v1",
+                "submission_type": "experiment_batch",
+                "batch_submission_id": batch_id,
+                "batch_path": "experiment_batch",
+                "requested_action": "validate_and_queue_batch_for_harness_execution",
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    return submission
+
+
 def write_submission(root: Path, candidate_id: str = "agent_candidate") -> Path:
     submission = root / "agent-work" / "submissions" / candidate_id
     candidate = submission / "candidate"
@@ -259,6 +322,23 @@ def test_ingest_one_candidate_submission_copies_to_canonical_updates_index_and_l
     marker = json.loads((source / "INGESTED.json").read_text())
     assert marker["candidate_id"] == "agent_candidate"
     assert marker["canonical_path"] == "candidates/agent_candidate"
+
+
+def test_ingest_experiment_batch_submission_copies_to_canonical_batch_and_records_next_action(tmp_path: Path):
+    write_project(tmp_path)
+    source = write_batch_submission(tmp_path)
+
+    result = ingest_experiment_batch_submission(tmp_path)
+
+    assert result["status"] == "ingested"
+    assert result["handoff_type"] == "experiment_batch_submission"
+    assert result["next_action"] == "run_experiment_batch"
+    assert result["candidate_count"] == 2
+    assert (tmp_path / "experiment-batches" / "agent_batch" / "BATCH_PROPOSAL.md").is_file()
+    assert (source / "experiment_batch" / "BATCH_PROPOSAL.md").is_file()
+    marker = json.loads((source / "INGESTED.json").read_text())
+    assert marker["handoff_type"] == "experiment_batch_submission"
+    assert marker["canonical_path"] == "experiment-batches/agent_batch"
 
 
 def test_ingest_candidate_submission_cli_reports_next_action_without_running_candidate(tmp_path: Path):

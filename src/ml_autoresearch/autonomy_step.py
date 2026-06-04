@@ -333,6 +333,12 @@ def _executed_next_action_artifact_exists(root: Path, ingestion: dict[str, objec
             run_dir = result.get("run_dir")
             return isinstance(run_dir, str) and (Path(run_dir) / "run_metadata.json").is_file()
         return False
+    if ingestion.get("handoff_type") == "experiment_batch_submission" and ingestion.get("next_action") == "run_experiment_batch":
+        result = ingestion.get("next_action_result")
+        if not isinstance(result, dict):
+            return False
+        batch_dir = result.get("batch_dir")
+        return isinstance(batch_dir, str) and (Path(batch_dir) / "batch_metadata.json").is_file()
     if ingestion.get("handoff_type") == "evaluation_request" and ingestion.get("next_action") == "run_post_run_evaluation":
         request_path = _required_relative_path(root, ingestion, "canonical_path")
         from ml_autoresearch.evaluation_requests import _evaluation_id, validate_evaluation_request_file
@@ -410,6 +416,34 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
             "rejection_reason": run.rejection_reason,
             "failure_classification": run.failure_classification.value if run.failure_classification is not None else None,
         }
+    if handoff_type == "experiment_batch_submission" and next_action == "run_experiment_batch":
+        batch_path = _required_relative_path(root, ingestion, "canonical_path")
+        from ml_autoresearch.batches import run_experiment_batch_with_gvccs_data
+        from ml_autoresearch.candidate_execution_config import execution_backend_from_config, load_candidate_execution_config
+
+        config = load_candidate_execution_config(root)
+        data_root = config.data_root or _infer_gvccs_data_root(root)
+        result = run_experiment_batch_with_gvccs_data(
+            batch_path,
+            batches_root=root / "batches",
+            runs_root=root / "runs",
+            data_root=data_root,
+            backend=execution_backend_from_config(config),
+            max_parallel_runs=4,
+            max_samples=config.max_samples,
+            max_prediction_samples=config.max_prediction_samples,
+            prediction_sample_policy=config.prediction_sample_policy,
+            ledger_path=root / "research-ledger.jsonl",
+        )
+        return {
+            "status": "completed",
+            "executed": True,
+            "action": "run_experiment_batch",
+            "batch_id": result["batch_id"],
+            "batch_dir": result["batch_dir"],
+            "batch_status": result["status"],
+            "runs": result["runs"],
+        }
     if handoff_type == "evaluation_request" and next_action == "run_post_run_evaluation":
         request_path = _required_relative_path(root, ingestion, "canonical_path")
         from ml_autoresearch.evaluation_requests import run_post_run_evaluation
@@ -449,7 +483,7 @@ def _infer_gvccs_data_root(root: Path) -> Path:
         if candidate.is_dir():
             return candidate
     raise AutonomyStepError(
-        "cannot execute run_candidate next action: no prior completed Run with an accessible GVCCS dataset host_data_path"
+        "cannot execute GVCCS next action: no prior completed Run with an accessible GVCCS dataset host_data_path"
     )
 
 

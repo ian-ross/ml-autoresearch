@@ -95,11 +95,17 @@ Small variants should train.
 ## Shared comparison target
 Baseline run.
 
+## Per-candidate variant rationale
+Each candidate isolates one small model-code variant.
+
 ## Decision criteria
 Compare validation Dice.
 
 ## Success criteria
 At least one variant completes.
+
+## Requested budget/concurrency
+Request two Runs with Harness-owned concurrency.
 """
     )
     for name in names:
@@ -130,8 +136,11 @@ def test_valid_experiment_batch_runs_all_candidates_and_writes_summary(tmp_path:
         assert metadata["batch_id"] == result["batch_id"]
     assert [item["batch_id"] for item in list_batches(tmp_path / "batches")] == [result["batch_id"]]
     ledger_events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
-    assert "experiment_batch_created" in {event["event_type"] for event in ledger_events}
-    assert "experiment_batch_completed" in {event["event_type"] for event in ledger_events}
+    event_types = {event["event_type"] for event in ledger_events}
+    assert "experiment_batch_created" in event_types
+    assert "batch_candidate_created" in event_types
+    assert "batch_run_started" in event_types
+    assert "experiment_batch_completed" in event_types
 
 
 def test_experiment_batch_rejects_oversized_batch_before_creating_runs(tmp_path: Path):

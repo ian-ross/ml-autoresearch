@@ -175,6 +175,33 @@ def train_accepted_run_with_gvccs_data(
     )
 
 
+def train_accepted_run_with_synthetic_fixture(
+    run_dir: str | Path,
+    *,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+    backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
+) -> RunSubmission:
+    """Synchronously train an already accepted Candidate Experiment Run on synthetic fixture data."""
+
+    path = Path(run_dir)
+    metadata = _read_metadata(path)
+    if metadata.get("status") != RunStatus.ACCEPTED.value:
+        raise ValueError(f"accepted Run required for training continuation: {path}")
+    selected_backend = backend or NativeBackend()
+    return _train_accepted_run(
+        RunSubmission(str(metadata.get("run_id") or path.name), path, RunStatus.ACCEPTED),
+        lambda accepted_run_dir: selected_backend.train_synthetic(
+            accepted_run_dir,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        ),
+        backend=selected_backend,
+        ledger_path=_resolve_ledger_path(path.parent, ledger_path),
+    )
+
+
 def _run_candidate_synthetic_training(
     candidate_dir: str | Path,
     runs_root: str | Path,
@@ -981,6 +1008,13 @@ def _write_metadata(
     training_lifecycle: dict[str, object] | None = None,
     repair_lineage: dict[str, object] | None = None,
 ) -> None:
+    existing_metadata = None
+    metadata_path = run_dir / "run_metadata.json"
+    if metadata_path.is_file():
+        try:
+            existing_metadata = json.loads(metadata_path.read_text())
+        except json.JSONDecodeError:
+            existing_metadata = None
     metadata = {
         "run_id": run_id,
         "status": status.value,
@@ -1009,7 +1043,11 @@ def _write_metadata(
         metadata["training_lifecycle"] = training_lifecycle
     if repair_lineage is not None:
         metadata["repair_lineage"] = repair_lineage
-    (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    if isinstance(existing_metadata, dict):
+        for batch_field in ("batch_id", "batch_candidate_id"):
+            if batch_field in existing_metadata:
+                metadata[batch_field] = existing_metadata[batch_field]
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 
 def _read_metadata(run_dir: Path) -> dict[str, object]:

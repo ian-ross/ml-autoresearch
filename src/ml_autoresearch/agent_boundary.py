@@ -33,10 +33,11 @@ class AgentBoundaryConfig:
 
 
 REFERENCE_FILES = ("CONTEXT.md", "EXPERIMENT_INDEX.md")
-HISTORY_DIRS = ("candidates", "runs", "research-notes")
+HISTORY_DIRS = ("candidates", "runs", "batches", "research-notes")
 WORKSPACE_DIRS = (
     "drafts/candidates",
     "submissions",
+    "batch-submissions",
     "research-notes",
     "capability-requests",
     "evaluation-requests",
@@ -185,6 +186,7 @@ def _write_agent_workspace_instructions(workspace_dir: Path) -> None:
         "- `research-ledger.jsonl` -> `/history/research-ledger.jsonl`\n"
         "- `candidates/` -> `/history/candidates/` for prior Candidate sources\n"
         "- `runs/` -> `/history/runs/` for prior Run summaries/artifacts\n"
+        "- `batches/` -> `/history/batches/` for prior Experiment Batch summaries/artifacts\n"
         "- `research-notes/` -> `/history/research-notes/` for prior notes\n"
         "- `/data/` contains approved read-only Research Problem data mounts when present\n"
         "\n"
@@ -192,6 +194,7 @@ def _write_agent_workspace_instructions(workspace_dir: Path) -> None:
         "\n"
         "- Draft Candidate Experiments: `drafts/candidates/`\n"
         "- Final Candidate Submission Queue entries: `submissions/`\n"
+        "- Final Experiment Batch Submission Queue entries: `batch-submissions/`\n"
         "- write new draft Research Notes under `research-notes/`\n"
         "- Capability Requests: `capability-requests/`\n"
         "- Evaluation Requests: `evaluation-requests/`\n"
@@ -199,8 +202,8 @@ def _write_agent_workspace_instructions(workspace_dir: Path) -> None:
         "- Scratch files: `scratch/`\n"
         "\n"
         "One Autonomy Step means one primary handoff outcome, then stop. Do not\n"
-        "produce a second Candidate Submission, Research Note, Capability Request,\n"
-        "Evaluation Request, or Campaign Report in the same step.\n"
+        "produce a second Candidate Submission, Experiment Batch Submission, Research Note,\n"
+        "Capability Request, Evaluation Request, or Campaign Report in the same step.\n"
         "\n"
         "Use `ml-autoresearch-agent`, not `ml-autoresearch`, for allowed observation\n"
         "and static Candidate preparation commands. Do not edit mounted read-only\n"
@@ -246,6 +249,7 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         (project_root / "agent-history", "/history"),
         (project_root / "agent-history" / "candidates", "/history/candidates"),
         (project_root / "agent-history" / "runs", "/history/runs"),
+        (project_root / "agent-history" / "batches", "/history/batches"),
         (project_root / "agent-history" / "research-notes", "/history/research-notes"),
         (project_root / "docs", "/docs"),
         (project_root / "src" / "ml_autoresearch", "/usr/local/lib/python3.12/site-packages/ml_autoresearch"),

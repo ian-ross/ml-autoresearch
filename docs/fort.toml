@@ -29,6 +29,7 @@ image = "../../containers/ml-autoresearch-agent"
 mounts = [
   {path="../candidates", target="/history/candidates", readonly=true},
   {path="../runs", target="/history/runs", readonly=true},
+  {path="../batches", target="/history/batches", readonly=true},
   {path="../research-notes", target="/history/research-notes", readonly=true},
   {path="../docs", target="/docs", readonly=true},
   {path="../scratch", target="/scratch", readonly=false}

@@ -83,6 +83,20 @@ class ExperimentBatchCompleted(_LedgerEvent):
     run_count: int = Field(ge=0, le=4)
 
 
+class BatchCandidateCreated(_LedgerEvent):
+    event_type: Literal["batch_candidate_created"] = "batch_candidate_created"
+    batch_id: str = Field(min_length=1)
+    candidate_id: str = Field(min_length=1)
+    candidate_path: str = Field(min_length=1)
+
+
+class BatchRunStarted(_LedgerEvent):
+    event_type: Literal["batch_run_started"] = "batch_run_started"
+    batch_id: str = Field(min_length=1)
+    candidate_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+
+
 class RunStarted(_LedgerEvent):
     event_type: Literal["run_started"] = "run_started"
     run_id: str = Field(min_length=1)
@@ -140,6 +154,7 @@ class CampaignReportWritten(_LedgerEvent):
 
 AgentHandoffTypeValue = Literal[
     "candidate_submission",
+    "experiment_batch_submission",
     "evaluation_request",
     "capability_request",
     "research_note",
@@ -199,6 +214,8 @@ _EVENT_SCHEMAS: dict[str, type[_LedgerEvent]] = {
     "candidate_submitted": CandidateSubmitted,
     "experiment_batch_created": ExperimentBatchCreated,
     "experiment_batch_completed": ExperimentBatchCompleted,
+    "batch_candidate_created": BatchCandidateCreated,
+    "batch_run_started": BatchRunStarted,
     "run_started": RunStarted,
     "run_completed": RunCompleted,
     "run_failed": RunFailed,

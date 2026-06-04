@@ -174,6 +174,23 @@ def validate_candidate_command(
     _echo_json({"status": "valid", "manifest": manifest.model_dump(mode="json")})
 
 
+@app.command("prepare-experiment-batch-submission")
+def prepare_experiment_batch_submission_command(
+    batch: Annotated[Path, typer.Option(help="Path to a draft Experiment Batch directory.")],
+    submissions_root: Annotated[Path, typer.Option(help="Root of the immutable Experiment Batch Submission Queue.")],
+) -> None:
+    """Statically validate and copy a draft Experiment Batch into the submission queue."""
+
+    from ml_autoresearch.submissions import CandidateSubmissionPreparationError, prepare_experiment_batch_submission
+
+    try:
+        result = prepare_experiment_batch_submission(batch, submissions_root)
+    except (CandidateSubmissionPreparationError, OSError) as exc:
+        _echo_json({"status": "rejected", "rejection_reason": str(exc)})
+        raise typer.Exit(1) from exc
+    _echo_json(result)
+
+
 @app.command("prepare-candidate-submission")
 def prepare_candidate_submission_command(
     candidate: Annotated[Path, typer.Option(help="Path to a draft Candidate Experiment directory.")],
