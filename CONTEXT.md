@@ -12,6 +12,18 @@ _Avoid_: Contrail runner, Docker runner, Pi runner
 A target ML problem that ML Autoresearch explores through Candidate Experiments, including its data modality, prediction target, evaluation metrics, augmentation semantics, and constraints.
 _Avoid_: Task, use case, project
 
+**Research Problem Spec**:
+A trusted Harness-side registration for one Research Problem's concrete capabilities, such as dataset adapters, input modes, prediction targets, metrics, augmentation policies, auxiliary targets, allowed losses, reporting templates, and figure selectors. A Research Problem Spec is trusted infrastructure, not Candidate Experiment authority.
+_Avoid_: Candidate plugin, candidate-provided dataset adapter, arbitrary task config
+
+**Research Problem Spec Registry**:
+The trusted Harness-owned seam where Research Problem Specs are registered so the reusable Harness can discover problem-specific capabilities without hard-coding every Research Problem into core infrastructure.
+_Avoid_: Plugin marketplace, candidate extension point, dynamic untrusted registry
+
+**Problem Support Library**:
+A reusable trusted library of segmentation, imaging, metric, target-construction, and reporting helpers used by Research Problem Specs and the Harness when multiple Research Problems share implementation patterns. It provides building blocks but does not decide Research Problem policy by itself.
+_Avoid_: Candidate helper library, policy registry, generic plugin API
+
 **Research Problem Repository**:
 A future trusted package boundary for Research Problem-specific definitions such as dataset adapters, input modes, prediction targets, metrics, augmentation policies, auxiliary targets, allowed losses, reporting templates, and figure selectors, separated from reusable ML Autoresearch infrastructure after the proving-ground loop matures.
 _Avoid_: Fork of the Harness, candidate repository, candidate-provided plugin
@@ -281,7 +293,13 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **ML Autoresearch** explores one or more **Research Problems**.
 - **Ground-Camera Contrail Detection** is the first **Research Problem** for **ML Autoresearch**.
 - **Ground-Camera Contrail Detection** is used to prove the autoresearch infrastructure before applying it to future Research Problems such as **Satellite Contrail Detection**.
+- A **Research Problem Spec** is the near-term trusted registration unit for a **Research Problem** before mature definitions move into separate **Research Problem Repositories**.
+- The **Research Problem Spec Registry** separates reusable **Harness** infrastructure from trusted problem-specific capability registration.
+- **Research Problem Specs** are Harness-side trusted registrations, not **Candidate Experiment** plugins or authority to bypass the **Candidate Experiment Contract**.
+- The **Problem Support Library** provides reusable trusted building blocks for **Research Problem Specs** without becoming an independent policy boundary or Candidate-facing plugin API.
 - Mature **Research Problem** definitions are expected to move into trusted **Research Problem Repositories** that register problem-specific capabilities with reusable ML Autoresearch infrastructure.
+- **Ground-Camera Contrail Detection** remains the only real registered **Research Problem** initially; other problems should wait until the GVCCS proving-ground loop justifies extraction.
+- Temporal input should be implemented after the **Research Problem Spec Registry** seam so GVCCS-specific **Frame Sequence**, **Target Frame**, sampling, augmentation, and reporting semantics are registered problem capabilities rather than ad hoc core **Harness** behavior.
 - **Ground-Camera Contrail Detection** uses the **GVCCS Dataset** for training.
 - **Camera Domain Shift** is a known limitation of using the **GVCCS Dataset** for models likely to be tried on conventional ground-camera imagery.
 - Evaluation on non-GVCCS camera data is a separate exercise outside the initial **ML Autoresearch** loop.
