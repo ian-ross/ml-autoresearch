@@ -11,4 +11,8 @@ agent-history/
 agent-sessions/
 agent-work/
 notification.toml
+runs/
+.pi/fort.toml
+.pi/fort.d
+.pi/settings.json
 
