@@ -47,6 +47,28 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 
 | `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p015` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p015/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target and slightly stronger bottleneck dropout regularization. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
 
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target and lighter bottleneck dropout regularization. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_rerun` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_rerun/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target and lighter bottleneck dropout regularization; resubmission after a non-scientific Harness interruption. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_boundary_aux_w010_w005_dropout_p0075` | [`README.md`](candidates/single_frame_xwide_unet_line_boundary_aux_w010_w005_dropout_p0075/README.md) — Extra-wide single-frame U-Net with p=0.075 bottleneck dropout plus Harness-derived line and boundary auxiliary targets. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_refine` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_refine/README.md) — Extra-wide single-frame U-Net with line auxiliary target, light dropout, and a high-resolution residual refinement block for tiny contrail masks. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch40` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch40/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target, lighter bottleneck dropout regularization, and a 40-epoch training budget to test whether the current best was still improving at epoch 30. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_boundary_aux_w010_w003_dropout_p0075_epoch40` | [`README.md`](candidates/single_frame_xwide_unet_line_boundary_aux_w010_w003_dropout_p0075_epoch40/README.md) — Extra-wide single-frame U-Net with p=0.075 bottleneck dropout, Harness-derived line auxiliary target, conservative boundary auxiliary target, and a 40-epoch training budget. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p005_epoch40` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p005_epoch40/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target, very light bottleneck dropout regularization and a 40-epoch training budget to test whether p=0.05 improves recall without losing the current best precision control. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_boundary_aux_w010_w001_dropout_p0075_epoch40` | [`README.md`](candidates/single_frame_xwide_unet_line_boundary_aux_w010_w001_dropout_p0075_epoch40/README.md) — Extra-wide single-frame U-Net with p=0.075 bottleneck dropout, Harness-derived line auxiliary target, very-low-weight boundary auxiliary target, and a 40-epoch training budget. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target, p=0.075 bottleneck dropout, and a 60-epoch training budget to test whether the recall-safer 40-epoch baseline continues improving. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_detail_fuse` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_detail_fuse/README.md) — Extra-wide single-frame U-Net with Harness-derived line auxiliary target, p=0.075 bottleneck dropout, 60 epochs, and a shallow high-resolution detail-fusion head to test whether preserving encoder detail reduces tiny-mask misses and large-mask under-segmentation. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_head_dropout_p005` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_head_dropout_p005/README.md) — Extra-wide single-frame U-Net with line auxiliary target, p=0.075 bottleneck dropout, and light p=0.05 decoder-head dropout to test precision-safe regularization at the 60-epoch budget. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
+
 ## Chronological Research Notes
 
 - [`2026-05-04 baseline GVCCS tiny subset`](research-notes/2026-05-04-baseline-gvccs-tiny-subset.md)
@@ -72,3 +94,16 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 - [`2026-05-31 xwide dropout failure-bucket evaluation`](research-notes/2026-05-31-xwide-dropout-failure-bucket-evaluation.md)
 - [`2026-05-31 xwide attention-dropout regression`](research-notes/2026-05-31-xwide-attention-dropout-regression.md)
 - [`2026-05-31 xwide U-Net stronger bottleneck dropout regression`](research-notes/2026-05-31-xwide-dropout-p015-regression.md)
+- [`2026-06-01 xwide U-Net lighter bottleneck dropout improvement`](research-notes/2026-06-01-xwide-dropout-p0075-improvement.md)
+- [`2026-06-01 xwide p=0.075 dropout failure-bucket evaluation`](research-notes/2026-06-01-xwide-dropout-p0075-failure-bucket-evaluation.md)
+- [`2026-06-01 boundary auxiliary training contract failure`](research-notes/2026-06-01-boundary-auxiliary-training-contract-failure.md)
+- [`2026-06-01 high-resolution refinement regression`](research-notes/2026-06-01-xwide-refinement-regression.md)
+- [`2026-06-01 xwide p=0.075 dropout 40-epoch improvement`](research-notes/2026-06-01-xwide-dropout-p0075-epoch40-improvement.md)
+- [`2026-06-01 xwide p=0.075 dropout 40-epoch failure-bucket evaluation`](research-notes/2026-06-01-xwide-dropout-p0075-epoch40-failure-bucket-evaluation.md)
+- [`2026-06-02 boundary auxiliary w=0.03 epoch-40 regression`](research-notes/2026-06-02-boundary-auxiliary-w003-epoch40-regression.md)
+- [`2026-06-02 xwide p=0.05 dropout 40-epoch precision-biased improvement`](research-notes/2026-06-02-xwide-dropout-p005-epoch40-precision-biased-improvement.md)
+- [`2026-06-02 xwide p=0.05 dropout 40-epoch failure-bucket evaluation`](research-notes/2026-06-02-xwide-dropout-p005-epoch40-failure-bucket-evaluation.md)
+- [`2026-06-02 boundary auxiliary w=0.01 epoch-40 regression`](research-notes/2026-06-02-boundary-auxiliary-w001-epoch40-regression.md)
+- [`2026-06-03 xwide p=0.075 dropout 60-epoch improvement`](research-notes/2026-06-03-xwide-dropout-p0075-epoch60-improvement.md)
+- [`2026-06-03 xwide p=0.075 dropout 60-epoch failure-bucket evaluation`](research-notes/2026-06-03-xwide-dropout-p0075-epoch60-failure-bucket-evaluation.md)
+- [`2026-06-03 detail-fusion architecture regression`](research-notes/2026-06-03-detail-fusion-regression.md)

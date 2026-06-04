@@ -1,0 +1,25 @@
+request_id: eval_2026_06_01_xwide_dropout_p0075_failure_buckets
+target_run_id: run_20260601_085755_25cd06
+evaluation_mode: failure_bucket_review
+diagnostic_question: >-
+  Does the current best extra-wide base-64 U-Net with Line Target auxiliary
+  weight 0.10 and lighter bottleneck Dropout2d(p=0.075) improve recall-oriented
+  whole-validation behavior without materially increasing false-positive-heavy
+  or empty-mask false-positive cases relative to the prior p=0.10 dropout base?
+expected_decision_impact: >-
+  Compare the resulting failure buckets and threshold sweep with
+  eval_eval_2026_05_31_xwide_dropout_failure_buckets for run_20260530_180658_0af8a8.
+  If p=0.075 keeps the p=0.10 model's failure-bucket profile while reducing
+  missed-positive and false-negative-heavy cases, treat run_20260601_085755_25cd06
+  as the preferred in-contract base for any approved Boundary Target or other
+  capability-slice follow-up. If its Dice gain comes from broader masks with a
+  material false-positive or threshold-sensitivity penalty, keep the p=0.10
+  dropout Run as the safer qualitative base despite lower best-validation Dice.
+parameters:
+  primary_threshold: 0.5
+  batch_size: 8
+  artifact_count: 24
+  failure_bucket_count: 4
+artifact_budget:
+  max_artifacts: 24
+  max_runtime_seconds: 1800

@@ -1,0 +1,29 @@
+request_id: eval_2026_06_01_xwide_dropout_p0075_epoch40_failure_buckets
+target_run_id: run_20260601_162117_66bf89
+evaluation_mode: failure_bucket_review
+diagnostic_question: >-
+  Does the 40-epoch extra-wide base-64 U-Net with Line Target auxiliary weight
+  0.10 and bottleneck Dropout2d(p=0.075) preserve the improved whole-validation
+  Dice, precision, and recall without introducing threshold sensitivity,
+  false-positive-heavy cases, empty-mask false positives, or missed-positive
+  masks relative to the 30-epoch p=0.075 and p=0.10 dropout bases?
+expected_decision_impact: >-
+  Compare the resulting threshold sweep and failure buckets with
+  eval_eval_2026_06_01_xwide_dropout_p0075_failure_buckets for
+  run_20260601_085755_25cd06 and eval_eval_2026_05_31_xwide_dropout_failure_buckets
+  for run_20260530_180658_0af8a8. If the 40-epoch model's gain is robust at or
+  near threshold 0.5 and does not materially worsen empty-mask false positives,
+  false-positive-heavy examples, or missed positives, use
+  run_20260601_162117_66bf89 as the new in-contract base for the next Candidate
+  Experiment. If the gain is mainly threshold-specific or comes with a material
+  qualitative failure-bucket regression, prefer a safer next hypothesis such as
+  calibration-aware threshold analysis or wait for the Boundary Target capability
+  rather than extending training further.
+parameters:
+  primary_threshold: 0.5
+  batch_size: 8
+  artifact_count: 24
+  failure_bucket_count: 4
+artifact_budget:
+  max_artifacts: 24
+  max_runtime_seconds: 1800

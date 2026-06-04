@@ -1,0 +1,22 @@
+name: single_frame_xwide_unet_line_boundary_aux_w010_w005_dropout_p0075
+description: Extra-wide single-frame U-Net with p=0.075 bottleneck dropout plus Harness-derived line and boundary auxiliary targets.
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: line
+    output: line_logits
+    loss: weighted_bce
+    weight: 0.10
+  - name: boundary
+    output: boundary_logits
+    loss: weighted_bce
+    weight: 0.05
+data:
+  sampling_policy: deterministic_shuffle
+  augmentation_policy: none
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 8
+  max_epochs: 30
