@@ -50,11 +50,14 @@ Important docs:
 
 ## Development setup
 
-This project uses Python 3.12. Host development and tests use a pinned CPU-only PyTorch build so local installs do not accidentally resolve a GPU/CUDA PyTorch stack. Host unit tests are CPU-only by design and should not initialize or depend on the host NVIDIA driver. With `uv` installed:
+This project uses Python 3.12. Host development and tests use a pinned CPU-only PyTorch build so local installs do not accidentally resolve a GPU/CUDA PyTorch stack. Host unit tests are CPU-only by design and should not initialize or depend on the host NVIDIA driver. In order for `uv` to work inside the sandbox VM used with Pi (via `pi-fort`), the virtual environment needs to be self-contained. With `uv` installed:
 
 ```bash
-uv sync --python 3.12 --extra dev
-uv run --python 3.12 pytest -q
+export UV_PYTHON_INSTALL_DIR="$PWD/.uv-python"
+uv python install 3.12
+uv venv --managed-python --python 3.12 --relocatable
+uv sync --managed-python --extra dev
+uv run pytest -q
 ```
 
 The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported. Base `ml-autoresearch` installs do not include PyTorch; use the `dev` extra for host tests. Docker-backed Candidate Execution Boundary runs get their runtime PyTorch/CUDA stack from the runner image and also use Python 3.12, with PyTorch `2.5.1+cu121` installed from the PyTorch CUDA 12.1 wheel index on top of the pinned `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04` base image. `containers/Dockerfile.runner` installs `ml-autoresearch` without dependency resolution so the pinned PyTorch/CUDA stack is not replaced. Build it with `make -C containers runner-image` or the equivalent manual fallback `docker build -f containers/Dockerfile.runner -t ml-autoresearch-runner:local .`.
