@@ -122,6 +122,7 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
     run_dir = run.run_dir
     metadata = json.loads((run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "completed"
+    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0"}
     assert metadata["training_failure_reason"] is None
     assert metadata["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
     assert metadata["artifacts"]["best_metrics"] == "outputs/best_metrics.json"
