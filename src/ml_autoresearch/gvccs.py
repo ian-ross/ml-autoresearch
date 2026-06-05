@@ -4,24 +4,21 @@ from __future__ import annotations
 
 import json
 import random
-import re
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
-from PIL import Image, ImageDraw
+from PIL import Image
 from torch.utils.data import Dataset
 
 from ml_autoresearch.errors import GVCCSDataError
+from ml_autoresearch.problem_support.frame_sequences import infer_timestamped_frame_sequences, timestamp_from_filename
+from ml_autoresearch.problem_support.imaging import mask_image_to_tensor, rasterize_coco_polygons, rgb_image_to_tensor
 
 IMAGE_SIZE = 128
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 DEFAULT_SPLIT_SEED = 20260502
-_FRAME_TIMESTAMP_PATTERN = re.compile(r"(\d{14})")
-_FRAME_SEQUENCE_STEP_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -125,27 +122,10 @@ def infer_frame_sequences(samples: list[GVCCSSample]) -> list[list[GVCCSSample]]
     Frame Sequence starts when adjacent timestamps differ by more than 30 seconds.
     """
 
-    timestamped = [(sample, _timestamp_from_filename(sample.image_path.name)) for sample in samples]
-    timestamped = [(sample, timestamp) for sample, timestamp in timestamped if timestamp is not None]
-    timestamped.sort(key=lambda item: (item[1], item[0].image_path.name))
-    sequences: list[list[GVCCSSample]] = []
-    previous_timestamp: datetime | None = None
-    for sample, timestamp in timestamped:
-        if previous_timestamp is None or (timestamp - previous_timestamp).total_seconds() > _FRAME_SEQUENCE_STEP_SECONDS:
-            sequences.append([])
-        sequences[-1].append(sample)
-        previous_timestamp = timestamp
-    return sequences
+    return infer_timestamped_frame_sequences(samples, filename_for_item=lambda sample: sample.image_path.name)
 
 
-def _timestamp_from_filename(filename: str) -> datetime | None:
-    match = _FRAME_TIMESTAMP_PATTERN.search(filename)
-    if match is None:
-        return None
-    try:
-        return datetime.strptime(match.group(1), "%Y%m%d%H%M%S")
-    except ValueError:
-        return None
+_timestamp_from_filename = timestamp_from_filename
 
 
 def deterministic_train_val_split(
@@ -227,19 +207,8 @@ def _sample_from_image_record(
 
 
 def _rasterize_mask(sample: GVCCSSample) -> Image.Image:
-    mask = Image.new("L", (sample.width, sample.height), 0)
-    draw = ImageDraw.Draw(mask)
-    for polygon in sample.segmentations:
-        points = list(zip(polygon[0::2], polygon[1::2], strict=True))
-        draw.polygon(points, fill=255)
-    return mask
+    return rasterize_coco_polygons(width=sample.width, height=sample.height, segmentations=sample.segmentations)
 
 
-def _rgb_image_to_tensor(image: Image.Image) -> torch.Tensor:
-    data = torch.from_numpy(np.array(image, copy=True))
-    return data.permute(2, 0, 1).float().div(255.0)
-
-
-def _mask_image_to_tensor(mask: Image.Image) -> torch.Tensor:
-    data = torch.from_numpy(np.array(mask, copy=True))
-    return (data > 0).unsqueeze(0).float()
+_rgb_image_to_tensor = rgb_image_to_tensor
+_mask_image_to_tensor = mask_image_to_tensor

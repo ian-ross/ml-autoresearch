@@ -6,13 +6,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
-from PIL import Image
 from torch.utils.data import DataLoader
 
 from ml_autoresearch.gvccs import GVCCSSample, infer_frame_sequences
 from ml_autoresearch.metrics import binary_segmentation_metrics
+from ml_autoresearch.problem_support.imaging import (
+    save_mask_tensor,
+    save_overlay,
+    save_probability_heatmap,
+    save_rgb_tensor,
+)
 from ml_autoresearch.smoke import _extract_mask_logits
 
 
@@ -67,11 +71,11 @@ def write_prediction_sample_artifacts(
             image = inputs.detach().cpu().clamp(0.0, 1.0)
             target = target.detach().cpu() >= 0.5
 
-            _save_rgb_tensor(samples_dir / paths["input"], image)
-            _save_mask_tensor(samples_dir / paths["ground_truth"], target)
-            _save_mask_tensor(samples_dir / paths["prediction"], prediction)
-            _save_overlay(samples_dir / paths["overlay"], image, target, prediction)
-            _save_probability_heatmap(samples_dir / paths["probability_heatmap"], probabilities)
+            save_rgb_tensor(samples_dir / paths["input"], image)
+            save_mask_tensor(samples_dir / paths["ground_truth"], target)
+            save_mask_tensor(samples_dir / paths["prediction"], prediction)
+            save_overlay(samples_dir / paths["overlay"], image, target, prediction)
+            save_probability_heatmap(samples_dir / paths["probability_heatmap"], probabilities)
 
             metrics = binary_segmentation_metrics(prediction.unsqueeze(0), target.unsqueeze(0))
             record: dict[str, Any] = {
@@ -217,38 +221,7 @@ def _source_image_path(dataset: object, index: int) -> str | None:
     return None
 
 
-def _save_rgb_tensor(path: Path, tensor: torch.Tensor) -> None:
-    array = (tensor.permute(1, 2, 0).numpy() * 255.0).round().astype(np.uint8)
-    Image.fromarray(array).save(path)
-
-
-def _save_mask_tensor(path: Path, tensor: torch.Tensor) -> None:
-    if tensor.ndim == 3:
-        tensor = tensor.squeeze(0)
-    array = tensor.numpy().astype(np.uint8) * 255
-    Image.fromarray(array).save(path)
-
-
-def _save_overlay(path: Path, image: torch.Tensor, target: torch.Tensor, prediction: torch.Tensor) -> None:
-    base = (image.permute(1, 2, 0).numpy() * 255.0).round().astype(np.uint8)
-    overlay = base.astype(np.float32)
-    target_mask = target.squeeze(0).numpy().astype(bool)
-    prediction_mask = prediction.squeeze(0).numpy().astype(bool)
-    overlay[target_mask] = 0.55 * overlay[target_mask] + 0.45 * np.array([0, 255, 0], dtype=np.float32)
-    overlay[prediction_mask] = 0.55 * overlay[prediction_mask] + 0.45 * np.array([255, 0, 0], dtype=np.float32)
-    Image.fromarray(np.clip(overlay, 0, 255).astype(np.uint8)).save(path)
-
-
-def _save_probability_heatmap(path: Path, probabilities: torch.Tensor) -> None:
-    if probabilities.ndim == 3:
-        probabilities = probabilities.squeeze(0)
-    values = probabilities.detach().cpu().clamp(0.0, 1.0).numpy().astype(np.float32)
-    heatmap = np.stack(
-        [
-            values,
-            1.0 - np.abs((values * 2.0) - 1.0),
-            1.0 - values,
-        ],
-        axis=-1,
-    )
-    Image.fromarray((np.clip(heatmap, 0.0, 1.0) * 255.0).round().astype(np.uint8)).save(path)
+_save_rgb_tensor = save_rgb_tensor
+_save_mask_tensor = save_mask_tensor
+_save_overlay = save_overlay
+_save_probability_heatmap = save_probability_heatmap

@@ -8,7 +8,6 @@ import traceback
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import yaml
 
@@ -16,6 +15,13 @@ from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.errors import TrainingError
 from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
+from ml_autoresearch.problem_support.imaging import deterministic_photometric_perturbation, horizontal_flip_image_mask
+from ml_autoresearch.problem_support.segmentation import (
+    bce_dice_loss,
+    derive_boundary_target_v1,
+    derive_line_target_v1,
+    weighted_bce_loss,
+)
 from ml_autoresearch.smoke import INPUT_SPEC, _extract_expected_outputs, _import_candidate_model, output_spec_from_resolved_manifest
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 
@@ -336,7 +342,7 @@ def _apply_light_geometric_augmentation(
     # thin line geometry image-aligned. Apply on odd indices so tests and Runs
     # remain deterministic under the Harness-owned policy.
     if index % 2 == 1:
-        return torch.flip(image, dims=[2]), torch.flip(mask, dims=[2])
+        return horizontal_flip_image_mask(image, mask)
     return image, mask
 
 
@@ -346,39 +352,12 @@ def _apply_light_photometric_augmentation(image: torch.Tensor, *, index: int) ->
     # changed by photometric augmentation.
     contrast = 1.05 if index % 2 == 0 else 0.95
     brightness = 0.025 if index % 3 == 0 else -0.015
-    adjusted = (image - 0.5) * contrast + 0.5 + brightness
-    generator = torch.Generator(device=image.device).manual_seed(SYNTHETIC_FIXTURE_SEED + int(index))
-    noise = torch.randn(image.shape, generator=generator, device=image.device, dtype=image.dtype) * 0.005
-    return torch.clamp(adjusted + noise, 0.0, 1.0)
-
-
-def bce_dice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor) -> torch.Tensor:
-    bce = F.binary_cross_entropy_with_logits(mask_logits, target_mask)
-    probabilities = torch.sigmoid(mask_logits)
-    intersection = (probabilities * target_mask).sum(dim=(1, 2, 3))
-    denominator = probabilities.sum(dim=(1, 2, 3)) + target_mask.sum(dim=(1, 2, 3))
-    dice_loss = 1.0 - ((2.0 * intersection + 1e-7) / (denominator + 1e-7)).mean()
-    return bce + dice_loss
-
-
-def derive_line_target_v1(target_mask: torch.Tensor) -> torch.Tensor:
-    """Derive the v1 Harness-owned Line Target as a small tolerance band around positives."""
-
-    return F.max_pool2d(target_mask.float(), kernel_size=3, stride=1, padding=1).clamp(0.0, 1.0)
-
-
-def derive_boundary_target_v1(target_mask: torch.Tensor) -> torch.Tensor:
-    """Derive the v1 Harness-owned Boundary Target as a deterministic one-pixel edge band."""
-
-    mask = target_mask.float().clamp(0.0, 1.0)
-    dilated = F.max_pool2d(mask, kernel_size=3, stride=1, padding=1)
-    eroded = -F.max_pool2d(-mask, kernel_size=3, stride=1, padding=1)
-    return (dilated - eroded).clamp(0.0, 1.0)
-
-
-def weighted_bce_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    positive_weight = torch.tensor(4.0, dtype=logits.dtype, device=logits.device)
-    return F.binary_cross_entropy_with_logits(logits, target, pos_weight=positive_weight)
+    return deterministic_photometric_perturbation(
+        image,
+        contrast=contrast,
+        brightness=brightness,
+        noise_seed=SYNTHETIC_FIXTURE_SEED + int(index),
+    )
 
 
 def _auxiliary_losses(

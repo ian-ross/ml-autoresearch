@@ -13,7 +13,8 @@ from typing import Literal
 import torch
 import yaml
 
-from ml_autoresearch.artifacts import _save_mask_tensor, _save_overlay, _save_probability_heatmap, _save_rgb_tensor
+from ml_autoresearch.problem_support.imaging import save_mask_tensor, save_overlay, save_probability_heatmap, save_rgb_tensor
+from ml_autoresearch.problem_support.segmentation import binary_confusion_counts
 from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
@@ -326,7 +327,7 @@ def _evaluate_gvccs_validation_split(
                         "image_id": sample.image_id,
                         "image_path": str(sample.image_path),
                         **metrics,
-                        **_confusion_counts(sample_prediction, sample_target),
+                        **binary_confusion_counts(sample_prediction, sample_target),
                     }
                 )
     input_tensor = torch.cat(all_inputs)
@@ -349,16 +350,7 @@ def _evaluate_gvccs_validation_split(
     return aggregate, per_sample_records, threshold_sweep, diagnostic_manifest
 
 
-def _confusion_counts(predicted_mask: torch.Tensor, target_mask: torch.Tensor) -> dict[str, int]:
-    pred = predicted_mask.bool()
-    target = target_mask.bool()
-    return {
-        "positive_pixel_count": int(target.sum().item()),
-        "predicted_positive_pixel_count": int(pred.sum().item()),
-        "true_positive_pixels": int(torch.logical_and(pred, target).sum().item()),
-        "false_positive_pixels": int(torch.logical_and(pred, ~target).sum().item()),
-        "false_negative_pixels": int(torch.logical_and(~pred, target).sum().item()),
-    }
+_confusion_counts = binary_confusion_counts
 
 
 def _write_diagnostic_sample_artifacts(
@@ -391,11 +383,11 @@ def _write_diagnostic_sample_artifacts(
         target = targets[dataset_index].detach().cpu().bool()
         prediction = predictions[dataset_index].detach().cpu().bool()
         probability = probabilities[dataset_index].detach().cpu()
-        _save_rgb_tensor(diagnostics_dir / paths["input"], image)
-        _save_mask_tensor(diagnostics_dir / paths["ground_truth"], target)
-        _save_mask_tensor(diagnostics_dir / paths["prediction"], prediction)
-        _save_overlay(diagnostics_dir / paths["overlay"], image, target, prediction)
-        _save_probability_heatmap(diagnostics_dir / paths["probability_heatmap"], probability)
+        save_rgb_tensor(diagnostics_dir / paths["input"], image)
+        save_mask_tensor(diagnostics_dir / paths["ground_truth"], target)
+        save_mask_tensor(diagnostics_dir / paths["prediction"], prediction)
+        save_overlay(diagnostics_dir / paths["overlay"], image, target, prediction)
+        save_probability_heatmap(diagnostics_dir / paths["probability_heatmap"], probability)
 
         source = dataset.samples[dataset_index]
         samples.append(
