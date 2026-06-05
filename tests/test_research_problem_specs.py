@@ -16,7 +16,7 @@ def test_default_registry_exposes_ground_camera_contrail_detection_spec() -> Non
     assert spec.id == DEFAULT_RESEARCH_PROBLEM_ID
     assert spec.id == "ground_camera_contrail_detection"
     assert spec.version == "v0"
-    assert spec.input_modes == ("single_frame_rgb",)
+    assert spec.input_modes == ("single_frame_rgb", "centered_temporal_rgb_clip")
     assert spec.output_forms == ("mask_logits",)
     assert spec.auxiliary_targets == ("line", "boundary")
     assert spec.losses == ("bce_dice",)
@@ -75,6 +75,14 @@ def test_ground_camera_contrail_detection_builds_smoke_specs_from_manifest() -> 
     }
 
     assert spec.build_input_spec(resolved_manifest) == {"mode": "single_frame_rgb", "shape": [3, 128, 128]}
+    assert spec.build_input_spec({"input_mode": "centered_temporal_rgb_clip"}) == {
+        "mode": "centered_temporal_rgb_clip",
+        "shape": [9, 128, 128],
+        "clip_length": 3,
+        "frame_stride": 1,
+        "layout": "channel_stacked_rgb",
+        "target_frame": "center",
+    }
     assert spec.build_output_spec(resolved_manifest) == {
         "form": "mask_logits",
         "shape": [1, 128, 128],

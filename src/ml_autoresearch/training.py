@@ -13,7 +13,7 @@ import yaml
 
 from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.errors import TrainingError
-from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
+from ml_autoresearch.gvccs import GVCCSDataset, GVCCSTemporalClipDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.problem_support.imaging import deterministic_photometric_perturbation, horizontal_flip_image_mask
 from ml_autoresearch.problem_support.segmentation import (
@@ -22,7 +22,7 @@ from ml_autoresearch.problem_support.segmentation import (
     derive_line_target_v1,
     weighted_bce_loss,
 )
-from ml_autoresearch.smoke import INPUT_SPEC, _extract_expected_outputs, _import_candidate_model, output_spec_from_resolved_manifest
+from ml_autoresearch.smoke import _extract_expected_outputs, _import_candidate_model, input_spec_from_resolved_manifest, output_spec_from_resolved_manifest
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 
 SYNTHETIC_FIXTURE_SEED = 20260502
@@ -122,25 +122,37 @@ def train_gvccs(
     """Train GVCCS data with explicit Harness-controlled mounted paths."""
 
     samples = discover_gvccs_samples(data_root, split="train", max_samples=max_samples)
-    split = deterministic_train_val_split(samples)
+    manifest = yaml.safe_load(Path(resolved_manifest_path).read_text())
+    input_mode = str(manifest.get("input_mode", "single_frame_rgb"))
+    if input_mode == "centered_temporal_rgb_clip":
+        all_clips = GVCCSTemporalClipDataset(samples).clips
+        split = deterministic_train_val_split(all_clips)  # type: ignore[arg-type]
+        train_dataset = GVCCSTemporalClipDataset(split.train)  # type: ignore[arg-type]
+        val_dataset = GVCCSTemporalClipDataset(split.val)  # type: ignore[arg-type]
+    elif input_mode == "single_frame_rgb":
+        split = deterministic_train_val_split(samples)
+        train_dataset = GVCCSDataset(split.train)
+        val_dataset = GVCCSDataset(split.val)
+    else:
+        raise TrainingError(f"unsupported input mode for GVCCS training: {input_mode}")
 
     train_loader_factory = lambda batch_size, sampling_policy, augmentation_policy: _data_loader_for_sampling(  # noqa: E731
-        GVCCSDataset(split.train), batch_size=batch_size, sampling_policy=sampling_policy, augmentation_policy=augmentation_policy
+        train_dataset, batch_size=batch_size, sampling_policy=sampling_policy, augmentation_policy=augmentation_policy
     )
     val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
-        GVCCSDataset(split.val), batch_size=batch_size, sampling_policy="sequential"
+        val_dataset, batch_size=batch_size, sampling_policy="sequential"
     )
     return _train_manifest_epochs_run(
         candidate_dir=candidate_dir,
         resolved_manifest_path=resolved_manifest_path,
         outputs_dir=outputs_dir,
         artifact_run_dir=artifact_run_dir,
-        start_line=f"Starting GVCCS training from {Path(data_root)} with {len(split.train)} train and {len(split.val)} val samples.",
+        start_line=f"Starting GVCCS training from {Path(data_root)} with {len(train_dataset)} train and {len(val_dataset)} val samples.",
         success_line="GVCCS training completed.",
         failure_prefix="GVCCS training failed",
         train_loader_factory=train_loader_factory,
         val_loader_factory=val_loader_factory,
-        train_sample_count=len(split.train),
+        train_sample_count=len(train_dataset),
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
     )
@@ -183,11 +195,12 @@ def _train_manifest_epochs_run(
         if training["loss"] != "bce_dice":
             raise TrainingError(f"unsupported loss: {training['loss']}")
         auxiliary_targets = manifest.get("auxiliary_targets", [])
+        input_spec = input_spec_from_resolved_manifest(resolved_manifest_path)
         output_spec = output_spec_from_resolved_manifest(resolved_manifest_path)
 
         device = _select_training_device()
         module = _import_candidate_model(candidate_dir)
-        model = module.build_model(dict(INPUT_SPEC), dict(output_spec))
+        model = module.build_model(dict(input_spec), dict(output_spec))
         if not isinstance(model, torch.nn.Module):
             raise TrainingError("build_model must return a torch.nn.Module")
         model = model.to(device)

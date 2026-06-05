@@ -161,8 +161,18 @@ class ResearchProblemSpecRegistry:
 GROUND_CAMERA_CONTRAIL_DETECTION_SPEC = ResearchProblemSpec(
     id=DEFAULT_RESEARCH_PROBLEM_ID,
     version="v0",
-    input_modes=("single_frame_rgb",),
-    input_specs={"single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]}},
+    input_modes=("single_frame_rgb", "centered_temporal_rgb_clip"),
+    input_specs={
+        "single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]},
+        "centered_temporal_rgb_clip": {
+            "mode": "centered_temporal_rgb_clip",
+            "shape": [9, 128, 128],
+            "clip_length": 3,
+            "frame_stride": 1,
+            "layout": "channel_stacked_rgb",
+            "target_frame": "center",
+        },
+    },
     output_forms=("mask_logits",),
     output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
     auxiliary_targets=("line", "boundary"),

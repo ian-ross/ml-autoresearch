@@ -15,10 +15,10 @@ import yaml
 
 from ml_autoresearch.problem_support.imaging import save_mask_tensor, save_overlay, save_probability_heatmap, save_rgb_tensor
 from ml_autoresearch.problem_support.segmentation import binary_confusion_counts
-from ml_autoresearch.gvccs import GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
+from ml_autoresearch.gvccs import GVCCSDataset, GVCCSTemporalClipDataset, discover_gvccs_samples, deterministic_train_val_split
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
-from ml_autoresearch.smoke import INPUT_SPEC, _extract_mask_logits, _import_candidate_model, output_spec_from_resolved_manifest
+from ml_autoresearch.smoke import _extract_mask_logits, _import_candidate_model, input_spec_from_resolved_manifest, output_spec_from_resolved_manifest
 
 DEFAULT_EVALUATION_THRESHOLD = 0.5
 DEFAULT_MAX_ARTIFACT_SAMPLES = 12
@@ -279,14 +279,23 @@ def _evaluate_gvccs_validation_split(
 ) -> tuple[dict[str, float], list[dict[str, object]], dict[str, object], dict[str, object]]:
     manifest = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
     batch_size = int(manifest.get("training", {}).get("batch_size", 1))
+    input_spec = input_spec_from_resolved_manifest(run_dir / "resolved_manifest.yaml")
     output_spec = output_spec_from_resolved_manifest(run_dir / "resolved_manifest.yaml")
     samples = discover_gvccs_samples(data_root, split="train")
-    val_samples = deterministic_train_val_split(samples).val
-    dataset = GVCCSDataset(val_samples)
+    input_mode = str(manifest.get("input_mode", "single_frame_rgb"))
+    if input_mode == "centered_temporal_rgb_clip":
+        all_clips = GVCCSTemporalClipDataset(samples).clips
+        val_clips = deterministic_train_val_split(all_clips).val  # type: ignore[arg-type]
+        dataset = GVCCSTemporalClipDataset(val_clips)  # type: ignore[arg-type]
+    elif input_mode == "single_frame_rgb":
+        val_samples = deterministic_train_val_split(samples).val
+        dataset = GVCCSDataset(val_samples)
+    else:
+        raise EvaluationError(f"unsupported input mode for GVCCS evaluation: {input_mode}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     module = _import_candidate_model(run_dir / "candidate")
-    model = module.build_model(dict(INPUT_SPEC), dict(output_spec))
+    model = module.build_model(dict(input_spec), dict(output_spec))
     if not isinstance(model, torch.nn.Module):
         raise EvaluationError("build_model must return a torch.nn.Module")
     checkpoint = torch.load(model_artifact_path, map_location=device, weights_only=True)
@@ -356,7 +365,7 @@ _confusion_counts = binary_confusion_counts
 def _write_diagnostic_sample_artifacts(
     *,
     evaluation_dir: Path,
-    dataset: GVCCSDataset,
+    dataset: GVCCSDataset | GVCCSTemporalClipDataset,
     inputs: torch.Tensor,
     probabilities: torch.Tensor,
     predictions: torch.Tensor,
@@ -379,7 +388,7 @@ def _write_diagnostic_sample_artifacts(
             "overlay": f"{prefix}_overlay.png",
             "probability_heatmap": f"{prefix}_probability_heatmap.png",
         }
-        image = inputs[dataset_index].detach().cpu().clamp(0.0, 1.0)
+        image = _display_rgb_from_model_input(inputs[dataset_index].detach().cpu().clamp(0.0, 1.0))
         target = targets[dataset_index].detach().cpu().bool()
         prediction = predictions[dataset_index].detach().cpu().bool()
         probability = probabilities[dataset_index].detach().cpu()
@@ -427,6 +436,14 @@ def _write_diagnostic_sample_artifacts(
         ],
         "samples": samples,
     }
+
+
+def _display_rgb_from_model_input(inputs: torch.Tensor) -> torch.Tensor:
+    if inputs.ndim == 3 and inputs.shape[0] == 3:
+        return inputs
+    if inputs.ndim == 3 and inputs.shape[0] == 9:
+        return inputs[3:6]
+    raise EvaluationError(f"cannot render evaluation input with shape {tuple(inputs.shape)} as RGB")
 
 
 def _select_failure_bucket_indices(

@@ -5,11 +5,36 @@ from PIL import Image
 import pytest
 import torch
 
-from ml_autoresearch.gvccs import GVCCSDataError, GVCCSDataset, discover_gvccs_samples, deterministic_train_val_split
+from ml_autoresearch.gvccs import (
+    GVCCSDataError,
+    GVCCSDataset,
+    GVCCSTemporalClipDataset,
+    discover_gvccs_samples,
+    deterministic_train_val_split,
+)
 from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data
 
 
 FIXTURE_ROOT = Path("tests/fixtures/gvccs_like")
+
+
+def _write_temporal_fixture(root: Path, *, frame_count: int = 5) -> Path:
+    data_root = root / "gvccs_temporal"
+    images_dir = data_root / "train" / "images"
+    images_dir.mkdir(parents=True)
+    images = []
+    annotations = []
+    for index in range(frame_count):
+        minute, second = divmod(index * 30, 60)
+        file_name = f"image_2026050200{minute:02d}{second:02d}.png"
+        Image.new("RGB", (4, 4), (index * 30, index * 30 + 1, index * 30 + 2)).save(images_dir / file_name)
+        images.append({"id": index, "file_name": file_name, "width": 4, "height": 4})
+        if index == 2:
+            annotations.append({"id": 1, "image_id": index, "segmentation": [[1, 1, 3, 1, 3, 3, 1, 3]]})
+    (data_root / "train" / "annotations.json").write_text(
+        json.dumps({"images": images, "annotations": annotations, "categories": [{"id": 1, "name": "contrail"}]})
+    )
+    return data_root
 
 
 def write_trainable_candidate(root: Path, *, max_epochs: int = 1) -> Path:
@@ -41,6 +66,35 @@ training:
         "    return Tiny()\n"
     )
     return candidate
+
+
+def test_gvccs_temporal_clip_dataset_returns_centered_channel_stacked_clip(tmp_path: Path):
+    samples = discover_gvccs_samples(_write_temporal_fixture(tmp_path), split="train")
+
+    dataset = GVCCSTemporalClipDataset(samples, image_size=4)
+    clip, mask = dataset[1]
+
+    assert len(dataset) == 3
+    assert clip.shape == (9, 4, 4)
+    assert mask.shape == (1, 4, 4)
+    assert dataset.samples[1].image_path.name == "image_20260502000100.png"
+    assert clip[:, 0, 0].tolist() == pytest.approx(
+        [30 / 255, 31 / 255, 32 / 255, 60 / 255, 61 / 255, 62 / 255, 90 / 255, 91 / 255, 92 / 255]
+    )
+    assert float(mask.sum()) > 0.0
+
+
+def test_gvccs_temporal_clip_dataset_does_not_cross_frame_sequence_gaps(tmp_path: Path):
+    data_root = _write_temporal_fixture(tmp_path, frame_count=3)
+    annotations_path = data_root / "train" / "annotations.json"
+    payload = json.loads(annotations_path.read_text())
+    payload["images"][2]["file_name"] = "image_20260502000200.png"
+    (data_root / "train" / "images" / "image_20260502000100.png").rename(data_root / "train" / "images" / "image_20260502000200.png")
+    annotations_path.write_text(json.dumps(payload))
+    samples = discover_gvccs_samples(data_root, split="train")
+
+    with pytest.raises(GVCCSDataError, match="centered temporal clips"):
+        GVCCSTemporalClipDataset(samples, image_size=4)
 
 
 def test_gvccs_fixture_layout_and_loader_returns_128_rgb_and_binary_mask():
@@ -80,6 +134,51 @@ def test_gvccs_deterministic_train_val_split_and_max_samples():
     assert [s.image_id for s in first.val] == [s.image_id for s in second.val]
     assert len(first.train) == 2
     assert len(first.val) == 1
+
+
+def test_run_temporal_candidate_with_gvccs_fixture_trains_and_writes_prediction_artifacts(tmp_path: Path):
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "manifest.yaml").write_text(
+        """
+name: temporal_trainable_candidate
+input_mode: centered_temporal_rgb_clip
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+    (candidate / "model.py").write_text(
+        "from torch import nn\n"
+        "class Tiny(nn.Module):\n"
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.net = nn.Sequential(nn.Conv2d(9, 4, 3, padding=1), nn.ReLU(), nn.Conv2d(4, 1, 1))\n"
+        "    def forward(self, x):\n"
+        "        return {'mask_logits': self.net(x)}\n"
+        "def build_model(input_spec, output_spec):\n"
+        "    assert input_spec['mode'] == 'centered_temporal_rgb_clip'\n"
+        "    assert input_spec['shape'] == [9, 128, 128]\n"
+        "    assert input_spec['clip_length'] == 3\n"
+        "    assert input_spec['layout'] == 'channel_stacked_rgb'\n"
+        "    return Tiny()\n"
+    )
+
+    run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", _write_temporal_fixture(tmp_path), max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
+    assert set(final) >= {"val/dice", "val/loss"}
+    samples = json.loads((run.run_dir / "outputs" / "prediction_samples" / "samples.json").read_text())
+    assert samples["sample_count"] == 1
+    assert samples["samples"][0]["source_image_path"].endswith(".png")
+    with Image.open(run.run_dir / "outputs" / "prediction_samples" / samples["samples"][0]["paths"]["input"]) as image:
+        assert image.size == (128, 128)
 
 
 def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):

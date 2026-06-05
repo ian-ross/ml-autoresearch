@@ -1,4 +1,4 @@
-"""Harness-owned GVCCS Dataset adapter for Single-Frame RGB Input."""
+"""Harness-owned GVCCS Dataset adapters for GVCCS Input Modes."""
 
 from __future__ import annotations
 
@@ -36,6 +36,13 @@ class GVCCSSplit:
     val: list[GVCCSSample]
 
 
+@dataclass(frozen=True)
+class GVCCSTemporalClip:
+    previous: GVCCSSample
+    target: GVCCSSample
+    next: GVCCSSample
+
+
 class GVCCSDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     """RGB image and binary Contrail Mask pairs resized to 128x128.
 
@@ -62,14 +69,38 @@ class GVCCSDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         return len(self.samples)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        sample = self.samples[index]
-        image = Image.open(sample.image_path).convert("RGB")
-        mask = _rasterize_mask(sample)
-        if image.size != (self.image_size, self.image_size):
-            image = image.resize((self.image_size, self.image_size), Image.Resampling.BILINEAR)
-        if mask.size != (self.image_size, self.image_size):
-            mask = mask.resize((self.image_size, self.image_size), Image.Resampling.NEAREST)
-        return _rgb_image_to_tensor(image), _mask_image_to_tensor(mask)
+        return _load_image_and_mask(self.samples[index], image_size=self.image_size)
+
+
+class GVCCSTemporalClipDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
+    """3-frame, stride-1 centered RGB clips and target-frame Contrail Masks.
+
+    The clip layout is channel-stacked RGB: previous RGB, target RGB, next RGB,
+    producing a 9HW tensor while the mask remains the target frame's 1HW mask.
+    """
+
+    def __init__(self, samples_or_clips: list[GVCCSSample] | list[GVCCSTemporalClip], *, image_size: int = IMAGE_SIZE) -> None:
+        if not samples_or_clips:
+            raise GVCCSDataError("GVCCS temporal clip dataset requires at least one sample or clip")
+        first = samples_or_clips[0]
+        if isinstance(first, GVCCSTemporalClip):
+            self.clips = list(samples_or_clips)  # type: ignore[arg-type]
+        else:
+            self.clips = build_centered_temporal_clips(samples_or_clips)  # type: ignore[arg-type]
+        if not self.clips:
+            raise GVCCSDataError("GVCCS dataset does not contain any 3-frame stride-1 centered temporal clips")
+        self.samples = [clip.target for clip in self.clips]
+        self.image_size = image_size
+
+    def __len__(self) -> int:
+        return len(self.clips)
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        clip = self.clips[index]
+        previous, _ = _load_image_and_mask(clip.previous, image_size=self.image_size)
+        target, mask = _load_image_and_mask(clip.target, image_size=self.image_size)
+        next_image, _ = _load_image_and_mask(clip.next, image_size=self.image_size)
+        return torch.cat([previous, target, next_image], dim=0), mask
 
 
 def discover_gvccs_samples(data_root: str | Path, *, split: str = "train", max_samples: int | None = None) -> list[GVCCSSample]:
@@ -113,6 +144,18 @@ def discover_gvccs_samples(data_root: str | Path, *, split: str = "train", max_s
     if not samples:
         raise GVCCSDataError(f"no GVCCS image/mask pairs discovered in {split_dir}")
     return samples
+
+
+def build_centered_temporal_clips(samples: list[GVCCSSample]) -> list[GVCCSTemporalClip]:
+    """Build 3-frame, stride-1 centered clips within inferred GVCCS Frame Sequences."""
+
+    clips: list[GVCCSTemporalClip] = []
+    for sequence in infer_frame_sequences(samples):
+        if len(sequence) < 3:
+            continue
+        for index in range(1, len(sequence) - 1):
+            clips.append(GVCCSTemporalClip(sequence[index - 1], sequence[index], sequence[index + 1]))
+    return clips
 
 
 def infer_frame_sequences(samples: list[GVCCSSample]) -> list[list[GVCCSSample]]:
@@ -204,6 +247,16 @@ def _sample_from_image_record(
         height=height,
         segmentations=tuple(segmentations_by_image_id.get(image_id, [])),
     )
+
+
+def _load_image_and_mask(sample: GVCCSSample, *, image_size: int) -> tuple[torch.Tensor, torch.Tensor]:
+    image = Image.open(sample.image_path).convert("RGB")
+    mask = _rasterize_mask(sample)
+    if image.size != (image_size, image_size):
+        image = image.resize((image_size, image_size), Image.Resampling.BILINEAR)
+    if mask.size != (image_size, image_size):
+        mask = mask.resize((image_size, image_size), Image.Resampling.NEAREST)
+    return _rgb_image_to_tensor(image), _mask_image_to_tensor(mask)
 
 
 def _rasterize_mask(sample: GVCCSSample) -> Image.Image:

@@ -68,7 +68,7 @@ def write_prediction_sample_artifacts(
                 "overlay": f"{prefix}_overlay.png",
                 "probability_heatmap": f"{prefix}_probability_heatmap.png",
             }
-            image = inputs.detach().cpu().clamp(0.0, 1.0)
+            image = _display_rgb_from_model_input(inputs.detach().cpu().clamp(0.0, 1.0))
             target = target.detach().cpu() >= 0.5
 
             save_rgb_tensor(samples_dir / paths["input"], image)
@@ -210,6 +210,14 @@ def _model_device(model: torch.nn.Module) -> torch.device:
         return next(model.parameters()).device
     except StopIteration:
         return torch.device("cpu")
+
+
+def _display_rgb_from_model_input(inputs: torch.Tensor) -> torch.Tensor:
+    if inputs.ndim == 3 and inputs.shape[0] == 3:
+        return inputs
+    if inputs.ndim == 3 and inputs.shape[0] == 9:
+        return inputs[3:6]
+    raise ValueError(f"cannot render prediction sample input with shape {tuple(inputs.shape)} as RGB")
 
 
 def _source_image_path(dataset: object, index: int) -> str | None:
