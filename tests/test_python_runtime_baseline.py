@@ -18,4 +18,7 @@ def test_readme_development_setup_names_python_312() -> None:
     readme = Path("README.md").read_text()
 
     assert "Python 3.12" in readme
-    assert "uv sync --python 3.12 --extra dev" in readme
+    assert 'export UV_PYTHON_INSTALL_DIR="$PWD/.uv-python"' in readme
+    assert "uv python install 3.12" in readme
+    assert "uv venv --managed-python --python 3.12 --relocatable" in readme
+    assert "uv sync --managed-python --extra dev" in readme
