@@ -1,17 +1,11 @@
-import subprocess
-import sys
 from pathlib import Path
 
+from ml_autoresearch.cli import app
+from conftest import invoke_typer_cli
 
-def run_cli(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "ml_autoresearch.cli", *args],
-        cwd=cwd,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+
+def run_cli(cwd: Path, *args: str):
+    return invoke_typer_cli(app, args, cwd=cwd)
 
 
 def write_project(root: Path, data_mounts: str = "") -> None:
@@ -33,20 +27,41 @@ allow_egress = true
     )
 
 
-def test_prepare_agent_boundary_generates_layout_and_preserves_workspace_outputs(tmp_path: Path):
-    write_project(tmp_path)
+def test_prepare_agent_boundary_generates_workspace_snapshots_skills_and_fort_config(tmp_path: Path):
+    data_root = tmp_path / "gvccs-data"
+    data_root.mkdir()
+    write_project(
+        tmp_path,
+        f'''
+[[data_mounts]]
+name = "gvccs"
+path = "{data_root}"
+''',
+    )
     (tmp_path / "runs" / "run_123" / "outputs" / "evaluations" / "eval_abc").mkdir(parents=True)
     (tmp_path / "runs" / "run_123" / "outputs" / "evaluations" / "eval_abc" / "summary.json").write_text('{"ok": true}\n')
     (tmp_path / "candidates" / "candidate_123").mkdir(parents=True)
     (tmp_path / "candidates" / "candidate_123" / "manifest.yaml").write_text("name: candidate_123\n")
     (tmp_path / "research-notes").mkdir()
     (tmp_path / "research-notes" / "note.md").write_text("# Note\n")
+    (tmp_path / "docs" / "autoresearch-skills" / "campaign-manager").mkdir(parents=True)
+    (tmp_path / "docs" / "autoresearch-skills" / "campaign-manager" / "SKILL.md").write_text("# Campaign Manager\n")
+
     preserved = tmp_path / "agent-work" / "scratch" / "keep.txt"
     preserved.parent.mkdir(parents=True)
     preserved.write_text("do not delete\n")
     settings = tmp_path / "agent-work" / ".pi" / "settings.json"
     settings.parent.mkdir(parents=True)
     settings.write_text("{}\n")
+    stale_skill_file = tmp_path / "agent-work" / ".pi" / "skills" / "campaign-manager" / "stale.txt"
+    stale_skill_file.parent.mkdir(parents=True)
+    stale_skill_file.write_text("stale\n")
+    unrelated_skill_file = tmp_path / "agent-work" / ".pi" / "skills" / "local-helper" / "SKILL.md"
+    unrelated_skill_file.parent.mkdir(parents=True)
+    unrelated_skill_file.write_text("# Local Helper\n")
+    old_dropin = tmp_path / "agent-work" / ".pi" / "fort.d" / "old.toml"
+    old_dropin.parent.mkdir(parents=True)
+    old_dropin.write_text("old\n")
 
     completed = run_cli(tmp_path, "prepare-agent-boundary")
 
@@ -70,13 +85,6 @@ def test_prepare_agent_boundary_generates_layout_and_preserves_workspace_outputs
     assert preserved.read_text() == "do not delete\n"
     assert settings.read_text() == "{}\n"
 
-
-def test_prepare_agent_boundary_writes_agent_workspace_path_instructions(tmp_path: Path):
-    write_project(tmp_path)
-
-    completed = run_cli(tmp_path, "prepare-agent-boundary")
-
-    assert completed.returncode == 0, completed.stderr
     instructions = (tmp_path / "agent-work" / "AGENTS.md").read_text()
     assert "Agent Control Boundary path map" in instructions
     assert "`CONTEXT.md` -> `/reference/CONTEXT.md`" in instructions
@@ -87,45 +95,11 @@ def test_prepare_agent_boundary_writes_agent_workspace_path_instructions(tmp_pat
     assert "Do not\nproduce a second Candidate Submission" in instructions
     assert "Use `ml-autoresearch-agent`, not `ml-autoresearch`" in instructions
 
-
-def test_prepare_agent_boundary_installs_autoresearch_skills_in_agent_workspace(tmp_path: Path):
-    write_project(tmp_path)
-    (tmp_path / "docs" / "autoresearch-skills" / "campaign-manager").mkdir(parents=True)
-    (tmp_path / "docs" / "autoresearch-skills" / "campaign-manager" / "SKILL.md").write_text("# Campaign Manager\n")
-    stale_skill_file = tmp_path / "agent-work" / ".pi" / "skills" / "campaign-manager" / "stale.txt"
-    stale_skill_file.parent.mkdir(parents=True)
-    stale_skill_file.write_text("stale\n")
-    unrelated_skill_file = tmp_path / "agent-work" / ".pi" / "skills" / "local-helper" / "SKILL.md"
-    unrelated_skill_file.parent.mkdir(parents=True)
-    unrelated_skill_file.write_text("# Local Helper\n")
-
-    completed = run_cli(tmp_path, "prepare-agent-boundary")
-
-    assert completed.returncode == 0, completed.stderr
     skill_path = tmp_path / "agent-work" / ".pi" / "skills" / "campaign-manager" / "SKILL.md"
     assert skill_path.read_text() == "# Campaign Manager\n"
     assert not stale_skill_file.exists()
     assert unrelated_skill_file.read_text() == "# Local Helper\n"
 
-
-def test_prepare_agent_boundary_generates_managed_fort_config_with_data_mounts(tmp_path: Path):
-    data_root = tmp_path / "gvccs-data"
-    data_root.mkdir()
-    write_project(
-        tmp_path,
-        f'''
-[[data_mounts]]
-name = "gvccs"
-path = "{data_root}"
-''',
-    )
-    old_dropin = tmp_path / "agent-work" / ".pi" / "fort.d" / "old.toml"
-    old_dropin.parent.mkdir(parents=True)
-    old_dropin.write_text("old\n")
-
-    completed = run_cli(tmp_path, "prepare-agent-boundary")
-
-    assert completed.returncode == 0, completed.stderr
     fort_toml = (tmp_path / "agent-work" / ".pi" / "fort.toml").read_text()
     assert "# Generated by ml-autoresearch prepare-agent-boundary" in fort_toml
     for target in [

@@ -3,6 +3,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ml_autoresearch.agent_cli import app
+from conftest import invoke_typer_cli
+
 
 def write_candidate(root: Path, *, name: str = "agent_candidate", include_proposal: bool = True, include_readme: bool = True) -> Path:
     candidate = root / "drafts" / "candidates" / name
@@ -58,14 +61,8 @@ Fix validation errors.
     return candidate
 
 
-def run_agent_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "ml_autoresearch.agent_cli", *args],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def run_agent_cli(*args: str):
+    return invoke_typer_cli(app, args)
 
 
 def test_prepare_candidate_submission_copies_draft_and_writes_metadata(tmp_path: Path):

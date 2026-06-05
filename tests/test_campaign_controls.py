@@ -1,10 +1,9 @@
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
+from ml_autoresearch.cli import app
 from ml_autoresearch.campaign_controls import (
     PAUSE_CONDITIONS,
     CampaignControlError,
@@ -13,6 +12,7 @@ from ml_autoresearch.campaign_controls import (
     record_campaign_resume,
 )
 from ml_autoresearch.research_ledger import ResearchLedgerError, record_research_event
+from conftest import invoke_typer_cli
 
 
 def read_jsonl(path: Path) -> list[dict[str, object]]:
@@ -88,30 +88,22 @@ def test_campaign_control_cli_records_report_and_pause_events(tmp_path: Path) ->
     report.parent.mkdir()
     report.write_text("# Campaign Report\n")
 
-    report_completed = subprocess.run(
+    report_completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "record-campaign-report",
             "--report-path",
             str(report),
             "--ledger-path",
             str(ledger),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
     assert report_completed.returncode == 0, report_completed.stderr
     report_payload = json.loads(report_completed.stdout)
 
-    pause_completed = subprocess.run(
+    pause_completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "pause-campaign",
             "--reason",
             "storage_risk",
@@ -120,19 +112,13 @@ def test_campaign_control_cli_records_report_and_pause_events(tmp_path: Path) ->
             "--ledger-path",
             str(ledger),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
     assert pause_completed.returncode == 0, pause_completed.stderr
     pause_payload = json.loads(pause_completed.stdout)
 
-    resume_completed = subprocess.run(
+    resume_completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "resume-campaign",
             "--reason",
             "human_review_complete",
@@ -141,10 +127,6 @@ def test_campaign_control_cli_records_report_and_pause_events(tmp_path: Path) ->
             "--ledger-path",
             str(ledger),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
     assert resume_completed.returncode == 0, resume_completed.stderr
     resume_payload = json.loads(resume_completed.stdout)
@@ -159,21 +141,15 @@ def test_campaign_control_cli_reports_ledger_write_failure_without_traceback(tmp
     report.parent.mkdir()
     report.write_text("# Campaign Report\n")
 
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "record-campaign-report",
             "--report-path",
             str(report),
             "--ledger-path",
             str(tmp_path),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 1

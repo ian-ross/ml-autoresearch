@@ -4,13 +4,12 @@ same validation path as the `record-research-event` CLI/API."""
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from ml_autoresearch.cli import app
 from ml_autoresearch.execution import DockerOperationTimeoutError, OperationResult
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER
 from ml_autoresearch.runs import (
@@ -18,6 +17,7 @@ from ml_autoresearch.runs import (
     run_candidate_with_synthetic_fixture,
     submit_candidate,
 )
+from conftest import invoke_typer_cli
 
 
 def write_trainable_candidate(root: Path, *, max_epochs: int = 1, with_proposal: bool = False) -> Path:
@@ -289,16 +289,18 @@ def test_run_candidate_with_synthetic_fixture_records_run_failed_on_training_err
     assert "synthetic training exploded" in failed["error"]
 
 
-def test_submit_candidate_cli_supports_ledger_path_option(tmp_path: Path) -> None:
+def test_submit_candidate_cli_supports_ledger_path_option(tmp_path: Path, monkeypatch) -> None:
     candidate = write_trainable_candidate(tmp_path)
     runs_root = tmp_path / "runs"
     ledger = tmp_path / "research-ledger.jsonl"
 
-    completed = subprocess.run(
+    monkeypatch.setattr(
+        "ml_autoresearch.execution.NativeBackend.smoke_test",
+        lambda self, run_dir: OperationResult(backend="native", operation="smoke_test"),
+    )
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "submit-candidate",
             "--candidate",
             str(candidate),
@@ -308,10 +310,6 @@ def test_submit_candidate_cli_supports_ledger_path_option(tmp_path: Path) -> Non
             str(ledger),
             "--no-require-proposal",
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 0, completed.stderr

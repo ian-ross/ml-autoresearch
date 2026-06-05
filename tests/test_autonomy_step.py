@@ -1,21 +1,15 @@
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 from ml_autoresearch.autonomy_step import run_autonomy_step
+from ml_autoresearch.cli import app
 from ml_autoresearch.execution import OperationResult
+from conftest import invoke_typer_cli
 
 
-def run_cli(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "ml_autoresearch.cli", *args],
-        cwd=cwd,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def run_cli(cwd: Path, *args: str):
+    return invoke_typer_cli(app, args, cwd=cwd)
 
 
 def write_project(root: Path, extra_config: str = "") -> None:

@@ -1,11 +1,11 @@
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
+from ml_autoresearch.cli import app
 from ml_autoresearch.research_ledger import ResearchLedgerError, record_research_event
+from conftest import invoke_typer_cli
 
 
 def read_jsonl(path: Path) -> list[dict[str, object]]:
@@ -253,11 +253,9 @@ def test_research_note_written_event_can_embed_figure_provenance_metadata(tmp_pa
 
 def test_record_research_event_cli_validates_and_appends_json(tmp_path: Path):
     ledger = tmp_path / "research-ledger.jsonl"
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "record-research-event",
             "--ledger-path",
             str(ledger),
@@ -268,10 +266,6 @@ def test_record_research_event_cli_validates_and_appends_json(tmp_path: Path):
             "--field",
             "candidate_id=candidate_abc",
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -283,11 +277,9 @@ def test_record_research_event_cli_validates_and_appends_json(tmp_path: Path):
 
 def test_record_research_event_cli_rejects_missing_required_fields(tmp_path: Path):
     ledger = tmp_path / "research-ledger.jsonl"
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "record-research-event",
             "--ledger-path",
             str(ledger),
@@ -296,10 +288,6 @@ def test_record_research_event_cli_rejects_missing_required_fields(tmp_path: Pat
             "--field",
             "run_id=run_123",
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 1

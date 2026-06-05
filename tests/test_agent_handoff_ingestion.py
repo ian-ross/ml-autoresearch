@@ -1,10 +1,9 @@
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
+from ml_autoresearch.cli import app
 from ml_autoresearch.agent_handoffs import (
     AgentHandoffIngestionError,
     collect_agent_handoff,
@@ -15,17 +14,11 @@ from ml_autoresearch.agent_handoffs import (
     ingest_evaluation_request,
     ingest_research_note,
 )
+from conftest import invoke_typer_cli
 
 
-def run_cli(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "ml_autoresearch.cli", *args],
-        cwd=cwd,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def run_cli(cwd: Path, *args: str):
+    return invoke_typer_cli(app, args, cwd=cwd)
 
 
 def write_project(root: Path) -> None:

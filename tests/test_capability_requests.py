@@ -1,11 +1,11 @@
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request, validate_capability_request_file
+from ml_autoresearch.cli import app
+from conftest import invoke_typer_cli
 
 
 def read_jsonl(path: Path) -> list[dict[str, object]]:
@@ -102,21 +102,15 @@ def test_create_capability_request_cli_validates_and_records_event(tmp_path: Pat
     request_path = write_request(tmp_path / "request.yaml")
     ledger = tmp_path / "research-ledger.jsonl"
 
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "create-capability-request",
             "--request",
             str(request_path),
             "--ledger-path",
             str(ledger),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -130,21 +124,15 @@ def test_create_capability_request_cli_rejects_invalid_request_without_event(tmp
     request_path = write_request(tmp_path / "request.yaml", capability_type="unsafe")
     ledger = tmp_path / "research-ledger.jsonl"
 
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "create-capability-request",
             "--request",
             str(request_path),
             "--ledger-path",
             str(ledger),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 1
@@ -155,21 +143,15 @@ def test_create_capability_request_cli_rejects_invalid_request_without_event(tmp
 def test_create_capability_request_cli_reports_ledger_write_failure_without_traceback(tmp_path: Path) -> None:
     request_path = write_request(tmp_path / "request.yaml")
 
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "create-capability-request",
             "--request",
             str(request_path),
             "--ledger-path",
             str(tmp_path),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 1

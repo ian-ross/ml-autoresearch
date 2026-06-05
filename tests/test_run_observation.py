@@ -1,10 +1,11 @@
 import json
-import subprocess
-import sys
 import tomllib
 from pathlib import Path
 
+from ml_autoresearch.agent_cli import app as agent_app
+from ml_autoresearch.cli import app
 from ml_autoresearch.runs import get_best_runs, get_run_summary, list_runs
+from conftest import invoke_typer_cli
 
 
 def write_run(
@@ -54,24 +55,12 @@ def write_run(
     return run_dir
 
 
-def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "ml_autoresearch.cli", *args],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def run_cli(*args: str):
+    return invoke_typer_cli(app, args)
 
 
-def run_agent_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "ml_autoresearch.agent_cli", *args],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def run_agent_cli(*args: str):
+    return invoke_typer_cli(agent_app, args)
 
 
 def test_list_runs_summarizes_local_run_artifacts_and_reports_corrupt_runs(tmp_path: Path):

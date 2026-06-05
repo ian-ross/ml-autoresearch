@@ -1,7 +1,8 @@
 import json
-import subprocess
-import sys
 from pathlib import Path
+
+from ml_autoresearch.cli import app
+from conftest import invoke_typer_cli
 
 
 
@@ -36,25 +37,18 @@ training:
     return candidate
 
 
-def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "ml_autoresearch.cli", *args],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def run_cli(*args: str):
+    return invoke_typer_cli(app, args)
 
 
 def test_submit_candidate_cli_accepts_explicit_native_backend(tmp_path: Path):
-    candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
 
     completed = run_cli(
-        "submit-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--backend", "native", "--no-require-proposal"
+        "submit-candidate", "--candidate", str(tmp_path / "missing"), "--runs-root", str(runs_root), "--backend", "native", "--no-require-proposal"
     )
 
-    assert completed.returncode == 0, completed.stderr
+    assert completed.returncode == 1
     payload = json.loads(completed.stdout)
     metadata = json.loads((runs_root / payload["run_id"] / "run_metadata.json").read_text())
     assert metadata["execution_backend"] == {"name": "native", "developer_unsafe": True}

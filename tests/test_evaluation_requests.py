@@ -1,16 +1,16 @@
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
+from ml_autoresearch.cli import app
 from ml_autoresearch.evaluation_requests import (
     EvaluationRequestError,
     run_post_run_evaluation,
     validate_evaluation_request_file,
 )
+from conftest import invoke_typer_cli
 
 
 def read_jsonl(path: Path) -> list[dict[str, object]]:
@@ -124,19 +124,13 @@ def test_run_post_run_evaluation_cli_requires_request(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     write_run(runs_root)
 
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "run-post-run-evaluation",
             "--runs-root",
             str(runs_root),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode != 0
@@ -149,11 +143,9 @@ def test_run_post_run_evaluation_cli_validates_request_and_records_linkage(tmp_p
     request_path = write_request(tmp_path / "request.yaml")
     ledger = tmp_path / "research-ledger.jsonl"
 
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "run-post-run-evaluation",
             "--request",
             str(request_path),
@@ -162,10 +154,6 @@ def test_run_post_run_evaluation_cli_validates_request_and_records_linkage(tmp_p
             "--ledger-path",
             str(ledger),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -180,11 +168,9 @@ def test_run_post_run_evaluation_cli_reports_ledger_write_failure_without_traceb
     write_run(runs_root)
     request_path = write_request(tmp_path / "request.yaml")
 
-    completed = subprocess.run(
+    completed = invoke_typer_cli(
+        app,
         [
-            sys.executable,
-            "-m",
-            "ml_autoresearch.cli",
             "run-post-run-evaluation",
             "--request",
             str(request_path),
@@ -193,10 +179,6 @@ def test_run_post_run_evaluation_cli_reports_ledger_write_failure_without_traceb
             "--ledger-path",
             str(tmp_path),
         ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
 
     assert completed.returncode == 1

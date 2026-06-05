@@ -1,17 +1,12 @@
 import json
-import subprocess
-import sys
 from pathlib import Path
 
+from ml_autoresearch.cli import app
+from conftest import invoke_typer_cli
 
-def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "ml_autoresearch.cli", *args],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+
+def run_cli(*args: str):
+    return invoke_typer_cli(app, args)
 
 
 def test_run_candidate_defaults_to_docker_backend(tmp_path: Path):
