@@ -18,6 +18,7 @@ from ml_autoresearch.candidates import CandidateValidationError, validate_candid
 from ml_autoresearch.errors import GVCCSDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
+from ml_autoresearch.research_problems import get_research_problem_spec
 
 
 class RunStatus(StrEnum):
@@ -522,6 +523,8 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
         summary["reason"] = reason
     if metadata.get("failure_classification") is not None:
         summary["failure_classification"] = metadata["failure_classification"]
+    if isinstance(metadata.get("research_problem"), dict):
+        summary["research_problem"] = metadata["research_problem"]
     if "artifacts" in metadata:
         summary["artifacts"] = metadata["artifacts"]
 
@@ -599,8 +602,14 @@ def _read_evaluation_summary_dir(evaluation_dir: Path) -> dict[str, object]:
     return summary
 
 
+def _research_problem_identity(manifest: object) -> dict[str, str]:
+    spec = get_research_problem_spec(str(getattr(manifest, "research_problem")))
+    return {"id": spec.id, "version": spec.version}
+
+
 def _resolved_manifest_payload(manifest: object) -> dict[str, object]:
     payload = manifest.model_dump(mode="json")
+    payload["research_problem"] = _research_problem_identity(manifest)
     data_policy = payload.setdefault("data", {})
     selected = data_policy.get("augmentation_policy", "none")
     data_policy["augmentation_policy"] = selected
@@ -716,6 +725,7 @@ def submit_candidate(
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, repair_policy_reason, RunFailureClassification.CONTRACT_VIOLATION)
 
+    research_problem = _research_problem_identity(manifest)
     validation_log.write_text("Candidate validation accepted.\n")
     proposal_path = source / "PROPOSAL.md"
     if proposal_path.is_file():
@@ -735,6 +745,7 @@ def submit_candidate(
         training_failure_reason=None,
         execution_backend=execution_backend_metadata,
         repair_lineage=repair_lineage,
+        research_problem=research_problem,
     )
 
     try:
@@ -1007,6 +1018,7 @@ def _write_metadata(
     dataset: dict[str, object] | None = None,
     training_lifecycle: dict[str, object] | None = None,
     repair_lineage: dict[str, object] | None = None,
+    research_problem: dict[str, str] | None = None,
 ) -> None:
     existing_metadata = None
     metadata_path = run_dir / "run_metadata.json"
@@ -1033,6 +1045,10 @@ def _write_metadata(
         "smoke_failure_reason": smoke_failure_reason,
         "training_failure_reason": training_failure_reason,
     }
+    if research_problem is not None:
+        metadata["research_problem"] = research_problem
+    elif isinstance(existing_metadata, dict) and isinstance(existing_metadata.get("research_problem"), dict):
+        metadata["research_problem"] = existing_metadata["research_problem"]
     if execution_backend is not None:
         metadata["execution_backend"] = execution_backend
     if dataset is not None:

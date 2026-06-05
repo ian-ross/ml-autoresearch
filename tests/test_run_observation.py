@@ -16,6 +16,7 @@ def write_run(
     reason: str | None = None,
     best_dice: float | None = None,
     failure_classification: str | None = None,
+    research_problem: dict[str, str] | None = None,
 ) -> Path:
     run_dir = runs_root / run_id
     run_dir.mkdir(parents=True)
@@ -30,6 +31,8 @@ def write_run(
         "training_failure_reason": reason if status == "failed" else None,
         "failure_classification": failure_classification,
     }
+    if research_problem is not None:
+        metadata["research_problem"] = research_problem
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata) + "\n")
     if dice is not None:
         outputs_dir = run_dir / "outputs"
@@ -121,12 +124,20 @@ def test_agent_cli_list_runs_table_prints_empty_reason_when_reason_is_missing(tm
 
 def test_get_run_summary_reads_one_run_without_mlflow(tmp_path: Path):
     runs_root = tmp_path / "runs"
-    write_run(runs_root, "run_done", "completed", 0.82, best_dice=0.9)
+    write_run(
+        runs_root,
+        "run_done",
+        "completed",
+        0.82,
+        best_dice=0.9,
+        research_problem={"id": "ground_camera_contrail_detection", "version": "v0"},
+    )
 
     summary = get_run_summary(runs_root, "run_done")
 
     assert summary["run_id"] == "run_done"
     assert summary["status"] == "completed"
+    assert summary["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0"}
     assert summary["metrics"]["val/dice"] == 0.82
     assert summary["best_metrics"]["selection_metric"] == "val/dice"
     assert summary["best_metrics"]["selection_value"] == 0.9
