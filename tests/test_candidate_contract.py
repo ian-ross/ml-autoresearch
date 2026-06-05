@@ -4,6 +4,11 @@ import pytest
 import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.research_problems import (
+    DEFAULT_RESEARCH_PROBLEM_ID,
+    ResearchProblemSpec,
+    ResearchProblemSpecRegistry,
+)
 
 
 def write_valid_candidate(root: Path) -> Path:
@@ -70,6 +75,7 @@ def test_valid_candidate_directory_returns_normalized_manifest(tmp_path: Path):
 
     assert manifest.name == "single_frame_unet_baseline"
     assert manifest.description == "Tiny single-frame mask-only baseline for harness validation."
+    assert manifest.research_problem == DEFAULT_RESEARCH_PROBLEM_ID
     assert manifest.input_mode == "single_frame_rgb"
     assert manifest.output_form == "mask_logits"
     assert manifest.training.loss == "bce_dice"
@@ -207,6 +213,17 @@ training:
     assert manifest.data.augmentation_policy == "light_combined"
 
 
+def test_candidate_manifest_accepts_explicit_default_research_problem(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    manifest = yaml.safe_load((candidate / "manifest.yaml").read_text())
+    manifest["research_problem"] = DEFAULT_RESEARCH_PROBLEM_ID
+    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+
+    loaded = validate_candidate_directory(candidate)
+
+    assert loaded.research_problem == DEFAULT_RESEARCH_PROBLEM_ID
+
+
 def test_invalid_augmentation_policy_is_rejected(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     (candidate / "manifest.yaml").write_text(
@@ -232,6 +249,7 @@ training:
     message = str(excinfo.value)
     assert "data.augmentation_policy" in message
     assert "candidate_custom_transform" in message
+    assert DEFAULT_RESEARCH_PROBLEM_ID in message
 
 
 def test_candidate_manifest_accepts_sampling_policy(tmp_path: Path):
@@ -283,6 +301,7 @@ training:
     message = str(excinfo.value)
     assert "data.sampling_policy" in message
     assert "custom_candidate_sampler" in message
+    assert DEFAULT_RESEARCH_PROBLEM_ID in message
 
 
 def test_unknown_contract_values_are_rejected(tmp_path: Path):
@@ -309,6 +328,88 @@ training:
     assert "input_mode" in message
     assert "loss" in message
     assert "optimizer" in message
+    assert DEFAULT_RESEARCH_PROBLEM_ID in message
+
+
+def test_candidate_manifest_validates_against_fake_research_problem_spec(tmp_path: Path):
+    fake_spec = ResearchProblemSpec(
+        id="tiny_segmentation",
+        version="v1",
+        input_modes=("tiny_rgb",),
+        output_forms=("tiny_mask_logits",),
+        auxiliary_targets=("edge",),
+        auxiliary_outputs={"edge": "edge_logits"},
+        losses=("tiny_loss",),
+        auxiliary_losses=("tiny_aux_loss",),
+        optimizers=("tiny_optimizer",),
+        sampling_policies=("tiny_order",),
+        augmentation_policies=("tiny_aug",),
+        primary_metric="val/tiny_dice",
+    )
+    registry = ResearchProblemSpecRegistry((fake_spec,), default_id=fake_spec.id)
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: fake_problem_candidate
+research_problem: tiny_segmentation
+input_mode: tiny_rgb
+output_form: tiny_mask_logits
+auxiliary_targets:
+  - name: edge
+    output: edge_logits
+    loss: tiny_aux_loss
+    weight: 0.5
+data:
+  sampling_policy: tiny_order
+  augmentation_policy: tiny_aug
+training:
+  loss: tiny_loss
+  optimizer: tiny_optimizer
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    manifest = validate_candidate_directory(candidate, research_problem_registry=registry)
+
+    assert manifest.research_problem == "tiny_segmentation"
+    assert manifest.input_mode == "tiny_rgb"
+    assert manifest.output_form == "tiny_mask_logits"
+    assert manifest.auxiliary_targets[0].output == "edge_logits"
+
+
+def test_fake_research_problem_spec_rejects_values_not_in_its_allowlists(tmp_path: Path):
+    fake_spec = ResearchProblemSpec(
+        id="tiny_segmentation",
+        version="v1",
+        input_modes=("tiny_rgb",),
+        output_forms=("tiny_mask_logits",),
+        auxiliary_targets=("edge",),
+        auxiliary_outputs={"edge": "edge_logits"},
+        losses=("tiny_loss",),
+        auxiliary_losses=("tiny_aux_loss",),
+        optimizers=("tiny_optimizer",),
+        sampling_policies=("tiny_order",),
+        augmentation_policies=("tiny_aug",),
+        primary_metric="val/tiny_dice",
+    )
+    registry = ResearchProblemSpecRegistry((fake_spec,), default_id=fake_spec.id)
+    candidate = write_valid_candidate(tmp_path)
+    manifest = yaml.safe_load((candidate / "manifest.yaml").read_text())
+    manifest["research_problem"] = "tiny_segmentation"
+    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate, research_problem_registry=registry)
+
+    message = str(excinfo.value)
+    assert "tiny_segmentation" in message
+    assert "input_mode" in message
+    assert "output_form" in message
+    assert "training.loss" in message
+    assert "training.optimizer" in message
 
 
 def test_training_scalar_ranges_are_checked(tmp_path: Path):

@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from ml_autoresearch.research_problems import (
+    DEFAULT_RESEARCH_PROBLEM_ID,
+    ResearchProblemSpec,
+    ResearchProblemSpecRegistry,
+    UnknownResearchProblemSpecError,
+    get_default_research_problem_spec,
+)
 
 
 class CandidateValidationError(ValueError):
@@ -17,8 +25,8 @@ class CandidateValidationError(ValueError):
 class TrainingManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    loss: Literal["bce_dice"]
-    optimizer: Literal["adamw"]
+    loss: str = Field(min_length=1)
+    optimizer: str = Field(min_length=1)
     learning_rate: float = Field(ge=1e-5, le=3e-3)
     batch_size: int = Field(ge=1, le=32)
     max_epochs: int = Field(ge=1, le=100)
@@ -27,25 +35,17 @@ class TrainingManifest(BaseModel):
 class DataManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sampling_policy: Literal["sequential", "deterministic_shuffle"] = "sequential"
-    augmentation_policy: Literal["none", "light_geometric", "light_photometric", "light_combined"] = "none"
+    sampling_policy: str = Field(default="sequential", min_length=1)
+    augmentation_policy: str = Field(default="none", min_length=1)
 
 
 class AuxiliaryTargetManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: Literal["line", "boundary"]
-    output: Literal["line_logits", "boundary_logits"]
-    loss: Literal["weighted_bce"]
+    name: str = Field(min_length=1)
+    output: str = Field(min_length=1)
+    loss: str = Field(min_length=1)
     weight: float = Field(ge=0.0, le=1.0)
-
-    @model_validator(mode="after")
-    def output_matches_target(self) -> "AuxiliaryTargetManifest":
-        expected_outputs = {"line": "line_logits", "boundary": "boundary_logits"}
-        expected = expected_outputs[self.name]
-        if self.output != expected:
-            raise ValueError(f"{self.name} auxiliary target must use {expected}")
-        return self
 
 
 class RepairLineage(BaseModel):
@@ -80,8 +80,9 @@ class CandidateManifest(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
-    input_mode: Literal["single_frame_rgb"]
-    output_form: Literal["mask_logits"]
+    research_problem: str = Field(default=DEFAULT_RESEARCH_PROBLEM_ID, min_length=1)
+    input_mode: str = Field(min_length=1)
+    output_form: str = Field(min_length=1)
     auxiliary_targets: list[AuxiliaryTargetManifest] = Field(default_factory=list)
     data: DataManifest = Field(default_factory=DataManifest)
     training: TrainingManifest
@@ -142,6 +143,7 @@ def validate_candidate_directory(
     *,
     require_proposal: bool = False,
     require_readme: bool = False,
+    research_problem_registry: ResearchProblemSpecRegistry | None = None,
 ) -> CandidateManifest:
     """Validate a local Candidate Experiment directory and return its manifest.
 
@@ -153,6 +155,8 @@ def validate_candidate_directory(
             required pre-code Experiment Proposal sections.
         require_readme: Require a local ``README.md`` file for autonomous
             submission documentation.
+        research_problem_registry: Trusted registry used to validate
+            Research Problem-scoped manifest allowlists. Defaults to built-ins.
     """
 
     path = Path(candidate_dir)
@@ -167,7 +171,7 @@ def validate_candidate_directory(
         _validate_proposal_file(path / "PROPOSAL.md")
     if require_readme:
         _validate_readme_file(path / "README.md")
-    return _load_manifest(path / "manifest.yaml")
+    return _load_manifest(path / "manifest.yaml", research_problem_registry=research_problem_registry)
 
 
 def _validate_required_files(path: Path) -> None:
@@ -248,7 +252,11 @@ def _match_required_sections(text: str) -> set[str]:
     return {required for required, synonyms in _SECTION_SYNONYMS.items() if normalized in synonyms}
 
 
-def _load_manifest(path: Path) -> CandidateManifest:
+def _load_manifest(
+    path: Path,
+    *,
+    research_problem_registry: ResearchProblemSpecRegistry | None = None,
+) -> CandidateManifest:
     try:
         loaded = yaml.safe_load(path.read_text())
     except yaml.YAMLError as exc:
@@ -260,12 +268,78 @@ def _load_manifest(path: Path) -> CandidateManifest:
         raise CandidateValidationError("manifest.yaml must contain a mapping")
 
     try:
-        return CandidateManifest.model_validate(loaded)
+        manifest = CandidateManifest.model_validate(loaded)
     except ValidationError as exc:
-        details = []
-        for error in exc.errors():
-            loc = ".".join(str(part) for part in error["loc"])
-            input_value = error.get("input")
-            input_detail = f" (got {input_value!r})" if input_value is not None else ""
-            details.append(f"{loc}: {error['msg']}{input_detail}")
+        details = _validation_error_details(exc)
         raise CandidateValidationError("invalid manifest.yaml: " + "; ".join(details)) from exc
+
+    spec = _resolve_research_problem_spec(manifest.research_problem, research_problem_registry)
+    details = _manifest_allowlist_errors(manifest, spec)
+    if details:
+        raise CandidateValidationError("invalid manifest.yaml: " + "; ".join(details))
+    return manifest
+
+
+def _validation_error_details(exc: ValidationError) -> list[str]:
+    details = []
+    for error in exc.errors():
+        loc = ".".join(str(part) for part in error["loc"])
+        input_value = error.get("input")
+        input_detail = f" (got {input_value!r})" if input_value is not None else ""
+        details.append(f"{loc}: {error['msg']}{input_detail}")
+    return details
+
+
+def _resolve_research_problem_spec(
+    spec_id: str,
+    registry: ResearchProblemSpecRegistry | None,
+) -> ResearchProblemSpec:
+    if registry is None:
+        if spec_id == DEFAULT_RESEARCH_PROBLEM_ID:
+            return get_default_research_problem_spec()
+        registry = ResearchProblemSpecRegistry((get_default_research_problem_spec(),))
+    try:
+        return registry.get(spec_id)
+    except UnknownResearchProblemSpecError as exc:
+        raise CandidateValidationError(f"invalid manifest.yaml: research_problem: {exc}") from exc
+
+
+def _manifest_allowlist_errors(manifest: CandidateManifest, spec: ResearchProblemSpec) -> list[str]:
+    context = f"for Research Problem {spec.id!r}"
+    errors: list[str] = []
+    _append_allowlist_error(errors, "input_mode", manifest.input_mode, spec.input_modes, context)
+    _append_allowlist_error(errors, "output_form", manifest.output_form, spec.output_forms, context)
+    _append_allowlist_error(errors, "training.loss", manifest.training.loss, spec.losses, context)
+    _append_allowlist_error(errors, "training.optimizer", manifest.training.optimizer, spec.optimizers, context)
+    _append_allowlist_error(errors, "data.sampling_policy", manifest.data.sampling_policy, spec.sampling_policies, context)
+    _append_allowlist_error(
+        errors,
+        "data.augmentation_policy",
+        manifest.data.augmentation_policy,
+        spec.augmentation_policies,
+        context,
+    )
+
+    for index, target in enumerate(manifest.auxiliary_targets):
+        prefix = f"auxiliary_targets.{index}"
+        _append_allowlist_error(errors, f"{prefix}.name", target.name, spec.auxiliary_targets, context)
+        _append_allowlist_error(errors, f"{prefix}.loss", target.loss, spec.auxiliary_losses, context)
+        expected_output = spec.auxiliary_outputs.get(target.name)
+        if expected_output is None:
+            # The target-name error above is clearer than also reporting output mismatch.
+            continue
+        if target.output != expected_output:
+            errors.append(f"{prefix}.output: {target.name} auxiliary target must use {expected_output} {context} (got {target.output!r})")
+    return errors
+
+
+def _append_allowlist_error(
+    errors: list[str],
+    field: str,
+    value: str,
+    allowed: tuple[str, ...],
+    context: str,
+) -> None:
+    if value not in allowed:
+        allowed_values = ", ".join(repr(item) for item in allowed)
+        errors.append(f"{field}: unsupported value {context}; expected one of {allowed_values} (got {value!r})")
