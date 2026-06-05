@@ -17,6 +17,12 @@ from torch import nn
 import yaml
 
 from ml_autoresearch.errors import SmokeTestError
+from ml_autoresearch.research_problems import (
+    DEFAULT_RESEARCH_PROBLEM_ID,
+    ResearchProblemSpecError,
+    ResearchProblemSpecRegistry,
+    get_research_problem_spec,
+)
 
 
 INPUT_SPEC = {"mode": "single_frame_rgb", "shape": [3, 128, 128]}
@@ -37,18 +43,25 @@ def smoke_test_run(run_dir: str | Path) -> SmokeTestResult:
     """Import copied candidate/model.py and run a cheap synthetic PyTorch check."""
 
     path = Path(run_dir)
-    output_spec = output_spec_from_resolved_manifest(path / "resolved_manifest.yaml")
-    return smoke_test_candidate(path / "candidate", path / "outputs", output_spec=output_spec)
+    input_spec, output_spec = smoke_specs_from_resolved_manifest(path / "resolved_manifest.yaml")
+    return smoke_test_candidate(path / "candidate", path / "outputs", input_spec=input_spec, output_spec=output_spec)
 
 
 def smoke_test_candidate(
-    candidate_dir: str | Path, outputs_dir: str | Path, *, output_spec: dict[str, object] | None = None
+    candidate_dir: str | Path,
+    outputs_dir: str | Path,
+    *,
+    input_spec: dict[str, object] | None = None,
+    output_spec: dict[str, object] | None = None,
 ) -> SmokeTestResult:
     """Import a Candidate Experiment and write smoke-test outputs under outputs_dir."""
 
     candidate_dir = Path(candidate_dir)
     outputs_dir = Path(outputs_dir)
+    input_spec = dict(input_spec or INPUT_SPEC)
     output_spec = dict(output_spec or OUTPUT_SPEC)
+    synthetic_batch_shape = [2, *_spec_shape(input_spec, "input_spec")]
+    synthetic_target_shape = [2, *_spec_shape(output_spec, "output_spec")]
     log_path = outputs_dir / "logs" / "smoke_test.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -60,7 +73,7 @@ def smoke_test_candidate(
             raise SmokeTestError("missing required build_model(input_spec, output_spec)")
 
         try:
-            model = build_model(dict(INPUT_SPEC), dict(output_spec))
+            model = build_model(dict(input_spec), dict(output_spec))
         except Exception as exc:  # noqa: BLE001 - convert candidate exceptions to smoke failures.
             raise SmokeTestError(f"build_model failed: {exc}") from exc
 
@@ -74,8 +87,8 @@ def smoke_test_candidate(
             )
 
         model.train()
-        inputs = torch.zeros(SYNTHETIC_BATCH_SHAPE, dtype=torch.float32)
-        target = torch.zeros(SYNTHETIC_TARGET_SHAPE, dtype=torch.float32)
+        inputs = torch.zeros(synthetic_batch_shape, dtype=torch.float32)
+        target = torch.zeros(synthetic_target_shape, dtype=torch.float32)
 
         try:
             raw_output = model(inputs)
@@ -95,10 +108,10 @@ def smoke_test_candidate(
         summary = {
             "parameter_count": parameter_count,
             "parameter_budget": {"max_parameters": MAX_PARAMETER_COUNT},
-            "input_spec": INPUT_SPEC,
+            "input_spec": input_spec,
             "output_spec": output_spec,
-            "synthetic_batch_shape": SYNTHETIC_BATCH_SHAPE,
-            "synthetic_target_shape": SYNTHETIC_TARGET_SHAPE,
+            "synthetic_batch_shape": synthetic_batch_shape,
+            "synthetic_target_shape": synthetic_target_shape,
             "output": {
                 "names": output_names,
                 "shape": list(mask_logits.shape),
@@ -109,7 +122,7 @@ def smoke_test_candidate(
         lines.append(f"Parameter count: {parameter_count}")
         lines.append("Smoke test accepted.")
         log_path.write_text("\n".join(lines) + "\n")
-        return SmokeTestResult(parameter_count, dict(INPUT_SPEC), dict(output_spec))
+        return SmokeTestResult(parameter_count, dict(input_spec), dict(output_spec))
     except SmokeTestError as exc:
         lines.append(f"Smoke test failed: {exc}")
         log_path.write_text("\n".join(lines) + "\n")
@@ -122,18 +135,43 @@ def smoke_test_candidate(
         raise SmokeTestError(reason) from exc
 
 
-def output_spec_from_resolved_manifest(path: str | Path) -> dict[str, object]:
+def smoke_specs_from_resolved_manifest(
+    path: str | Path,
+    *,
+    research_problem_registry: ResearchProblemSpecRegistry | None = None,
+) -> tuple[dict[str, object], dict[str, object]]:
     manifest = yaml.safe_load(Path(path).read_text())
     if not isinstance(manifest, dict):
         raise SmokeTestError("resolved_manifest.yaml must contain a mapping")
-    auxiliary_outputs = [
-        {"target": target["name"], "name": target["output"], "shape": [1, 128, 128]}
-        for target in manifest.get("auxiliary_targets", [])
-    ]
-    output_spec: dict[str, object] = {"form": "mask_logits", "shape": [1, 128, 128]}
-    if auxiliary_outputs:
-        output_spec["auxiliary_outputs"] = auxiliary_outputs
-    return output_spec
+    try:
+        spec = _research_problem_spec_for_resolved_manifest(manifest, research_problem_registry)
+        return spec.build_input_spec(manifest), spec.build_output_spec(manifest)
+    except ResearchProblemSpecError as exc:
+        raise SmokeTestError(str(exc)) from exc
+
+
+def input_spec_from_resolved_manifest(path: str | Path) -> dict[str, object]:
+    return smoke_specs_from_resolved_manifest(path)[0]
+
+
+def output_spec_from_resolved_manifest(path: str | Path) -> dict[str, object]:
+    return smoke_specs_from_resolved_manifest(path)[1]
+
+
+def _research_problem_spec_for_resolved_manifest(
+    manifest: dict[str, object],
+    registry: ResearchProblemSpecRegistry | None,
+):
+    research_problem = manifest.get("research_problem")
+    if isinstance(research_problem, dict):
+        spec_id = str(research_problem.get("id", DEFAULT_RESEARCH_PROBLEM_ID))
+    elif isinstance(research_problem, str):
+        spec_id = research_problem
+    else:
+        spec_id = DEFAULT_RESEARCH_PROBLEM_ID
+    if registry is not None:
+        return registry.get(spec_id)
+    return get_research_problem_spec(spec_id)
 
 
 def expected_output_names(output_spec: dict[str, object]) -> list[str]:
@@ -143,8 +181,21 @@ def expected_output_names(output_spec: dict[str, object]) -> list[str]:
     return ["mask_logits", *[str(item["name"]) for item in auxiliary_outputs]]
 
 
+def _expected_output_shapes(output_spec: dict[str, object]) -> dict[str, list[int]]:
+    shapes = {"mask_logits": _spec_shape(output_spec, "output_spec")}
+    auxiliary_outputs = output_spec.get("auxiliary_outputs", [])
+    if not isinstance(auxiliary_outputs, list):
+        raise SmokeTestError("output_spec auxiliary_outputs must be a list")
+    for item in auxiliary_outputs:
+        if not isinstance(item, dict):
+            raise SmokeTestError("output_spec auxiliary_outputs must contain mappings")
+        shapes[str(item["name"])] = _spec_shape(item, f"output_spec auxiliary output {item.get('name')!r}")
+    return shapes
+
+
 def _extract_expected_outputs(raw_output: object, output_spec: dict[str, object]) -> dict[str, torch.Tensor]:
     expected_names = expected_output_names(output_spec)
+    expected_shapes = _expected_output_shapes(output_spec)
     if isinstance(raw_output, torch.Tensor):
         if expected_names != ["mask_logits"]:
             raise SmokeTestError("tensor output shorthand is only valid for mask-only candidates")
@@ -162,7 +213,7 @@ def _extract_expected_outputs(raw_output: object, output_spec: dict[str, object]
     else:
         raise SmokeTestError("model output must be Tensor or a dict of named tensors")
     for name, tensor in outputs.items():
-        _validate_output_tensor(name, tensor)
+        _validate_output_tensor(name, tensor, expected_shapes[name])
     return outputs
 
 
@@ -171,12 +222,20 @@ def _extract_mask_logits(raw_output: object, output_spec: dict[str, object] | No
     return outputs["mask_logits"], list(outputs.keys())
 
 
-def _validate_output_tensor(name: str, tensor: torch.Tensor) -> None:
-    expected_tail = tuple(SYNTHETIC_TARGET_SHAPE[1:])
-    if tensor.ndim != 4 or tuple(tensor.shape[1:]) != expected_tail:
-        raise SmokeTestError(f"bad output shape for '{name}': {list(tensor.shape)}; expected [B, {expected_tail[0]}, {expected_tail[1]}, {expected_tail[2]}]")
+def _validate_output_tensor(name: str, tensor: torch.Tensor, expected_shape: list[int]) -> None:
+    expected_tail = tuple(expected_shape)
+    if tensor.ndim != len(expected_tail) + 1 or tuple(tensor.shape[1:]) != expected_tail:
+        expected = ", ".join(str(dim) for dim in expected_tail)
+        raise SmokeTestError(f"bad output shape for '{name}': {list(tensor.shape)}; expected [B, {expected}]")
     if not torch.is_floating_point(tensor):
         raise SmokeTestError(f"bad output dtype for '{name}': {tensor.dtype}; expected floating point logits")
+
+
+def _spec_shape(spec: dict[str, object], label: str) -> list[int]:
+    shape = spec.get("shape")
+    if not isinstance(shape, list) or not shape or not all(isinstance(dim, int) and dim > 0 for dim in shape):
+        raise SmokeTestError(f"{label} must contain a positive integer shape list")
+    return list(shape)
 
 
 def _import_candidate_model(candidate_dir: Path) -> ModuleType:

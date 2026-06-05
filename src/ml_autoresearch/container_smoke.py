@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ml_autoresearch.smoke import output_spec_from_resolved_manifest, smoke_test_candidate
+from ml_autoresearch.smoke import smoke_specs_from_resolved_manifest, smoke_test_candidate
 
 
 def smoke_test_container(
@@ -14,8 +14,8 @@ def smoke_test_container(
 ) -> None:
     """Run container smoke testing using the mounted Run-scoped Resolved Manifest."""
 
-    output_spec = output_spec_from_resolved_manifest(resolved_manifest_path)
-    smoke_test_candidate(candidate_dir, outputs_dir, output_spec=output_spec)
+    input_spec, output_spec = smoke_specs_from_resolved_manifest(resolved_manifest_path)
+    smoke_test_candidate(candidate_dir, outputs_dir, input_spec=input_spec, output_spec=output_spec)
 
 
 def main() -> None:

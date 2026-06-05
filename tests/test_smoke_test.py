@@ -225,3 +225,49 @@ def test_auxiliary_output_smoke_failures_are_recorded(tmp_path: Path, model_py: 
 
     assert run.status == RunStatus.SMOKE_FAILED
     assert run.rejection_reason and expected_reason in run.rejection_reason
+
+
+def test_smoke_specs_from_resolved_manifest_use_fake_research_problem_spec(tmp_path: Path):
+    from ml_autoresearch.research_problems import ResearchProblemSpec, ResearchProblemSpecRegistry
+    from ml_autoresearch.smoke import smoke_specs_from_resolved_manifest
+
+    fake = ResearchProblemSpec(
+        id="fake_temporal_problem",
+        version="test-v0",
+        input_modes=("tiny_clip_rgb",),
+        input_specs={"tiny_clip_rgb": {"mode": "tiny_clip_rgb", "shape": [5, 3, 16, 16]}},
+        output_forms=("tiny_mask_logits",),
+        output_specs={"tiny_mask_logits": {"form": "tiny_mask_logits", "shape": [1, 16, 16]}},
+        auxiliary_targets=("edge",),
+        auxiliary_outputs={"edge": "edge_logits"},
+        auxiliary_output_shapes={"edge": [1, 16, 16]},
+        losses=("tiny_loss",),
+        auxiliary_losses=("tiny_aux_loss",),
+        optimizers=("sgd",),
+        sampling_policies=("sequential",),
+        augmentation_policies=("none",),
+        primary_metric="val/tiny_score",
+    )
+    registry = ResearchProblemSpecRegistry((fake,), default_id=fake.id)
+    resolved_manifest = tmp_path / "resolved_manifest.yaml"
+    resolved_manifest.write_text(
+        """
+research_problem:
+  id: fake_temporal_problem
+  version: test-v0
+input_mode: tiny_clip_rgb
+output_form: tiny_mask_logits
+auxiliary_targets:
+  - name: edge
+    output: edge_logits
+""".strip() + "\n"
+    )
+
+    input_spec, output_spec = smoke_specs_from_resolved_manifest(resolved_manifest, research_problem_registry=registry)
+
+    assert input_spec == {"mode": "tiny_clip_rgb", "shape": [5, 3, 16, 16]}
+    assert output_spec == {
+        "form": "tiny_mask_logits",
+        "shape": [1, 16, 16],
+        "auxiliary_outputs": [{"target": "edge", "name": "edge_logits", "shape": [1, 16, 16]}],
+    }

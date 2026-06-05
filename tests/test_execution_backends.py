@@ -307,7 +307,7 @@ def test_docker_backend_evaluate_run_data_root_override_is_validated_and_mounted
     assert f"{metadata_root.resolve(strict=True)}:/data:ro,z" not in joined
 
 
-def test_container_smoke_uses_mounted_resolved_manifest_for_output_spec(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_container_smoke_uses_mounted_resolved_manifest_for_smoke_specs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import ml_autoresearch.container_smoke as container_smoke
 
     candidate_dir = tmp_path / "candidate"
@@ -336,8 +336,8 @@ training:
     )
     calls = []
 
-    def fake_smoke_test_candidate(candidate_arg, outputs_arg, *, output_spec=None):
-        calls.append((candidate_arg, outputs_arg, output_spec))
+    def fake_smoke_test_candidate(candidate_arg, outputs_arg, *, input_spec=None, output_spec=None):
+        calls.append((candidate_arg, outputs_arg, input_spec, output_spec))
 
     monkeypatch.setattr(container_smoke, "smoke_test_candidate", fake_smoke_test_candidate)
 
@@ -347,6 +347,7 @@ training:
         (
             candidate_dir,
             outputs_dir,
+            {"mode": "single_frame_rgb", "shape": [3, 128, 128]},
             {
                 "form": "mask_logits",
                 "shape": [1, 128, 128],
