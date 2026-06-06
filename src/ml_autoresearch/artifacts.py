@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,6 @@ import torch
 from torch.utils.data import DataLoader
 
 from ml_autoresearch.metrics import binary_segmentation_metrics
-from ml_autoresearch.problem_support.frame_sequences import infer_timestamped_frame_sequences
 from ml_autoresearch.problem_support.imaging import (
     save_mask_tensor,
     save_overlay,
@@ -29,25 +29,32 @@ def write_prediction_sample_artifacts(
     max_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     output_spec: dict[str, object] | None = None,
+    sample_selector: Callable[[object], list[dict[str, Any]]] | None = None,
+    display_input_renderer: Callable[[torch.Tensor], torch.Tensor] | None = None,
+    sample_artifact_writer: Callable[[Path, dict[str, str], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], None]
+    | None = None,
 ) -> dict[str, object]:
-    """Write bounded qualitative Contrail Mask prediction samples for a Run."""
+    """Write bounded qualitative prediction samples for a Run."""
 
     if max_samples < 1:
         raise ValueError("max_samples must be at least 1")
-    if prediction_sample_policy not in {"first_n", "adjacent_and_scattered"}:
+    if prediction_sample_policy != "first_n" and sample_selector is None:
         raise ValueError(f"unsupported prediction sample policy: {prediction_sample_policy}")
 
     root = Path(run_dir)
     samples_dir = root / "outputs" / "prediction_samples"
     samples_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset_samples = getattr(data_loader.dataset, "samples", None)
-    if isinstance(dataset_samples, list):
-        selections = select_prediction_sample_indices(dataset_samples, policy=prediction_sample_policy, max_samples=max_samples)
+    if sample_selector is not None:
+        selections = sample_selector(data_loader.dataset)
     else:
+        dataset_samples = getattr(data_loader.dataset, "samples", None)
         selections = select_prediction_sample_indices(
-            list(range(len(data_loader.dataset))), policy="first_n", max_samples=max_samples
+            dataset_samples if isinstance(dataset_samples, list) else list(range(len(data_loader.dataset))),
+            policy=prediction_sample_policy,
+            max_samples=max_samples,
         )
+    selections = selections[:max_samples]
     sample_records: list[dict[str, Any]] = []
     model.eval()
     device = _model_device(model)
@@ -68,14 +75,12 @@ def write_prediction_sample_artifacts(
                 "overlay": f"{prefix}_overlay.png",
                 "probability_heatmap": f"{prefix}_probability_heatmap.png",
             }
-            image = _display_rgb_from_model_input(inputs.detach().cpu().clamp(0.0, 1.0))
+            renderer = display_input_renderer or _display_rgb_from_model_input
+            image = renderer(inputs.detach().cpu().clamp(0.0, 1.0))
             target = target.detach().cpu() >= 0.5
 
-            save_rgb_tensor(samples_dir / paths["input"], image)
-            save_mask_tensor(samples_dir / paths["ground_truth"], target)
-            save_mask_tensor(samples_dir / paths["prediction"], prediction)
-            save_overlay(samples_dir / paths["overlay"], image, target, prediction)
-            save_probability_heatmap(samples_dir / paths["probability_heatmap"], probabilities)
+            writer = sample_artifact_writer or _write_binary_segmentation_sample_images
+            writer(samples_dir, paths, image, target, prediction, probabilities)
 
             metrics = binary_segmentation_metrics(prediction.unsqueeze(0), target.unsqueeze(0))
             record: dict[str, Any] = {
@@ -110,99 +115,13 @@ def select_prediction_sample_indices(samples: object, *, policy: str, max_sample
         return [_selection(index, "first_n") for index in range(max_samples)]
     if policy == "first_n":
         return [_selection(index, "first_n") for index in range(min(max_samples, len(samples)))]
-    if policy != "adjacent_and_scattered":
-        raise ValueError(f"unsupported prediction sample policy: {policy}")
-    return _select_adjacent_and_scattered(samples, max_samples=max_samples)
-
-
-def _select_adjacent_and_scattered(samples: list[object], *, max_samples: int) -> list[dict[str, Any]]:
-    index_by_identity = {id(sample): index for index, sample in enumerate(samples)}
-    sequences = infer_timestamped_frame_sequences(samples, filename_for_item=lambda sample: getattr(sample, "image_path", ""))
-    eligible_sequences = [sequence for sequence in sequences if len(sequence) >= 2 and any(_is_positive(sample) for sample in sequence)]
-    selections: list[dict[str, Any]] = []
-
-    scattered_budget = 0 if max_samples < 3 else max(1, min(2, max_samples // 3))
-    adjacent_budget = max_samples - scattered_budget
-    if eligible_sequences and adjacent_budget >= 2:
-        window_length = 3 if adjacent_budget >= 6 and any(len(sequence) >= 3 for sequence in eligible_sequences) else 2
-        window_count = max(1, adjacent_budget // window_length)
-        for window_number, sequence_position in enumerate(_spread_positions(len(eligible_sequences), window_count)):
-            if len(selections) + 2 > adjacent_budget:
-                break
-            sequence = eligible_sequences[sequence_position]
-            window = _positive_adjacent_window(sequence, window_length)
-            frame_sequence_id = _frame_sequence_id(sequence)
-            window_id = f"{frame_sequence_id}/window_{window_number:03d}"
-            for offset, sample in enumerate(window):
-                if len(selections) >= adjacent_budget:
-                    break
-                selections.append(
-                    _selection(
-                        index_by_identity[id(sample)],
-                        "adjacent_window",
-                        frame_sequence_id=frame_sequence_id,
-                        adjacent_window_id=window_id,
-                        window_offset=offset,
-                    )
-                )
-
-    remaining_budget = max_samples - len(selections)
-    if remaining_budget > 0:
-        already_selected = {int(selection["dataset_index"]) for selection in selections}
-        selections.extend(_scattered_singletons(samples, remaining_budget, already_selected=already_selected))
-    return selections[:max_samples]
-
-
-def _positive_adjacent_window(sequence: list[object], window_length: int) -> list[object]:
-    window_length = min(window_length, len(sequence))
-    for start in range(0, len(sequence) - window_length + 1):
-        window = sequence[start : start + window_length]
-        if any(_is_positive(sample) for sample in window):
-            return window
-    return sequence[:window_length]
-
-
-def _scattered_singletons(
-    samples: list[object], budget: int, *, already_selected: set[int]
-) -> list[dict[str, Any]]:
-    available_positive = [index for index, sample in enumerate(samples) if index not in already_selected and _is_positive(sample)]
-    available_negative = [index for index, sample in enumerate(samples) if index not in already_selected and not _is_positive(sample)]
-    negative_count = 1 if budget >= 2 and available_negative else 0
-    positive_count = min(len(available_positive), budget - negative_count)
-    indices = _spread_values(available_positive, positive_count)
-    indices.extend(_spread_values(available_negative, min(negative_count, budget - len(indices))))
-    if len(indices) < budget:
-        remaining = [index for index in range(len(samples)) if index not in already_selected and index not in indices]
-        indices.extend(_spread_values(remaining, budget - len(indices)))
-    return [_selection(index, "scattered_singleton") for index in indices[:budget]]
-
-
-def _spread_positions(count: int, requested: int) -> list[int]:
-    if count <= 0 or requested <= 0:
-        return []
-    if requested >= count:
-        return list(range(count))
-    if requested == 1:
-        return [0]
-    return [round(position * (count - 1) / (requested - 1)) for position in range(requested)]
-
-
-def _spread_values(values: list[int], requested: int) -> list[int]:
-    return [values[position] for position in _spread_positions(len(values), requested)]
+    raise ValueError(f"unsupported prediction sample policy: {policy}")
 
 
 def _selection(dataset_index: int, selection_kind: str, **extra: object) -> dict[str, Any]:
     payload: dict[str, Any] = {"dataset_index": dataset_index, "selection_kind": selection_kind}
     payload.update(extra)
     return payload
-
-
-def _frame_sequence_id(sequence: list[object]) -> str:
-    return Path(getattr(sequence[0], "image_path")).stem
-
-
-def _is_positive(sample: object) -> bool:
-    return bool(getattr(sample, "segmentations", ()))
 
 
 def _model_device(model: torch.nn.Module) -> torch.device:
@@ -215,9 +134,22 @@ def _model_device(model: torch.nn.Module) -> torch.device:
 def _display_rgb_from_model_input(inputs: torch.Tensor) -> torch.Tensor:
     if inputs.ndim == 3 and inputs.shape[0] == 3:
         return inputs
-    if inputs.ndim == 3 and inputs.shape[0] == 9:
-        return inputs[3:6]
     raise ValueError(f"cannot render prediction sample input with shape {tuple(inputs.shape)} as RGB")
+
+
+def _write_binary_segmentation_sample_images(
+    samples_dir: Path,
+    paths: dict[str, str],
+    image: torch.Tensor,
+    target: torch.Tensor,
+    prediction: torch.Tensor,
+    probabilities: torch.Tensor,
+) -> None:
+    save_rgb_tensor(samples_dir / paths["input"], image)
+    save_mask_tensor(samples_dir / paths["ground_truth"], target)
+    save_mask_tensor(samples_dir / paths["prediction"], prediction)
+    save_overlay(samples_dir / paths["overlay"], image, target, prediction)
+    save_probability_heatmap(samples_dir / paths["probability_heatmap"], probabilities)
 
 
 def _source_image_path(dataset: object, index: int) -> str | None:

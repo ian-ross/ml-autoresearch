@@ -372,6 +372,9 @@ def _train_manifest_epochs_run(
             max_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
             output_spec=output_spec,
+            sample_selector=_prediction_sample_selector(training_adapter, prediction_sample_policy, max_prediction_samples),
+            display_input_renderer=_prediction_sample_input_renderer(training_adapter),
+            sample_artifact_writer=_prediction_sample_artifact_writer(training_adapter),
         )
         artifacts["best_metrics"] = "outputs/best_metrics.json"
         artifacts["best_epoch_model"] = "outputs/models/best_epoch_model.pt"
@@ -391,6 +394,31 @@ def _train_manifest_epochs_run(
         if isinstance(exc, TrainingError):
             raise
         raise TrainingError(reason) from exc
+
+
+def _prediction_sample_selector(training_adapter: object | None, policy: str, max_samples: int):
+    selector = getattr(training_adapter, "select_prediction_samples", None)
+    if selector is None:
+        return None
+
+    def select(dataset: object) -> list[dict[str, object]]:
+        return selector(dataset, policy=policy, max_samples=max_samples)
+
+    return select
+
+
+def _prediction_sample_input_renderer(training_adapter: object | None):
+    renderer = getattr(training_adapter, "display_prediction_sample_input", None)
+    if renderer is None:
+        return None
+    return renderer
+
+
+def _prediction_sample_artifact_writer(training_adapter: object | None):
+    writer = getattr(training_adapter, "write_prediction_sample_images", None)
+    if writer is None:
+        return None
+    return writer
 
 
 def _data_loader_for_sampling(

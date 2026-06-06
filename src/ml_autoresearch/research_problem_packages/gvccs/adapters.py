@@ -132,6 +132,55 @@ class GVCCSTrainingAdapter:
     def selection_policy(self) -> tuple[str, str]:
         return "val/dice", "max"
 
+    def select_prediction_samples(self, dataset: object, *, policy: str, max_samples: int) -> list[dict[str, object]]:
+        """Select bounded qualitative prediction samples for GVCCS validation datasets."""
+
+        samples = getattr(dataset, "samples", None)
+        if not isinstance(samples, list):
+            from ml_autoresearch.artifacts import select_prediction_sample_indices
+
+            return select_prediction_sample_indices(list(range(len(dataset))), policy="first_n", max_samples=max_samples)  # type: ignore[arg-type]
+        if policy == "first_n":
+            from ml_autoresearch.artifacts import select_prediction_sample_indices
+
+            return select_prediction_sample_indices(samples, policy="first_n", max_samples=max_samples)
+        if policy != "adjacent_and_scattered":
+            raise TrainingError(f"unsupported prediction sample policy: {policy}")
+        return _select_adjacent_and_scattered_prediction_samples(samples, max_samples=max_samples)
+
+    def display_prediction_sample_input(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Choose the GVCCS RGB Target Frame view for qualitative prediction figures."""
+
+        if inputs.ndim == 3 and inputs.shape[0] == 3:
+            return inputs
+        if inputs.ndim == 3 and inputs.shape[0] == 9:
+            return inputs[3:6]
+        raise TrainingError(f"cannot render prediction sample input with shape {tuple(inputs.shape)} as RGB")
+
+    def write_prediction_sample_images(
+        self,
+        samples_dir: Path,
+        paths: dict[str, str],
+        image: torch.Tensor,
+        target: torch.Tensor,
+        prediction: torch.Tensor,
+        probabilities: torch.Tensor,
+    ) -> None:
+        """Write GVCCS Contrail Mask qualitative figure images."""
+
+        from ml_autoresearch.problem_support.imaging import (
+            save_mask_tensor,
+            save_overlay,
+            save_probability_heatmap,
+            save_rgb_tensor,
+        )
+
+        save_rgb_tensor(samples_dir / paths["input"], image)
+        save_mask_tensor(samples_dir / paths["ground_truth"], target)
+        save_mask_tensor(samples_dir / paths["prediction"], prediction)
+        save_overlay(samples_dir / paths["overlay"], image, target, prediction)
+        save_probability_heatmap(samples_dir / paths["probability_heatmap"], probabilities)
+
     def _build_split_datasets(
         self,
         *,
@@ -187,6 +236,92 @@ class _AugmentedContrailDataset:
         if self.augmentation_policy in {"light_photometric", "light_combined"}:
             image = _apply_light_photometric_augmentation(image, index=index)
         return image, mask
+
+
+def _select_adjacent_and_scattered_prediction_samples(samples: list[object], *, max_samples: int) -> list[dict[str, object]]:
+    from ml_autoresearch.problem_support.frame_sequences import infer_timestamped_frame_sequences
+
+    index_by_identity = {id(sample): index for index, sample in enumerate(samples)}
+    sequences = infer_timestamped_frame_sequences(samples, filename_for_item=lambda sample: getattr(sample, "image_path", ""))
+    eligible_sequences = [sequence for sequence in sequences if len(sequence) >= 2 and any(_is_positive_sample(sample) for sample in sequence)]
+    selections: list[dict[str, object]] = []
+
+    scattered_budget = 0 if max_samples < 3 else max(1, min(2, max_samples // 3))
+    adjacent_budget = max_samples - scattered_budget
+    if eligible_sequences and adjacent_budget >= 2:
+        window_length = 3 if adjacent_budget >= 6 and any(len(sequence) >= 3 for sequence in eligible_sequences) else 2
+        window_count = max(1, adjacent_budget // window_length)
+        for window_number, sequence_position in enumerate(_spread_positions(len(eligible_sequences), window_count)):
+            if len(selections) + 2 > adjacent_budget:
+                break
+            sequence = eligible_sequences[sequence_position]
+            window = _positive_adjacent_window(sequence, window_length)
+            frame_sequence_id = Path(getattr(sequence[0], "image_path")).stem
+            window_id = f"{frame_sequence_id}/window_{window_number:03d}"
+            for offset, sample in enumerate(window):
+                if len(selections) >= adjacent_budget:
+                    break
+                selections.append(
+                    _prediction_selection(
+                        index_by_identity[id(sample)],
+                        "adjacent_window",
+                        frame_sequence_id=frame_sequence_id,
+                        adjacent_window_id=window_id,
+                        window_offset=offset,
+                    )
+                )
+
+    remaining_budget = max_samples - len(selections)
+    if remaining_budget > 0:
+        already_selected = {int(selection["dataset_index"]) for selection in selections}
+        selections.extend(_scattered_singletons(samples, remaining_budget, already_selected=already_selected))
+    return selections[:max_samples]
+
+
+def _positive_adjacent_window(sequence: list[object], window_length: int) -> list[object]:
+    window_length = min(window_length, len(sequence))
+    for start in range(0, len(sequence) - window_length + 1):
+        window = sequence[start : start + window_length]
+        if any(_is_positive_sample(sample) for sample in window):
+            return window
+    return sequence[:window_length]
+
+
+def _scattered_singletons(samples: list[object], budget: int, *, already_selected: set[int]) -> list[dict[str, object]]:
+    available_positive = [index for index, sample in enumerate(samples) if index not in already_selected and _is_positive_sample(sample)]
+    available_negative = [index for index, sample in enumerate(samples) if index not in already_selected and not _is_positive_sample(sample)]
+    negative_count = 1 if budget >= 2 and available_negative else 0
+    positive_count = min(len(available_positive), budget - negative_count)
+    indices = _spread_values(available_positive, positive_count)
+    indices.extend(_spread_values(available_negative, min(negative_count, budget - len(indices))))
+    if len(indices) < budget:
+        remaining = [index for index in range(len(samples)) if index not in already_selected and index not in indices]
+        indices.extend(_spread_values(remaining, budget - len(indices)))
+    return [_prediction_selection(index, "scattered_singleton") for index in indices[:budget]]
+
+
+def _spread_positions(count: int, requested: int) -> list[int]:
+    if count <= 0 or requested <= 0:
+        return []
+    if requested >= count:
+        return list(range(count))
+    if requested == 1:
+        return [0]
+    return [round(position * (count - 1) / (requested - 1)) for position in range(requested)]
+
+
+def _spread_values(values: list[int], requested: int) -> list[int]:
+    return [values[position] for position in _spread_positions(len(values), requested)]
+
+
+def _prediction_selection(dataset_index: int, selection_kind: str, **extra: object) -> dict[str, object]:
+    payload: dict[str, object] = {"dataset_index": dataset_index, "selection_kind": selection_kind}
+    payload.update(extra)
+    return payload
+
+
+def _is_positive_sample(sample: object) -> bool:
+    return bool(getattr(sample, "segmentations", ()))
 
 
 def _apply_light_geometric_augmentation(

@@ -70,7 +70,13 @@ def test_reusable_training_and_evaluation_modules_do_not_import_gvccs_dataset_ty
         Path("src/ml_autoresearch/evaluations.py"),
         Path("src/ml_autoresearch/artifacts.py"),
     ]
-    forbidden = ("ml_autoresearch.gvccs", "GVCCSDataset", "GVCCSTemporalClipDataset", "discover_gvccs_samples")
+    forbidden = (
+        "ml_autoresearch.gvccs",
+        "GVCCSDataset",
+        "GVCCSTemporalClipDataset",
+        "discover_gvccs_samples",
+        "infer_timestamped_frame_sequences",
+    )
 
     for path in reusable_paths:
         source = path.read_text()
