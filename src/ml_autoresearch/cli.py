@@ -578,7 +578,6 @@ def run_experiment_batch_command(
 
     from ml_autoresearch.batches import (
         ExperimentBatchError,
-        run_experiment_batch_with_gvccs_data,
         run_experiment_batch_with_research_problem,
         run_experiment_batch_with_synthetic_fixture,
     )
@@ -605,34 +604,20 @@ def run_experiment_batch_command(
         else:
             config = load_candidate_execution_config(project_root)
             provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root)
-            if provider_config is not None:
-                result = run_experiment_batch_with_research_problem(
-                    batch,
-                    batches_root=batches_root,
-                    runs_root=runs_root,
-                    provider_config=provider_config,
-                    backend=selected_backend,
-                    max_parallel_runs=max_parallel_runs,
-                    max_samples=max_samples,
-                    max_prediction_samples=max_prediction_samples,
-                    prediction_sample_policy=prediction_sample_policy,
-                    ledger_path=ledger_path,
-                )
-            else:
-                if data_root is None:
-                    raise typer.BadParameter("provide --data-root or configure [research_problem].data_config in candidate-execution.toml")
-                result = run_experiment_batch_with_gvccs_data(
-                    batch,
-                    batches_root=batches_root,
-                    runs_root=runs_root,
-                    data_root=data_root,
-                    backend=selected_backend,
-                    max_parallel_runs=max_parallel_runs,
-                    max_samples=max_samples,
-                    max_prediction_samples=max_prediction_samples,
-                    prediction_sample_policy=prediction_sample_policy,
-                    ledger_path=ledger_path,
-                )
+            if provider_config is None:
+                raise typer.BadParameter("configure [research_problem] in candidate-execution.toml")
+            result = run_experiment_batch_with_research_problem(
+                batch,
+                batches_root=batches_root,
+                runs_root=runs_root,
+                provider_config=provider_config,
+                backend=selected_backend,
+                max_parallel_runs=max_parallel_runs,
+                max_samples=max_samples,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+                ledger_path=ledger_path,
+            )
     except (CandidateExecutionConfigError, ExperimentBatchError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -705,10 +690,14 @@ def run_candidate_command(
         resolve_configured_research_problem_provider,
     )
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
-    from ml_autoresearch.runs import run_candidate_with_gvccs_data, run_candidate_with_research_problem, run_candidate_with_synthetic_fixture
+    from ml_autoresearch.runs import run_candidate_with_research_problem, run_candidate_with_synthetic_fixture
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
+        config = load_candidate_execution_config(project_root)
+        provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root)
+        if provider_config is None:
+            raise typer.BadParameter("configure [research_problem] in candidate-execution.toml")
         if synthetic_fixture:
             run = run_candidate_with_synthetic_fixture(
                 candidate,
@@ -718,41 +707,20 @@ def run_candidate_command(
                 backend=selected_backend,
                 ledger_path=ledger_path,
                 require_proposal=require_proposal,
+                provider_config=provider_config,
             )
         else:
-            if data_root is not None:
-                if not data_root.exists():
-                    raise typer.BadParameter(f"GVCCS data root does not exist: {data_root}")
-                if not data_root.is_dir():
-                    raise typer.BadParameter(f"GVCCS data root is not a directory: {data_root}")
-            config = load_candidate_execution_config(project_root)
-            provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root)
-            if provider_config is not None:
-                run = run_candidate_with_research_problem(
-                    candidate,
-                    runs_root,
-                    provider_config,
-                    max_samples=max_samples,
-                    max_prediction_samples=max_prediction_samples,
-                    prediction_sample_policy=prediction_sample_policy,
-                    backend=selected_backend,
-                    ledger_path=ledger_path,
-                    require_proposal=require_proposal,
-                )
-            elif data_root is not None:
-                run = run_candidate_with_gvccs_data(
-                    candidate,
-                    runs_root,
-                    data_root,
-                    max_samples=max_samples,
-                    max_prediction_samples=max_prediction_samples,
-                    prediction_sample_policy=prediction_sample_policy,
-                    backend=selected_backend,
-                    ledger_path=ledger_path,
-                    require_proposal=require_proposal,
-                )
-            else:
-                raise typer.BadParameter("provide --data-root, --synthetic-fixture, or configure [research_problem]")
+            run = run_candidate_with_research_problem(
+                candidate,
+                runs_root,
+                provider_config,
+                max_samples=max_samples,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+                backend=selected_backend,
+                ledger_path=ledger_path,
+                require_proposal=require_proposal,
+            )
     except (CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
     _echo_run(run)
@@ -789,7 +757,7 @@ def evaluate_run_command(
     run: Annotated[Path, typer.Option("--run", help="Path to a completed source Run directory.")],
     split: Annotated[Literal["val"], typer.Option("--split", help="Run split to evaluate.")] = "val",
     backend: Annotated[Literal["native", "docker"], typer.Option("--backend", help="Post-Run Evaluation backend.")] = "docker",
-    data_root: Annotated[Path | None, typer.Option("--data-root", help="Override GVCCS Dataset root from Run metadata.")] = None,
+    data_root: Annotated[Path | None, typer.Option("--data-root", help="Override Research Problem data root from Run metadata.")] = None,
     max_artifact_samples: Annotated[
         int,
         typer.Option("--max-artifact-samples", help="Maximum selected diagnostic samples to write as visual artifacts."),

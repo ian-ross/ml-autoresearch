@@ -15,15 +15,13 @@ from pathlib import Path
 import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
-from ml_autoresearch.errors import GVCCSDataError, SmokeTestError, TrainingError
+from ml_autoresearch.errors import ResearchProblemDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
     ResearchProblemSpecRegistry,
     load_research_problem_provider,
-    get_research_problem_spec,
-    ground_camera_contrail_detection_provider_config,
 )
 
 
@@ -102,6 +100,7 @@ def run_candidate_with_synthetic_fixture(
     backend: ExecutionBackend | None = None,
     ledger_path: str | Path | None = None,
     require_proposal: bool = False,
+    provider_config: ResearchProblemProviderConfig | None = None,
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
 
@@ -113,6 +112,7 @@ def run_candidate_with_synthetic_fixture(
         backend=backend,
         ledger_path=ledger_path,
         require_proposal=require_proposal,
+        provider_config=provider_config,
     )
 
 
@@ -136,7 +136,7 @@ def run_candidate_with_research_problem(
     validate_data_root = getattr(loaded.spec.training_adapter, "validate_data_root", None)
     if callable(validate_data_root):
         validate_data_root(provider_config.data_config)
-    registry = ResearchProblemSpecRegistry(default_id=loaded.spec.id)
+    registry = ResearchProblemSpecRegistry(active_id=loaded.spec.id)
     registry.register(loaded.spec, provenance=loaded.provenance)
     selected_backend = backend or NativeBackend()
     return _run_candidate_training(
@@ -153,35 +153,6 @@ def run_candidate_with_research_problem(
         dataset=loaded.spec.training_adapter.dataset_metadata(provider_config.data_config),
         research_problem=loaded.run_metadata(),
         research_problem_registry=registry,
-        ledger_path=ledger_path,
-        require_proposal=require_proposal,
-    )
-
-
-def run_candidate_with_gvccs_data(
-    candidate_dir: str | Path,
-    runs_root: str | Path,
-    data_root: str | Path,
-    *,
-    max_samples: int | None = None,
-    max_prediction_samples: int = 2,
-    prediction_sample_policy: str = "first_n",
-    backend: ExecutionBackend | None = None,
-    ledger_path: str | Path | None = None,
-    require_proposal: bool = False,
-) -> RunSubmission:
-    """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
-
-    # Legacy compatibility wrapper: GVCCS now runs through the generic
-    # filesystem Research Problem provider path.
-    return run_candidate_with_research_problem(
-        candidate_dir,
-        runs_root,
-        ground_camera_contrail_detection_provider_config(data_root=data_root),
-        max_samples=max_samples,
-        max_prediction_samples=max_prediction_samples,
-        prediction_sample_policy=prediction_sample_policy,
-        backend=backend,
         ledger_path=ledger_path,
         require_proposal=require_proposal,
     )
@@ -223,35 +194,6 @@ def train_accepted_run_with_research_problem(
     )
 
 
-def train_accepted_run_with_gvccs_data(
-    run_dir: str | Path,
-    data_root: str | Path,
-    *,
-    max_samples: int | None = None,
-    max_prediction_samples: int = 2,
-    prediction_sample_policy: str = "first_n",
-    backend: ExecutionBackend | None = None,
-    ledger_path: str | Path | None = None,
-) -> RunSubmission:
-    """Synchronously train an already accepted Candidate Experiment Run on local GVCCS data."""
-
-    path = Path(run_dir)
-    metadata = _read_metadata(path)
-    if metadata.get("status") != RunStatus.ACCEPTED.value:
-        raise ValueError(f"accepted Run required for training continuation: {path}")
-    # Legacy compatibility wrapper: GVCCS now runs through the generic
-    # filesystem Research Problem provider path.
-    return train_accepted_run_with_research_problem(
-        run_dir,
-        ground_camera_contrail_detection_provider_config(data_root=data_root),
-        max_samples=max_samples,
-        max_prediction_samples=max_prediction_samples,
-        prediction_sample_policy=prediction_sample_policy,
-        backend=backend,
-        ledger_path=ledger_path,
-    )
-
-
 def train_accepted_run_with_synthetic_fixture(
     run_dir: str | Path,
     *,
@@ -288,7 +230,13 @@ def _run_candidate_synthetic_training(
     backend: ExecutionBackend | None = None,
     ledger_path: str | Path | None = None,
     require_proposal: bool = False,
+    provider_config: ResearchProblemProviderConfig | None = None,
 ) -> RunSubmission:
+    if provider_config is None:
+        raise CandidateValidationError("research_problem provider config is required for synthetic fixture Runs")
+    loaded = load_research_problem_provider(provider_config)
+    registry = ResearchProblemSpecRegistry(active_id=loaded.spec.id)
+    registry.register(loaded.spec, provenance=loaded.provenance)
     resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
     run = submit_candidate(
         candidate_dir,
@@ -296,6 +244,7 @@ def _run_candidate_synthetic_training(
         backend=backend,
         ledger_path=resolved_ledger_path,
         require_proposal=require_proposal,
+        research_problem_registry=registry,
     )
     if run.status != RunStatus.ACCEPTED:
         return run
@@ -492,11 +441,11 @@ def _train_accepted_run(
         )
         _record_run_failed(ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
-    except (TrainingError, RuntimeError, GVCCSDataError) as exc:
+    except (TrainingError, RuntimeError, ResearchProblemDataError) as exc:
         reason = str(exc)
         classification = (
             RunFailureClassification.HARNESS_FAILURE
-            if isinstance(exc, GVCCSDataError)
+            if isinstance(exc, ResearchProblemDataError)
             else RunFailureClassification.RESOURCE_FAILURE if is_resource_failure(exc) else RunFailureClassification.CANDIDATE_BUG
         )
         failure_lifecycle = exc.lifecycle if isinstance(exc, ResourceRetryExhaustedError) else None
@@ -702,9 +651,11 @@ def _research_problem_identity(
     registry: ResearchProblemSpecRegistry | None = None,
 ) -> dict[str, object]:
     spec_id = str(getattr(manifest, "research_problem"))
-    spec = registry.get(spec_id) if registry is not None else get_research_problem_spec(spec_id)
+    if registry is None:
+        raise CandidateValidationError("research_problem provider registry is required")
+    spec = registry.get(spec_id)
     identity: dict[str, object] = {"id": spec.id, "version": spec.version, "contract_version": spec.contract_version}
-    provenance = registry.get_provenance(spec_id) if registry is not None else None
+    provenance = registry.get_provenance(spec_id)
     if provenance is not None:
         identity["provider"] = provenance.run_metadata()
     return identity
@@ -1090,35 +1041,6 @@ def _record_run_failed(
         },
         ledger_path=ledger_path,
     )
-
-
-def _validate_host_data_root(data_root: str | Path) -> Path:
-    return _validate_gvccs_data_root_through_adapter(data_root)
-
-
-def _validate_gvccs_data_root_through_adapter(data_root: str | Path) -> Path:
-    """Legacy helper retained for older callers; validates through external provider."""
-
-    config = ground_camera_contrail_detection_provider_config(data_root=data_root)
-    loaded = load_research_problem_provider(config)
-    if loaded.spec.training_adapter is None:
-        raise GVCCSDataError("Ground-Camera Contrail Detection Spec does not provide a training adapter")
-    try:
-        return Path(loaded.spec.training_adapter.validate_data_root(config.data_config)).resolve()
-    except Exception as exc:  # noqa: BLE001 - compatibility error type.
-        raise GVCCSDataError(str(exc)) from exc
-
-
-def _gvccs_dataset_metadata(data_root: Path) -> dict[str, object]:
-    return _gvccs_dataset_metadata_through_adapter(data_root)
-
-
-def _gvccs_dataset_metadata_through_adapter(data_root: Path) -> dict[str, object]:
-    config = ground_camera_contrail_detection_provider_config(data_root=data_root)
-    loaded = load_research_problem_provider(config)
-    if loaded.spec.training_adapter is None:
-        raise TrainingError("Ground-Camera Contrail Detection Research Problem does not provide a training adapter")
-    return loaded.spec.training_adapter.dataset_metadata(config.data_config)
 
 
 def _data_policy_from_training_result(training_result: object, run_dir: Path) -> dict[str, object] | None:

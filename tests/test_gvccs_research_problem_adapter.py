@@ -5,8 +5,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from ml_autoresearch.research_problems import get_research_problem_spec
 from gvccs import discover_gvccs_samples, select_gvccs_frames
+from research_problem_helpers import gvccs_registry
 
 
 FIXTURE_ROOT = Path("tests/fixtures/gvccs_like")
@@ -15,7 +15,7 @@ FIXTURE_ROOT = Path("tests/fixtures/gvccs_like")
 def test_gvccs_research_problem_adapter_supplies_metadata_and_single_frame_datasets(tmp_path: Path) -> None:
     manifest = tmp_path / "resolved_manifest.yaml"
     manifest.write_text("input_mode: single_frame_rgb\ndata:\n  frame_selection_policy_effective: all_target_frames\n")
-    adapter = get_research_problem_spec("ground_camera_contrail_detection").training_adapter
+    adapter = gvccs_registry().get("ground_camera_contrail_detection").training_adapter
 
     assert adapter is not None
     assert adapter.dataset_metadata({"dataset_root": str(FIXTURE_ROOT)}) == {
@@ -33,7 +33,7 @@ def test_gvccs_research_problem_adapter_supplies_metadata_and_single_frame_datas
 def test_gvccs_research_problem_adapter_preserves_temporal_eligible_centers(tmp_path: Path) -> None:
     manifest = tmp_path / "resolved_manifest.yaml"
     manifest.write_text("input_mode: centered_temporal_rgb_clip\ndata:\n  frame_selection_policy_effective: temporal_eligible_center\n")
-    adapter = get_research_problem_spec("ground_camera_contrail_detection").training_adapter
+    adapter = gvccs_registry().get("ground_camera_contrail_detection").training_adapter
     assert adapter is not None
     data_root = _write_temporal_fixture(tmp_path)
     samples = discover_gvccs_samples(data_root, split="train")

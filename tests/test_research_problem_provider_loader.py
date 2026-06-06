@@ -5,7 +5,6 @@ import subprocess
 import pytest
 
 from ml_autoresearch.research_problems import (
-    DEFAULT_RESEARCH_PROBLEM_ID,
     ResearchProblemProviderConfig,
     ResearchProblemProviderLoadError,
     ResearchProblemSpecRegistry,
@@ -64,22 +63,6 @@ def _config(root, target="tiny_problem.research_problem:build_spec"):
     )
 
 
-def test_ground_camera_contrail_detection_provider_can_be_loaded_from_filesystem() -> None:
-    registry = ResearchProblemSpecRegistry(default_id=DEFAULT_RESEARCH_PROBLEM_ID)
-    config = ResearchProblemProviderConfig(
-        id=DEFAULT_RESEARCH_PROBLEM_ID,
-        package_root="src",
-        provider_target="ml_autoresearch.research_problems:build_ground_camera_contrail_detection_spec",
-        expected_contract_version="v0",
-    )
-
-    loaded = load_research_problem_provider(config, registry=registry)
-
-    assert loaded.spec.id == "ground_camera_contrail_detection"
-    assert loaded.spec.input_modes == ("single_frame_rgb", "centered_temporal_rgb_clip")
-    assert registry.get(DEFAULT_RESEARCH_PROBLEM_ID) == loaded.spec
-
-
 def test_loads_filesystem_research_problem_provider_and_registers_spec(tmp_path) -> None:
     _write_fake_package(tmp_path)
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE)
@@ -87,7 +70,7 @@ def test_loads_filesystem_research_problem_provider_and_registers_spec(tmp_path)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-m", "fake problem"], cwd=tmp_path, check=True, stdout=subprocess.PIPE)
-    registry = ResearchProblemSpecRegistry(default_id="tiny_problem")
+    registry = ResearchProblemSpecRegistry(active_id="tiny_problem")
 
     loaded = load_research_problem_provider(_config(tmp_path), registry=registry)
 
@@ -113,7 +96,7 @@ def test_loads_filesystem_research_problem_provider_and_registers_spec(tmp_path)
 
 def test_provider_can_return_mapping_that_is_checked_before_registration(tmp_path) -> None:
     _write_fake_package(tmp_path)
-    registry = ResearchProblemSpecRegistry(default_id="tiny_problem")
+    registry = ResearchProblemSpecRegistry(active_id="tiny_problem")
 
     loaded = load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_dict_spec"), registry=registry)
 

@@ -17,7 +17,6 @@ from ml_autoresearch.runs import (
     RunStatus,
     get_run_summary,
     submit_candidate,
-    train_accepted_run_with_gvccs_data,
     train_accepted_run_with_research_problem,
     train_accepted_run_with_synthetic_fixture,
 )
@@ -54,42 +53,6 @@ def run_experiment_batch_with_synthetic_fixture(
         ledger_path=ledger_path,
         train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_synthetic_fixture(
             run_dir,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-            backend=selected_backend,
-            ledger_path=resolved_ledger_path,
-        ),
-    )
-
-
-def run_experiment_batch_with_gvccs_data(
-    batch_dir: str | Path,
-    *,
-    batches_root: str | Path,
-    runs_root: str | Path,
-    data_root: str | Path,
-    backend: ExecutionBackend | None = None,
-    max_parallel_runs: int = MAX_PARALLEL_RUNS,
-    max_samples: int | None = None,
-    max_prediction_samples: int = 2,
-    prediction_sample_policy: str = "first_n",
-    ledger_path: str | Path | None = None,
-) -> dict[str, object]:
-    """Compatibility wrapper for a GVCCS Experiment Batch."""
-
-    return _run_experiment_batch(
-        batch_dir,
-        batches_root=batches_root,
-        runs_root=runs_root,
-        backend=backend,
-        max_parallel_runs=max_parallel_runs,
-        max_prediction_samples=max_prediction_samples,
-        prediction_sample_policy=prediction_sample_policy,
-        ledger_path=ledger_path,
-        train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_gvccs_data(
-            run_dir,
-            data_root,
-            max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
             backend=selected_backend,

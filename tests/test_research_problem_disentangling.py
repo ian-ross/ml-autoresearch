@@ -14,10 +14,17 @@ APPROVED_GVCCS_IMPORT_PREFIXES: tuple[Path, ...] = ()
 
 
 def test_reusable_harness_modules_do_not_directly_import_gvccs_package() -> None:
-    """Guard the deletion seam: reusable Harness modules must not import GVCCS directly."""
+    """Guard the deletion seam: reusable Harness modules must not import or name GVCCS directly."""
 
     assert not (PROJECT_ROOT / "src/ml_autoresearch/research_problem_packages/gvccs").exists()
     assert not (PROJECT_ROOT / "src/ml_autoresearch/gvccs.py").exists()
+
+    gvccs_mentions = []
+    for path in sorted((PROJECT_ROOT / "src/ml_autoresearch").rglob("*.py")):
+        text = path.read_text().lower()
+        if "gvccs" in text:
+            gvccs_mentions.append(str(path.relative_to(PROJECT_ROOT)))
+    assert gvccs_mentions == []
 
     violations: list[str] = []
     for path in sorted((PROJECT_ROOT / "src/ml_autoresearch").rglob("*.py")):
@@ -66,10 +73,9 @@ class BlockGVCCS(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, BlockGVCCS())
 
 import ml_autoresearch
-from ml_autoresearch.research_problems import ResearchProblemProviderConfig, registered_research_problem_ids
+from ml_autoresearch.research_problems import ResearchProblemProviderConfig
 from ml_autoresearch.runs import RunStatus, run_candidate_with_research_problem
 
-assert registered_research_problem_ids() == ('ground_camera_contrail_detection',)
 config = ResearchProblemProviderConfig(
     id='tiny_problem',
     package_root=Path({str(package_root)!r}),

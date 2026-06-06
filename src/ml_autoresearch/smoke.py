@@ -18,12 +18,10 @@ import yaml
 
 from ml_autoresearch.errors import SmokeTestError
 from ml_autoresearch.research_problems import (
-    DEFAULT_RESEARCH_PROBLEM_ID,
     ResearchProblemProviderConfig,
     ResearchProblemProviderLoadError,
     ResearchProblemSpecError,
     ResearchProblemSpecRegistry,
-    get_research_problem_spec,
     load_research_problem_provider,
 )
 
@@ -168,17 +166,19 @@ def _research_problem_spec_for_resolved_manifest(
 ):
     research_problem = manifest.get("research_problem")
     if isinstance(research_problem, dict):
-        spec_id = str(research_problem.get("id", DEFAULT_RESEARCH_PROBLEM_ID))
+        spec_id = research_problem.get("id")
+        if not isinstance(spec_id, str) or not spec_id:
+            raise SmokeTestError("resolved manifest research_problem metadata is missing id")
     elif isinstance(research_problem, str):
         spec_id = research_problem
     else:
-        spec_id = DEFAULT_RESEARCH_PROBLEM_ID
+        raise SmokeTestError("resolved manifest must specify research_problem")
     if registry is not None:
         return registry.get(spec_id)
     loaded_registry = _registry_from_resolved_manifest_provider(manifest, spec_id)
     if loaded_registry is not None:
         return loaded_registry.get(spec_id)
-    return get_research_problem_spec(spec_id)
+    raise SmokeTestError("resolved manifest research_problem provider metadata is required")
 
 
 def _registry_from_resolved_manifest_provider(
@@ -195,7 +195,7 @@ def _registry_from_resolved_manifest_provider(
     contract_version = research_problem.get("contract_version")
     if not isinstance(target, str) or not isinstance(package_root, str) or not isinstance(contract_version, str):
         return None
-    registry = ResearchProblemSpecRegistry(default_id=spec_id)
+    registry = ResearchProblemSpecRegistry(active_id=spec_id)
     try:
         load_research_problem_provider(
             ResearchProblemProviderConfig(

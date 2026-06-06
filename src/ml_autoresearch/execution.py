@@ -69,17 +69,6 @@ class ExecutionBackend(Protocol):
     ) -> OperationResult:
         """Train the copied Candidate Experiment on deterministic synthetic fixture data."""
 
-    def train_gvccs(
-        self,
-        run_dir: str | Path,
-        data_root: str | Path,
-        *,
-        max_samples: int | None = None,
-        max_prediction_samples: int = 2,
-        prediction_sample_policy: str = "first_n",
-    ) -> OperationResult:
-        """Legacy compatibility shim; delegates to generic Research Problem training."""
-
     def train_research_problem(
         self,
         run_dir: str | Path,
@@ -129,25 +118,6 @@ class NativeBackend:
             run_dir, max_prediction_samples=max_prediction_samples, prediction_sample_policy=prediction_sample_policy
         )
         return OperationResult(backend=self.name, operation="train_synthetic")
-
-    def train_gvccs(
-        self,
-        run_dir: str | Path,
-        data_root: str | Path,
-        *,
-        max_samples: int | None = None,
-        max_prediction_samples: int = 2,
-        prediction_sample_policy: str = "first_n",
-    ) -> OperationResult:
-        from ml_autoresearch.research_problems import ground_camera_contrail_detection_provider_config
-
-        return self.train_research_problem(
-            run_dir,
-            ground_camera_contrail_detection_provider_config(data_root=data_root),
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-        )
 
     def train_research_problem(
         self,
@@ -220,25 +190,6 @@ class DockerBackend:
             f"--prediction-sample-policy={prediction_sample_policy}",
         )
         return self._run_training_operation(command, path, "Docker synthetic training failed", "train_synthetic")
-
-    def train_gvccs(
-        self,
-        run_dir: str | Path,
-        data_root: str | Path,
-        *,
-        max_samples: int | None = None,
-        max_prediction_samples: int = 2,
-        prediction_sample_policy: str = "first_n",
-    ) -> OperationResult:
-        from ml_autoresearch.research_problems import ground_camera_contrail_detection_provider_config
-
-        return self.train_research_problem(
-            run_dir,
-            ground_camera_contrail_detection_provider_config(data_root=data_root),
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-        )
 
     def train_research_problem(
         self,
@@ -486,18 +437,18 @@ class DockerBackend:
 
     def _evaluate_data_root(self, run_dir: Path, data_root: str | Path | None) -> Path:
         if data_root is not None:
-            return self._validate_gvccs_data_root(data_root)
+            return self._validate_research_problem_data_root(data_root)
         try:
             metadata = json.loads((run_dir / "run_metadata.json").read_text())
         except Exception as exc:  # noqa: BLE001 - Docker launch should fail clearly before importing candidate code.
             raise RuntimeError(f"cannot read Run metadata for evaluation data root: {exc}") from exc
         dataset = metadata.get("dataset")
         if not isinstance(dataset, dict) or not isinstance(dataset.get("host_data_path"), str):
-            raise RuntimeError("Run metadata does not contain GVCCS data root; pass --data-root")
-        return self._validate_gvccs_data_root(str(dataset["host_data_path"]))
+            raise RuntimeError("Run metadata does not contain a Research Problem data root; pass --data-root")
+        return self._validate_research_problem_data_root(str(dataset["host_data_path"]))
 
-    def _validate_gvccs_data_root(self, data_root: str | Path) -> Path:
-        return self._validate_host_directory(data_root, label="GVCCS data root")
+    def _validate_research_problem_data_root(self, data_root: str | Path) -> Path:
+        return self._validate_host_directory(data_root, label="Research Problem data root")
 
     def _validate_research_problem_package_root(self, package_root: str | Path) -> Path:
         return self._validate_host_directory(package_root, label="Research Problem package root")

@@ -18,7 +18,6 @@ from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
     ResearchProblemProviderLoadError,
-    get_research_problem_spec,
     load_research_problem_provider,
 )
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
@@ -289,13 +288,7 @@ def resolve_run_research_problem(metadata: dict[str, object], *, data_root: Path
 
     raw_research_problem = metadata.get("research_problem")
     if not isinstance(raw_research_problem, dict):
-        # Compatibility for pre-spec Runs: resolve through the built-in
-        # Ground-Camera Contrail Detection Spec but still record provenance.
-        spec = get_research_problem_spec("ground_camera_contrail_detection")
-        return ResolvedEvaluationResearchProblem(
-            spec=spec,
-            metadata={"id": spec.id, "version": spec.version, "contract_version": spec.contract_version},
-        )
+        raise EvaluationError("source Run research_problem provider metadata is required")
 
     spec_id = raw_research_problem.get("id")
     if not isinstance(spec_id, str) or not spec_id:
@@ -325,11 +318,7 @@ def resolve_run_research_problem(metadata: dict[str, object], *, data_root: Path
             raise EvaluationError(str(exc)) from exc
         return ResolvedEvaluationResearchProblem(spec=loaded.spec, metadata=loaded.run_metadata())
 
-    spec = get_research_problem_spec(spec_id)
-    return ResolvedEvaluationResearchProblem(
-        spec=spec,
-        metadata={"id": spec.id, "version": spec.version, "contract_version": spec.contract_version},
-    )
+    raise EvaluationError("source Run research_problem provider metadata is required")
 
 
 def dispatch_evaluation_mode(

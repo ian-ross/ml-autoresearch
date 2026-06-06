@@ -16,11 +16,6 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
-DEFAULT_RESEARCH_PROBLEM_ID = "ground_camera_contrail_detection"
-DEFAULT_GVCCS_RESEARCH_PROBLEM_ROOT = Path("/home/iross/code/gvccs-research-problem")
-DEFAULT_GVCCS_PROVIDER_TARGET = "gvccs.research_problem:build_spec"
-
-
 class ResearchProblemSpecError(ValueError):
     """Base error for Research Problem Spec registry failures."""
 
@@ -196,11 +191,11 @@ class ResearchProblemSpecRegistry:
         self,
         specs: Iterable[ResearchProblemSpec] = (),
         *,
-        default_id: str = DEFAULT_RESEARCH_PROBLEM_ID,
+        active_id: str | None = None,
     ) -> None:
         self._specs: dict[str, ResearchProblemSpec] = {}
         self._provenance: dict[str, ResearchProblemProviderProvenance] = {}
-        self._default_id = default_id
+        self._active_id = active_id
         for spec in specs:
             self.register(spec)
 
@@ -230,10 +225,12 @@ class ResearchProblemSpecRegistry:
         except KeyError as exc:
             raise UnknownResearchProblemSpecError(f"unknown research problem spec: {spec_id}") from exc
 
-    def default(self) -> ResearchProblemSpec:
-        """Return the default Research Problem Spec."""
+    def active(self) -> ResearchProblemSpec:
+        """Return the explicitly configured active Research Problem Spec."""
 
-        return self.get(self._default_id)
+        if self._active_id is None:
+            raise UnknownResearchProblemSpecError("no active research problem spec configured")
+        return self.get(self._active_id)
 
     def ids(self) -> tuple[str, ...]:
         """Return registered Research Problem ids in deterministic order."""
@@ -397,72 +394,3 @@ def _git_provenance(package_root: Path) -> dict[str, object] | None:
     return {"commit": commit.stdout.strip(), "dirty": dirty}
 
 
-def ground_camera_contrail_detection_provider_config(
-    *,
-    package_root: str | Path = DEFAULT_GVCCS_RESEARCH_PROBLEM_ROOT,
-    data_root: str | Path | None = None,
-) -> ResearchProblemProviderConfig:
-    """Return the filesystem provider config for the GVCCS Research Problem package."""
-
-    data_config: dict[str, object] = {}
-    if data_root is not None:
-        data_config["dataset_root"] = str(data_root)
-    return ResearchProblemProviderConfig(
-        id=DEFAULT_RESEARCH_PROBLEM_ID,
-        package_root=Path(package_root),
-        provider_target=DEFAULT_GVCCS_PROVIDER_TARGET,
-        expected_contract_version="v0",
-        data_config=data_config,
-    )
-
-
-def build_ground_camera_contrail_detection_spec(data_config: Mapping[str, object] | None = None) -> ResearchProblemSpec:
-    """Compatibility provider loaded from the external GVCCS Research Problem package."""
-
-    loaded = load_research_problem_provider(
-        ground_camera_contrail_detection_provider_config(
-            data_root=data_config.get("dataset_root") if data_config is not None else None,
-        )
-    )
-    return loaded.spec
-
-
-_BUILTIN_REGISTRY = ResearchProblemSpecRegistry(default_id=DEFAULT_RESEARCH_PROBLEM_ID)
-
-
-def _ensure_builtin_research_problem_spec(spec_id: str) -> None:
-    """Register lazy built-in Research Problem Specs only when they are requested.
-
-    Importing this reusable Harness module must not import any GVCCS code.
-    GVCCS-specific code is loaded only through the configured filesystem
-    Research Problem provider package.
-    """
-
-    if spec_id != DEFAULT_RESEARCH_PROBLEM_ID:
-        return
-    try:
-        _BUILTIN_REGISTRY.get(spec_id)
-    except UnknownResearchProblemSpecError:
-        _BUILTIN_REGISTRY.register(build_ground_camera_contrail_detection_spec())
-
-
-def get_research_problem_spec(spec_id: str) -> ResearchProblemSpec:
-    """Look up a built-in Research Problem Spec by id."""
-
-    _ensure_builtin_research_problem_spec(spec_id)
-    return _BUILTIN_REGISTRY.get(spec_id)
-
-
-def get_default_research_problem_spec() -> ResearchProblemSpec:
-    """Return the default built-in Research Problem Spec."""
-
-    _ensure_builtin_research_problem_spec(DEFAULT_RESEARCH_PROBLEM_ID)
-    return _BUILTIN_REGISTRY.default()
-
-
-def registered_research_problem_ids() -> tuple[str, ...]:
-    """Return ids for built-in registered Research Problem Specs."""
-
-    ids = set(_BUILTIN_REGISTRY.ids())
-    ids.add(DEFAULT_RESEARCH_PROBLEM_ID)
-    return tuple(sorted(ids))

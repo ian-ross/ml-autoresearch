@@ -13,7 +13,8 @@ from gvccs import (
     deterministic_train_val_split,
     select_gvccs_frames,
 )
-from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data
+from ml_autoresearch.runs import RunStatus
+from research_problem_helpers import run_candidate_with_gvccs_data
 
 
 FIXTURE_ROOT = Path("tests/fixtures/gvccs_like")

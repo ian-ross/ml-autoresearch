@@ -640,7 +640,7 @@ def _append_candidate_to_experiment_index(index_path: Path, candidate_id: str, d
         return
     row = (
         f"| {candidate_ref} | [`README.md`](candidates/{candidate_id}/README.md)"
-        f"{_description_suffix(description)} | Pending full GVCCS Research Note. | Pending GVCCS Run. | "
+        f"{_description_suffix(description)} | Pending full Research Note. | Pending Research Problem Run. | "
         "Pending Harness Run; ingested from Agent Workspace. |\n"
     )
     marker = "## Chronological Research Notes"

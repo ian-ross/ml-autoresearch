@@ -6,7 +6,8 @@ import torch
 from ml_autoresearch.cli import _daemonize_current_evaluate_run, app
 from ml_autoresearch.evaluation_requests import run_post_run_evaluation
 from ml_autoresearch.evaluations import _select_failure_bucket_indices, _threshold_sweep_summary, evaluate_run
-from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data
+from ml_autoresearch.runs import RunStatus
+from research_problem_helpers import run_candidate_with_gvccs_data
 from conftest import invoke_typer_cli
 
 

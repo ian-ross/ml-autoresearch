@@ -9,8 +9,6 @@ from typing import Literal
 
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend
 from ml_autoresearch.research_problems import (
-    DEFAULT_RESEARCH_PROBLEM_ID,
-    DEFAULT_GVCCS_PROVIDER_TARGET,
     ResearchProblemProviderConfig,
     ResearchProblemSpecRegistry,
     load_research_problem_provider,
@@ -105,7 +103,7 @@ def load_configured_research_problem_registry(project_root: str | Path = Path(".
     config = load_candidate_execution_config(project_root)
     if config.research_problem_provider is None:
         return None
-    registry = ResearchProblemSpecRegistry(default_id=config.research_problem_provider.id)
+    registry = ResearchProblemSpecRegistry(active_id=config.research_problem_provider.id)
     load_research_problem_provider(config.research_problem_provider, registry=registry)
     return registry
 
@@ -153,9 +151,9 @@ def _research_problem_provider_config(data: dict[str, object], project_root: Pat
         return None
     if not isinstance(settings, dict):
         raise CandidateExecutionConfigError("[research_problem] must be a table")
-    spec_id = _string(settings, "id", DEFAULT_RESEARCH_PROBLEM_ID)
+    spec_id = _required_string(settings, "id")
     package_root = _path(settings, "package_root", project_root)
-    provider_target = _string(settings, "provider_target", DEFAULT_GVCCS_PROVIDER_TARGET)
+    provider_target = _required_string(settings, "provider_target")
     expected_contract_version = _string(settings, "expected_contract_version", "v0")
     data_config = settings.get("data_config", {})
     if not isinstance(data_config, dict):
@@ -180,6 +178,13 @@ def _string(settings: dict[str, object], key: str, default: str) -> str:
     value = settings.get(key, default)
     if not isinstance(value, str) or not value:
         raise CandidateExecutionConfigError(f"candidate_execution.{key} must be a non-empty string")
+    return value
+
+
+def _required_string(settings: dict[str, object], key: str, *, prefix: str = "research_problem") -> str:
+    value = settings.get(key)
+    if not isinstance(value, str) or not value:
+        raise CandidateExecutionConfigError(f"{prefix}.{key} must be a non-empty string")
     return value
 
 

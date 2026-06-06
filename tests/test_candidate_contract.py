@@ -3,12 +3,20 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory as _validate_candidate_directory
 from ml_autoresearch.research_problems import (
-    DEFAULT_RESEARCH_PROBLEM_ID,
     ResearchProblemSpec,
     ResearchProblemSpecRegistry,
 )
+
+DEFAULT_RESEARCH_PROBLEM_ID = "ground_camera_contrail_detection"
+
+
+def validate_candidate_directory(candidate_dir, **kwargs):
+    from research_problem_helpers import gvccs_registry
+
+    kwargs.setdefault("research_problem_registry", gvccs_registry())
+    return _validate_candidate_directory(candidate_dir, **kwargs)
 
 
 def write_valid_candidate(root: Path) -> Path:
@@ -18,6 +26,7 @@ def write_valid_candidate(root: Path) -> Path:
         """
 name: single_frame_unet_baseline
 description: Tiny single-frame mask-only baseline for harness validation.
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 training:
@@ -195,6 +204,7 @@ def test_candidate_manifest_accepts_augmentation_policy(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: light_augmented
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 data:
@@ -230,6 +240,7 @@ def test_invalid_augmentation_policy_is_rejected(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: broken
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 data:
@@ -258,6 +269,7 @@ def test_candidate_manifest_accepts_sampling_policy(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: shuffled
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 data:
@@ -282,6 +294,7 @@ def test_candidate_manifest_accepts_temporal_eligible_frame_selection_for_single
     (candidate / "manifest.yaml").write_text(
         """
 name: matched_single_frame_control
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 data:
@@ -306,6 +319,7 @@ def test_temporal_input_defaults_to_temporal_eligible_frame_selection(tmp_path: 
     (candidate / "manifest.yaml").write_text(
         """
 name: temporal_candidate
+research_problem: ground_camera_contrail_detection
 input_mode: centered_temporal_rgb_clip
 output_form: mask_logits
 training:
@@ -328,6 +342,7 @@ def test_temporal_input_rejects_all_target_frame_selection(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: impossible_temporal_candidate
+research_problem: ground_camera_contrail_detection
 input_mode: centered_temporal_rgb_clip
 output_form: mask_logits
 data:
@@ -354,6 +369,7 @@ def test_invalid_sampling_policy_is_rejected(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: broken
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 data:
@@ -382,6 +398,7 @@ def test_invalid_frame_selection_policy_is_rejected(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: broken
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 data:
@@ -410,6 +427,7 @@ def test_unknown_contract_values_are_rejected(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: broken
+research_problem: ground_camera_contrail_detection
 input_mode: arbitrary_loader
 output_form: mask_logits
 training:
@@ -447,7 +465,7 @@ def test_candidate_manifest_validates_against_fake_research_problem_spec(tmp_pat
         augmentation_policies=("tiny_aug",),
         primary_metric="val/tiny_dice",
     )
-    registry = ResearchProblemSpecRegistry((fake_spec,), default_id=fake_spec.id)
+    registry = ResearchProblemSpecRegistry((fake_spec,), active_id=fake_spec.id)
     candidate = write_valid_candidate(tmp_path)
     (candidate / "manifest.yaml").write_text(
         """
@@ -496,7 +514,7 @@ def test_fake_research_problem_spec_rejects_values_not_in_its_allowlists(tmp_pat
         augmentation_policies=("tiny_aug",),
         primary_metric="val/tiny_dice",
     )
-    registry = ResearchProblemSpecRegistry((fake_spec,), default_id=fake_spec.id)
+    registry = ResearchProblemSpecRegistry((fake_spec,), active_id=fake_spec.id)
     candidate = write_valid_candidate(tmp_path)
     manifest = yaml.safe_load((candidate / "manifest.yaml").read_text())
     manifest["research_problem"] = "tiny_segmentation"
@@ -518,6 +536,7 @@ def test_training_scalar_ranges_are_checked(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: broken
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 training:
@@ -582,6 +601,7 @@ def test_candidate_manifest_cannot_request_data_paths_or_mounts(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: broken
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 data_root: /host/data
@@ -610,6 +630,7 @@ def test_candidate_manifest_accepts_line_auxiliary_target(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: line_aux
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 auxiliary_targets:
@@ -642,6 +663,7 @@ def test_candidate_manifest_accepts_boundary_auxiliary_target(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: boundary_aux
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 auxiliary_targets:
@@ -683,6 +705,7 @@ def test_invalid_auxiliary_target_values_are_rejected(tmp_path: Path, field: str
     (candidate / "manifest.yaml").write_text(
         """
 name: broken_aux
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 auxiliary_targets:
@@ -713,6 +736,7 @@ def test_auxiliary_target_name_must_match_output(tmp_path: Path):
     (candidate / "manifest.yaml").write_text(
         """
 name: mismatched_aux
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 auxiliary_targets:
@@ -742,6 +766,7 @@ def test_auxiliary_target_weight_bounds_are_checked(tmp_path: Path, weight: floa
     (candidate / "manifest.yaml").write_text(
         f"""
 name: broken_aux
+research_problem: ground_camera_contrail_detection
 input_mode: single_frame_rgb
 output_form: mask_logits
 auxiliary_targets:

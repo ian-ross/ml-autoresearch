@@ -10,11 +10,9 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ml_autoresearch.research_problems import (
-    DEFAULT_RESEARCH_PROBLEM_ID,
     ResearchProblemSpec,
     ResearchProblemSpecRegistry,
     UnknownResearchProblemSpecError,
-    get_default_research_problem_spec,
 )
 
 
@@ -81,7 +79,7 @@ class CandidateManifest(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
-    research_problem: str = Field(default=DEFAULT_RESEARCH_PROBLEM_ID, min_length=1)
+    research_problem: str = Field(min_length=1)
     input_mode: str = Field(min_length=1)
     output_form: str = Field(min_length=1)
     auxiliary_targets: list[AuxiliaryTargetManifest] = Field(default_factory=list)
@@ -157,7 +155,7 @@ def validate_candidate_directory(
         require_readme: Require a local ``README.md`` file for autonomous
             submission documentation.
         research_problem_registry: Trusted registry used to validate
-            Research Problem-scoped manifest allowlists. Defaults to built-ins.
+            Research Problem-scoped manifest allowlists. Required for non-synthetic validation.
     """
 
     path = Path(candidate_dir)
@@ -302,9 +300,10 @@ def _resolve_research_problem_spec(
     registry: ResearchProblemSpecRegistry | None,
 ) -> ResearchProblemSpec:
     if registry is None:
-        if spec_id == DEFAULT_RESEARCH_PROBLEM_ID:
-            return get_default_research_problem_spec()
-        registry = ResearchProblemSpecRegistry((get_default_research_problem_spec(),))
+        raise CandidateValidationError(
+            "invalid manifest.yaml: research_problem provider registry is required; "
+            "configure [research_problem] or use an explicit synthetic fixture path"
+        )
     try:
         return registry.get(spec_id)
     except UnknownResearchProblemSpecError as exc:

@@ -53,9 +53,7 @@ def train_synthetic_fixture(
 ) -> dict[str, object]:
     """Train deterministic generated Contrail Mask fixture data with explicit mounted paths."""
 
-    from ml_autoresearch.research_problems import get_default_research_problem_spec
-
-    training_adapter = get_default_research_problem_spec().training_adapter
+    training_adapter = None
     train_loader_factory = lambda batch_size, sampling_policy, augmentation_policy: _data_loader_for_sampling(  # noqa: E731 - local concise factory.
         SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED),
         batch_size=batch_size,
@@ -165,60 +163,6 @@ def train_research_problem(
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         training_adapter=training_adapter,
-    )
-
-
-def train_gvccs_run(
-    run_dir: str | Path,
-    data_root: str | Path,
-    *,
-    max_samples: int | None = None,
-    max_prediction_samples: int = 2,
-    prediction_sample_policy: str = "first_n",
-) -> dict[str, object]:
-    """Compatibility wrapper for GVCCS training via generic Research Problem dispatch."""
-
-    path = Path(run_dir)
-    return train_gvccs(
-        candidate_dir=path / "candidate",
-        resolved_manifest_path=path / "resolved_manifest.yaml",
-        outputs_dir=path / "outputs",
-        artifact_run_dir=path,
-        data_root=data_root,
-        max_samples=max_samples,
-        max_prediction_samples=max_prediction_samples,
-        prediction_sample_policy=prediction_sample_policy,
-    )
-
-
-def train_gvccs(
-    *,
-    candidate_dir: str | Path,
-    resolved_manifest_path: str | Path,
-    outputs_dir: str | Path,
-    artifact_run_dir: str | Path,
-    data_root: str | Path,
-    max_samples: int | None = None,
-    max_prediction_samples: int = 2,
-    prediction_sample_policy: str = "first_n",
-) -> dict[str, object]:
-    """Compatibility wrapper for GVCCS data through the generic training loop."""
-
-    from ml_autoresearch.research_problems import get_default_research_problem_spec
-
-    adapter = get_default_research_problem_spec().training_adapter
-    if adapter is None:
-        raise TrainingError("default Research Problem does not provide a training adapter")
-    return train_research_problem(
-        candidate_dir=candidate_dir,
-        resolved_manifest_path=resolved_manifest_path,
-        outputs_dir=outputs_dir,
-        artifact_run_dir=artifact_run_dir,
-        training_adapter=adapter,
-        data_config={"dataset_root": str(data_root)},
-        max_samples=max_samples,
-        max_prediction_samples=max_prediction_samples,
-        prediction_sample_policy=prediction_sample_policy,
     )
 
 
@@ -444,11 +388,6 @@ def _dataset_with_augmentation_policy(dataset, augmentation_policy: str, trainin
         return training_adapter.apply_augmentation_policy(dataset, augmentation_policy)
     if augmentation_policy == "none":
         return dataset
-    from ml_autoresearch.research_problems import get_default_research_problem_spec
-
-    default_adapter = get_default_research_problem_spec().training_adapter
-    if default_adapter is not None and hasattr(default_adapter, "apply_augmentation_policy"):
-        return default_adapter.apply_augmentation_policy(dataset, augmentation_policy)
     raise TrainingError(f"unsupported augmentation policy: {augmentation_policy}")
 
 

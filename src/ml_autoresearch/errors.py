@@ -11,5 +11,5 @@ class TrainingError(RuntimeError):
     """Raised when Harness-owned training fails."""
 
 
-class GVCCSDataError(ValueError):
-    """Raised when a local GVCCS Dataset root is missing or malformed."""
+class ResearchProblemDataError(ValueError):
+    """Raised when a configured Research Problem data root is missing or malformed."""
