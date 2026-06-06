@@ -77,6 +77,8 @@ def test_resolved_gvccs_manifest_and_smoke_specs_stay_single_frame_mask_only(tmp
         "auxiliary_targets": [],
         "data": {
             "sampling_policy": "sequential",
+            "frame_selection_policy": "all_target_frames",
+            "frame_selection_policy_effective": "all_target_frames",
             "augmentation_policy": "none",
             "augmentation_policy_effective": "none",
         },

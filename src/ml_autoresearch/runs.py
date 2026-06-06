@@ -316,6 +316,8 @@ def _run_candidate_synthetic_training(
         execution_backend=execution_backend_metadata,
         training_lifecycle=_merge_training_lifecycle(training_result, resource_lifecycle or {}),
         repair_lineage=repair_lineage,
+        data_policy=_data_policy_from_training_result(training_result, run.run_dir),
+        sample_counts=_sample_counts_from_training_result(training_result, run.run_dir),
     )
     _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
@@ -444,6 +446,8 @@ def _train_accepted_run(
         dataset=dataset,
         training_lifecycle=_merge_training_lifecycle(training_result, resource_lifecycle or {}),
         repair_lineage=repair_lineage,
+        data_policy=_data_policy_from_training_result(training_result, run.run_dir),
+        sample_counts=_sample_counts_from_training_result(training_result, run.run_dir),
     )
     _record_run_completed(ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
@@ -614,6 +618,9 @@ def _resolved_manifest_payload(manifest: object) -> dict[str, object]:
     selected = data_policy.get("augmentation_policy", "none")
     data_policy["augmentation_policy"] = selected
     data_policy["augmentation_policy_effective"] = selected
+    frame_selection = data_policy.get("frame_selection_policy", "all_target_frames")
+    data_policy["frame_selection_policy"] = frame_selection
+    data_policy["frame_selection_policy_effective"] = frame_selection
     return payload
 
 
@@ -991,6 +998,35 @@ def _gvccs_dataset_metadata(data_root: Path) -> dict[str, object]:
     return {"id": "gvccs", "host_data_path": str(data_root), "container_data_path": "/data"}
 
 
+def _data_policy_from_training_result(training_result: object, run_dir: Path) -> dict[str, object] | None:
+    if isinstance(training_result, dict) and isinstance(training_result.get("data_policy"), dict):
+        return training_result["data_policy"]
+    final_metrics = _read_final_metrics_if_available(run_dir)
+    if isinstance(final_metrics.get("data_policy"), dict):
+        return final_metrics["data_policy"]
+    return None
+
+
+def _sample_counts_from_training_result(training_result: object, run_dir: Path) -> dict[str, object] | None:
+    if isinstance(training_result, dict) and isinstance(training_result.get("sample_counts"), dict):
+        return training_result["sample_counts"]
+    final_metrics = _read_final_metrics_if_available(run_dir)
+    if isinstance(final_metrics.get("sample_counts"), dict):
+        return final_metrics["sample_counts"]
+    return None
+
+
+def _read_final_metrics_if_available(run_dir: Path) -> dict[str, object]:
+    final_metrics_path = run_dir / "outputs" / "final_metrics.json"
+    if not final_metrics_path.is_file():
+        return {}
+    try:
+        data = json.loads(final_metrics_path.read_text())
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _generate_run_id(runs_root: Path) -> str:
     runs_root.mkdir(parents=True, exist_ok=True)
     while True:
@@ -1019,6 +1055,8 @@ def _write_metadata(
     training_lifecycle: dict[str, object] | None = None,
     repair_lineage: dict[str, object] | None = None,
     research_problem: dict[str, str] | None = None,
+    data_policy: dict[str, object] | None = None,
+    sample_counts: dict[str, object] | None = None,
 ) -> None:
     existing_metadata = None
     metadata_path = run_dir / "run_metadata.json"
@@ -1055,6 +1093,14 @@ def _write_metadata(
         metadata["dataset"] = dataset
     if artifacts is not None:
         metadata["artifacts"] = artifacts
+    if data_policy is not None:
+        metadata["data_policy"] = data_policy
+    elif isinstance(existing_metadata, dict) and isinstance(existing_metadata.get("data_policy"), dict):
+        metadata["data_policy"] = existing_metadata["data_policy"]
+    if sample_counts is not None:
+        metadata["sample_counts"] = sample_counts
+    elif isinstance(existing_metadata, dict) and isinstance(existing_metadata.get("sample_counts"), dict):
+        metadata["sample_counts"] = existing_metadata["sample_counts"]
     if training_lifecycle is not None:
         metadata["training_lifecycle"] = training_lifecycle
     if repair_lineage is not None:

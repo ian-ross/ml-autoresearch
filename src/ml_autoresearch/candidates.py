@@ -36,6 +36,7 @@ class DataManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sampling_policy: str = Field(default="sequential", min_length=1)
+    frame_selection_policy: str | None = Field(default=None, min_length=1)
     augmentation_policy: str = Field(default="none", min_length=1)
 
 
@@ -274,10 +275,16 @@ def _load_manifest(
         raise CandidateValidationError("invalid manifest.yaml: " + "; ".join(details)) from exc
 
     spec = _resolve_research_problem_spec(manifest.research_problem, research_problem_registry)
+    _apply_data_policy_defaults(manifest, spec)
     details = _manifest_allowlist_errors(manifest, spec)
     if details:
         raise CandidateValidationError("invalid manifest.yaml: " + "; ".join(details))
     return manifest
+
+
+def _apply_data_policy_defaults(manifest: CandidateManifest, spec: ResearchProblemSpec) -> None:
+    if manifest.data.frame_selection_policy is None:
+        manifest.data.frame_selection_policy = spec.input_mode_frame_selection_defaults.get(manifest.input_mode, "all_target_frames")
 
 
 def _validation_error_details(exc: ValidationError) -> list[str]:
@@ -312,6 +319,13 @@ def _manifest_allowlist_errors(manifest: CandidateManifest, spec: ResearchProble
     _append_allowlist_error(errors, "training.loss", manifest.training.loss, spec.losses, context)
     _append_allowlist_error(errors, "training.optimizer", manifest.training.optimizer, spec.optimizers, context)
     _append_allowlist_error(errors, "data.sampling_policy", manifest.data.sampling_policy, spec.sampling_policies, context)
+    _append_allowlist_error(errors, "data.frame_selection_policy", manifest.data.frame_selection_policy or "", spec.frame_selection_policies, context)
+    expected_frame_policy = spec.input_mode_frame_selection_defaults.get(manifest.input_mode)
+    if manifest.input_mode == "centered_temporal_rgb_clip" and manifest.data.frame_selection_policy != expected_frame_policy:
+        errors.append(
+            "data.frame_selection_policy: centered_temporal_rgb_clip requires "
+            f"{expected_frame_policy!r} {context} (got {manifest.data.frame_selection_policy!r})"
+        )
     _append_allowlist_error(
         errors,
         "data.augmentation_policy",

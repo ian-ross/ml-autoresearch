@@ -23,6 +23,11 @@ def test_default_registry_exposes_ground_camera_contrail_detection_spec() -> Non
     assert spec.auxiliary_losses == ("weighted_bce",)
     assert spec.optimizers == ("adamw",)
     assert spec.sampling_policies == ("sequential", "deterministic_shuffle")
+    assert spec.frame_selection_policies == ("all_target_frames", "temporal_eligible_center")
+    assert spec.input_mode_frame_selection_defaults == {
+        "single_frame_rgb": "all_target_frames",
+        "centered_temporal_rgb_clip": "temporal_eligible_center",
+    }
     assert spec.augmentation_policies == (
         "none",
         "light_geometric",

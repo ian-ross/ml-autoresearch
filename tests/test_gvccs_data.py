@@ -11,6 +11,7 @@ from ml_autoresearch.gvccs import (
     GVCCSTemporalClipDataset,
     discover_gvccs_samples,
     deterministic_train_val_split,
+    select_gvccs_frames,
 )
 from ml_autoresearch.runs import RunStatus, run_candidate_with_gvccs_data
 
@@ -37,15 +38,16 @@ def _write_temporal_fixture(root: Path, *, frame_count: int = 5) -> Path:
     return data_root
 
 
-def write_trainable_candidate(root: Path, *, max_epochs: int = 1) -> Path:
+def write_trainable_candidate(root: Path, *, max_epochs: int = 1, frame_selection_policy: str | None = None) -> Path:
     candidate = root / "candidate"
-    candidate.mkdir()
+    candidate.mkdir(parents=True)
+    data_block = "" if frame_selection_policy is None else f"data:\n  frame_selection_policy: {frame_selection_policy}\n"
     (candidate / "manifest.yaml").write_text(
         f"""
 name: trainable_candidate
 input_mode: single_frame_rgb
 output_form: mask_logits
-training:
+{data_block}training:
   loss: bce_dice
   optimizer: adamw
   learning_rate: 0.001
@@ -95,6 +97,24 @@ def test_gvccs_temporal_clip_dataset_does_not_cross_frame_sequence_gaps(tmp_path
 
     with pytest.raises(GVCCSDataError, match="centered temporal clips"):
         GVCCSTemporalClipDataset(samples, image_size=4)
+
+
+def test_temporal_eligible_frame_selection_excludes_sequence_boundaries_and_gaps(tmp_path: Path):
+    data_root = _write_temporal_fixture(tmp_path, frame_count=6)
+    annotations_path = data_root / "train" / "annotations.json"
+    payload = json.loads(annotations_path.read_text())
+    payload["images"][5]["file_name"] = "image_20260502000400.png"
+    (data_root / "train" / "images" / "image_20260502000230.png").rename(data_root / "train" / "images" / "image_20260502000400.png")
+    annotations_path.write_text(json.dumps(payload))
+    samples = discover_gvccs_samples(data_root, split="train")
+
+    selected = select_gvccs_frames(samples, "temporal_eligible_center")
+
+    assert [sample.image_path.name for sample in selected] == [
+        "image_20260502000030.png",
+        "image_20260502000100.png",
+        "image_20260502000130.png",
+    ]
 
 
 def test_gvccs_fixture_layout_and_loader_returns_128_rgb_and_binary_mask():
@@ -172,6 +192,9 @@ training:
     run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", _write_temporal_fixture(tmp_path), max_prediction_samples=1)
 
     assert run.status == RunStatus.COMPLETED
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["data_policy"]["frame_selection_policy_effective"] == "temporal_eligible_center"
+    assert metadata["sample_counts"] == {"train": 2, "validation": 1}
     final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
     assert set(final) >= {"val/dice", "val/loss"}
     samples = json.loads((run.run_dir / "outputs" / "prediction_samples" / "samples.json").read_text())
@@ -206,6 +229,26 @@ def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):
         "host_data_path": str(FIXTURE_ROOT.resolve()),
         "container_data_path": "/data",
     }
+    assert metadata["data_policy"]["frame_selection_policy_effective"] == "all_target_frames"
+    assert metadata["sample_counts"] == {"train": 3, "validation": 1}
+
+
+def test_matched_single_frame_control_uses_temporal_eligible_target_subset(tmp_path: Path):
+    data_root = _write_temporal_fixture(tmp_path, frame_count=5)
+    samples = discover_gvccs_samples(data_root, split="train")
+    assert [sample.image_path.name for sample in select_gvccs_frames(samples, "temporal_eligible_center")] == [
+        clip.target.image_path.name for clip in GVCCSTemporalClipDataset(samples).clips
+    ]
+    single = write_trainable_candidate(tmp_path / "single", frame_selection_policy="temporal_eligible_center")
+
+    run = run_candidate_with_gvccs_data(single, tmp_path / "runs", data_root, max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["data_policy"]["frame_selection_policy_effective"] == "temporal_eligible_center"
+    assert metadata["sample_counts"] == {"train": 2, "validation": 1}
+    prediction_samples = json.loads((run.run_dir / "outputs" / "prediction_samples" / "samples.json").read_text())
+    assert prediction_samples["samples"][0]["source_image_path"].endswith("image_20260502000030.png")
 
 
 def test_run_candidate_with_gvccs_fixture_accepts_adjacent_and_scattered_prediction_sample_policy(tmp_path: Path):

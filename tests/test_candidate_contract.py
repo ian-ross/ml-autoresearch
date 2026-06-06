@@ -84,6 +84,7 @@ def test_valid_candidate_directory_returns_normalized_manifest(tmp_path: Path):
     assert manifest.training.batch_size == 2
     assert manifest.training.max_epochs == 1
     assert manifest.data.sampling_policy == "sequential"
+    assert manifest.data.frame_selection_policy == "all_target_frames"
     assert manifest.auxiliary_targets == []
     assert manifest.data.augmentation_policy == "none"
 
@@ -276,6 +277,78 @@ training:
     assert manifest.data.sampling_policy == "deterministic_shuffle"
 
 
+def test_candidate_manifest_accepts_temporal_eligible_frame_selection_for_single_frame_control(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: matched_single_frame_control
+input_mode: single_frame_rgb
+output_form: mask_logits
+data:
+  frame_selection_policy: temporal_eligible_center
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    manifest = validate_candidate_directory(candidate)
+
+    assert manifest.data.frame_selection_policy == "temporal_eligible_center"
+
+
+def test_temporal_input_defaults_to_temporal_eligible_frame_selection(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: temporal_candidate
+input_mode: centered_temporal_rgb_clip
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    manifest = validate_candidate_directory(candidate)
+
+    assert manifest.data.frame_selection_policy == "temporal_eligible_center"
+
+
+def test_temporal_input_rejects_all_target_frame_selection(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: impossible_temporal_candidate
+input_mode: centered_temporal_rgb_clip
+output_form: mask_logits
+data:
+  frame_selection_policy: all_target_frames
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate)
+
+    assert "data.frame_selection_policy" in str(excinfo.value)
+    assert "temporal_eligible_center" in str(excinfo.value)
+
+
 def test_invalid_sampling_policy_is_rejected(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     (candidate / "manifest.yaml").write_text(
@@ -301,6 +374,34 @@ training:
     message = str(excinfo.value)
     assert "data.sampling_policy" in message
     assert "custom_candidate_sampler" in message
+    assert DEFAULT_RESEARCH_PROBLEM_ID in message
+
+
+def test_invalid_frame_selection_policy_is_rejected(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    (candidate / "manifest.yaml").write_text(
+        """
+name: broken
+input_mode: single_frame_rgb
+output_form: mask_logits
+data:
+  frame_selection_policy: candidate_boundary_padding
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+""".strip()
+        + "\n"
+    )
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate)
+
+    message = str(excinfo.value)
+    assert "data.frame_selection_policy" in message
+    assert "candidate_boundary_padding" in message
     assert DEFAULT_RESEARCH_PROBLEM_ID in message
 
 

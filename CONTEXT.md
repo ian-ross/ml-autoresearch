@@ -265,8 +265,12 @@ A Harness-owned set of choices controlling how data examples are selected, order
 _Avoid_: Candidate data loader, arbitrary input pipeline
 
 **Sampling Policy**:
-A candidate-selectable, Harness-owned part of the Data Policy controlling training and validation example selection, ordering, and grouping, initially limited to deterministic shuffle and sequential order.
+A candidate-selectable, Harness-owned part of the Data Policy controlling training example order, initially limited to deterministic shuffle and sequential order.
 _Avoid_: Custom sampler code, candidate data loader
+
+**Frame Selection Policy**:
+A Research Problem-owned, candidate-selectable part of the Data Policy controlling which Target Frames are eligible for training and validation before ordering and batching. For Ground-Camera Contrail Detection, this includes using all Target Frames or only temporal-eligible center Target Frames with complete neighboring frames inside one Frame Sequence.
+_Avoid_: Padding policy, candidate sampler, arbitrary frame filter
 
 **Augmentation Policy**:
 A Research Problem-owned, candidate-selectable part of the Data Policy controlling approved Harness-executed transforms applied to selected training examples.
@@ -308,11 +312,13 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - For the **GVCCS Dataset**, consecutive frames within a **Frame Sequence** are exactly 30 seconds apart; any larger timestamp gap starts a different **Frame Sequence**.
 - **Line Target** and **Boundary Target** are optional **Auxiliary Targets** derived from the **Contrail Mask** by the **Harness**.
 - **Auxiliary Targets** are used for auxiliary training losses; primary evaluation remains based on the **Contrail Mask** prediction.
-- **Data Policy** includes **Sampling Policy**, **Augmentation Policy**, and qualitative **Prediction Sample Policy**.
-- **Sampling Policy** and **Augmentation Policy** are candidate-selectable only through Harness-executed allowlists, not custom candidate data-loading or transform code.
-- **Augmentation Policy** choices are scoped to a **Research Problem** because valid transforms depend on data modality and dataset semantics.
+- **Data Policy** includes **Frame Selection Policy**, **Sampling Policy**, **Augmentation Policy**, and qualitative **Prediction Sample Policy**.
+- **Frame Selection Policy**, **Sampling Policy**, and **Augmentation Policy** are candidate-selectable only through Harness-executed allowlists, not custom candidate data-loading or transform code.
+- **Frame Selection Policy** and **Augmentation Policy** choices are scoped to a **Research Problem** because valid frame eligibility and transforms depend on data modality and dataset semantics.
 - Candidate Experiments declare **Sampling Policy** under `data.sampling_policy` in the manifest; older manifests without it resolve to the previous sequential behavior for compatibility.
+- Candidate Experiments may declare **Frame Selection Policy** under `data.frame_selection_policy` in the manifest; `single_frame_rgb` defaults to `all_target_frames`, while `centered_temporal_rgb_clip` defaults to and requires `temporal_eligible_center`.
 - Initial **Sampling Policy** choices affect training example order; validation order remains stable for reproducible metrics and qualitative diagnostics.
+- **Temporal-eligible center** frame selection excludes sequence-boundary frames and never pads, duplicates, or crosses **Frame Sequence** gaps.
 - **Prediction Sample Policy** is Harness-owned, selected at Run time rather than by Candidate Experiments, and affects qualitative Result artifacts, not model training.
 - The adjacent portion of the initial **Prediction Sample Policy** selects stride-1 consecutive **Target Frames** from validation **Frame Sequences** with non-empty **Contrail Masks**, spaced across eligible sequences.
 - The scattered portion of the initial **Prediction Sample Policy** is positive-biased while retaining a small negative slice to inspect false positives on empty **Contrail Masks**.

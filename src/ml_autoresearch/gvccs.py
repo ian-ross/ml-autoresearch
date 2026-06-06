@@ -146,6 +146,16 @@ def discover_gvccs_samples(data_root: str | Path, *, split: str = "train", max_s
     return samples
 
 
+def select_gvccs_frames(samples: list[GVCCSSample], frame_selection_policy: str) -> list[GVCCSSample]:
+    """Select Target Frames under a Harness-owned GVCCS frame selection policy."""
+
+    if frame_selection_policy == "all_target_frames":
+        return list(samples)
+    if frame_selection_policy == "temporal_eligible_center":
+        return [clip.target for clip in build_centered_temporal_clips(samples)]
+    raise GVCCSDataError(f"unsupported GVCCS frame selection policy: {frame_selection_policy}")
+
+
 def build_centered_temporal_clips(samples: list[GVCCSSample]) -> list[GVCCSTemporalClip]:
     """Build 3-frame, stride-1 centered clips within inferred GVCCS Frame Sequences."""
 

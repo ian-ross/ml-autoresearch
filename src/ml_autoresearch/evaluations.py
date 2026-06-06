@@ -15,7 +15,13 @@ import yaml
 
 from ml_autoresearch.problem_support.imaging import save_mask_tensor, save_overlay, save_probability_heatmap, save_rgb_tensor
 from ml_autoresearch.problem_support.segmentation import binary_confusion_counts
-from ml_autoresearch.gvccs import GVCCSDataset, GVCCSTemporalClipDataset, discover_gvccs_samples, deterministic_train_val_split
+from ml_autoresearch.gvccs import (
+    GVCCSDataset,
+    GVCCSTemporalClipDataset,
+    discover_gvccs_samples,
+    deterministic_train_val_split,
+    select_gvccs_frames,
+)
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
 from ml_autoresearch.smoke import _extract_mask_logits, _import_candidate_model, input_spec_from_resolved_manifest, output_spec_from_resolved_manifest
@@ -283,12 +289,16 @@ def _evaluate_gvccs_validation_split(
     output_spec = output_spec_from_resolved_manifest(run_dir / "resolved_manifest.yaml")
     samples = discover_gvccs_samples(data_root, split="train")
     input_mode = str(manifest.get("input_mode", "single_frame_rgb"))
+    data_policy = manifest.get("data", {}) or {}
+    frame_selection_policy = str(data_policy.get("frame_selection_policy_effective") or data_policy.get("frame_selection_policy") or "all_target_frames")
     if input_mode == "centered_temporal_rgb_clip":
+        if frame_selection_policy != "temporal_eligible_center":
+            raise EvaluationError("centered_temporal_rgb_clip requires frame_selection_policy temporal_eligible_center")
         all_clips = GVCCSTemporalClipDataset(samples).clips
         val_clips = deterministic_train_val_split(all_clips).val  # type: ignore[arg-type]
         dataset = GVCCSTemporalClipDataset(val_clips)  # type: ignore[arg-type]
     elif input_mode == "single_frame_rgb":
-        val_samples = deterministic_train_val_split(samples).val
+        val_samples = deterministic_train_val_split(select_gvccs_frames(samples, frame_selection_policy)).val
         dataset = GVCCSDataset(val_samples)
     else:
         raise EvaluationError(f"unsupported input mode for GVCCS evaluation: {input_mode}")

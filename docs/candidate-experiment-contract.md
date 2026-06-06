@@ -125,10 +125,13 @@ Candidate manifests may select Harness-owned Sampling Policy and Augmentation Po
 ```yaml
 data:
   sampling_policy: deterministic_shuffle
+  frame_selection_policy: temporal_eligible_center
   augmentation_policy: light_combined
 ```
 
 Allowed Sampling Policy values are `sequential` and `deterministic_shuffle`. If omitted, `data.sampling_policy` resolves to `sequential` for compatibility with older manifests. `deterministic_shuffle` only affects training example order and is reproducible; validation order stays stable for reproducible metrics and qualitative diagnostics.
+
+Allowed Frame Selection Policy values are `all_target_frames` and `temporal_eligible_center`. If omitted, `single_frame_rgb` resolves to `all_target_frames`, while `centered_temporal_rgb_clip` resolves to and requires `temporal_eligible_center`. `temporal_eligible_center` selects only Target Frames with complete previous/next stride-1 neighbors inside one inferred GVCCS Frame Sequence; it never pads, duplicates, or crosses gaps. Single-frame Candidate Experiments may explicitly request `temporal_eligible_center` as a matched control for temporal Candidate Experiments.
 
 Allowed Augmentation Policy presets are `none`, `light_geometric`, `light_photometric`, and `light_combined`. If omitted, `data.augmentation_policy` resolves to `none`. The Resolved Manifest records both the requested `augmentation_policy` and the Harness-applied `augmentation_policy_effective`. Presets are currently Ground-Camera Contrail Detection / GVCCS-specific: `light_geometric` applies conservative image/mask-aligned horizontal mirroring, `light_photometric` applies conservative brightness/contrast/noise perturbations to images only, and `light_combined` applies both. These trusted Harness transforms are applied to training examples only; validation examples remain unaugmented and stable.
 

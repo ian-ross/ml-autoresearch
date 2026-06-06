@@ -134,6 +134,13 @@ Allowed v1 sampling policies:
 
 Manifests that omit `data.sampling_policy` resolve to `sequential`. `deterministic_shuffle` changes training example order reproducibly while validation order remains stable for reproducible metrics and qualitative diagnostics.
 
+Implemented Ground-Camera Contrail Detection / GVCCS frame selection policies:
+
+- `all_target_frames` — use every discovered Target Frame after the current split/max-sample policy; this is the default for `single_frame_rgb`.
+- `temporal_eligible_center` — use only Target Frames with complete previous/next stride-1 neighbors inside one inferred Frame Sequence; this is the default and required policy for `centered_temporal_rgb_clip`, and can be selected by `single_frame_rgb` for matched controls.
+
+Run metadata records the effective frame selection policy and the resulting train/validation sample counts for GVCCS Runs.
+
 Implemented Ground-Camera Contrail Detection / GVCCS augmentation presets:
 
 - `none` — no augmentation, and the default for omitted `data.augmentation_policy`.
@@ -185,7 +192,7 @@ Required completed-Run artifacts:
 - `prediction_samples/` — visual examples including input image or clip reference, ground truth mask, predicted mask, and overlay; include informative failures when possible. Run-level Prediction Sample Policy may be `first_n` (default compatibility behavior) or `adjacent_and_scattered` for GVCCS validation diagnostics. `adjacent_and_scattered` infers Frame Sequences from timestamp-like filenames split on gaps greater than 30 seconds, selects stride-1 adjacent windows from positive validation sequences spaced across eligible sequences, and adds positive-biased scattered singleton samples while retaining a small negative slice.
 - `logs/` — validation, smoke-test, training, timeout, and future persistence logs.
 
-The current implementation writes operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root. GVCCS Runs record dataset id `gvccs`, the real host data path, and the container path `/data` in `run_metadata.json`.
+The current implementation writes operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root. GVCCS Runs record dataset id `gvccs`, the real host data path, the container path `/data`, effective Data Policy metadata, and train/validation sample counts in `run_metadata.json`.
 
 Best-checkpoint persistence is optional Harness policy, not required for every Run, because checkpoint storage can become large.
 

@@ -51,6 +51,8 @@ class ResearchProblemSpec(BaseModel):
     auxiliary_losses: tuple[str, ...] = ()
     optimizers: tuple[str, ...] = Field(min_length=1)
     sampling_policies: tuple[str, ...] = Field(min_length=1)
+    frame_selection_policies: tuple[str, ...] = ("all_target_frames",)
+    input_mode_frame_selection_defaults: dict[str, str] = Field(default_factory=dict)
     augmentation_policies: tuple[str, ...] = Field(min_length=1)
     primary_metric: str = Field(min_length=1)
 
@@ -60,6 +62,14 @@ class ResearchProblemSpec(BaseModel):
         if unknown_inputs:
             unknown = ", ".join(sorted(unknown_inputs))
             raise ValueError(f"input_specs contains unknown input mode(s): {unknown}")
+        unknown_frame_selection_defaults = set(self.input_mode_frame_selection_defaults) - set(self.input_modes)
+        if unknown_frame_selection_defaults:
+            unknown = ", ".join(sorted(unknown_frame_selection_defaults))
+            raise ValueError(f"input_mode_frame_selection_defaults contains unknown input mode(s): {unknown}")
+        unknown_frame_selection_policies = set(self.input_mode_frame_selection_defaults.values()) - set(self.frame_selection_policies)
+        if unknown_frame_selection_policies:
+            unknown = ", ".join(sorted(unknown_frame_selection_policies))
+            raise ValueError(f"input_mode_frame_selection_defaults contains unknown frame selection policy/policies: {unknown}")
         unknown_outputs = set(self.output_specs) - set(self.output_forms)
         if unknown_outputs:
             unknown = ", ".join(sorted(unknown_outputs))
@@ -182,6 +192,11 @@ GROUND_CAMERA_CONTRAIL_DETECTION_SPEC = ResearchProblemSpec(
     auxiliary_losses=("weighted_bce",),
     optimizers=("adamw",),
     sampling_policies=("sequential", "deterministic_shuffle"),
+    frame_selection_policies=("all_target_frames", "temporal_eligible_center"),
+    input_mode_frame_selection_defaults={
+        "single_frame_rgb": "all_target_frames",
+        "centered_temporal_rgb_clip": "temporal_eligible_center",
+    },
     augmentation_policies=(
         "none",
         "light_geometric",

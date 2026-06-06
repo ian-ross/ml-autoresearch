@@ -13,7 +13,13 @@ import yaml
 
 from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.errors import TrainingError
-from ml_autoresearch.gvccs import GVCCSDataset, GVCCSTemporalClipDataset, discover_gvccs_samples, deterministic_train_val_split
+from ml_autoresearch.gvccs import (
+    GVCCSDataset,
+    GVCCSTemporalClipDataset,
+    discover_gvccs_samples,
+    deterministic_train_val_split,
+    select_gvccs_frames,
+)
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.problem_support.imaging import deterministic_photometric_perturbation, horizontal_flip_image_mask
 from ml_autoresearch.problem_support.segmentation import (
@@ -80,6 +86,8 @@ def train_synthetic_fixture(
         train_loader_factory=train_loader_factory,
         val_loader_factory=val_loader_factory,
         train_sample_count=TRAIN_SAMPLES,
+        val_sample_count=VAL_SAMPLES,
+        data_policy_metadata={},
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
     )
@@ -124,13 +132,18 @@ def train_gvccs(
     samples = discover_gvccs_samples(data_root, split="train", max_samples=max_samples)
     manifest = yaml.safe_load(Path(resolved_manifest_path).read_text())
     input_mode = str(manifest.get("input_mode", "single_frame_rgb"))
+    data_policy = manifest.get("data", {}) or {}
+    frame_selection_policy = str(data_policy.get("frame_selection_policy_effective") or data_policy.get("frame_selection_policy") or "all_target_frames")
     if input_mode == "centered_temporal_rgb_clip":
+        if frame_selection_policy != "temporal_eligible_center":
+            raise TrainingError("centered_temporal_rgb_clip requires frame_selection_policy temporal_eligible_center")
         all_clips = GVCCSTemporalClipDataset(samples).clips
         split = deterministic_train_val_split(all_clips)  # type: ignore[arg-type]
         train_dataset = GVCCSTemporalClipDataset(split.train)  # type: ignore[arg-type]
         val_dataset = GVCCSTemporalClipDataset(split.val)  # type: ignore[arg-type]
     elif input_mode == "single_frame_rgb":
-        split = deterministic_train_val_split(samples)
+        selected_samples = select_gvccs_frames(samples, frame_selection_policy)
+        split = deterministic_train_val_split(selected_samples)
         train_dataset = GVCCSDataset(split.train)
         val_dataset = GVCCSDataset(split.val)
     else:
@@ -153,6 +166,11 @@ def train_gvccs(
         train_loader_factory=train_loader_factory,
         val_loader_factory=val_loader_factory,
         train_sample_count=len(train_dataset),
+        val_sample_count=len(val_dataset),
+        data_policy_metadata={
+            "frame_selection_policy": frame_selection_policy,
+            "frame_selection_policy_effective": frame_selection_policy,
+        },
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
     )
@@ -170,6 +188,8 @@ def _train_manifest_epochs_run(
     train_loader_factory,
     val_loader_factory,
     train_sample_count: int,
+    val_sample_count: int,
+    data_policy_metadata: dict[str, object],
     max_prediction_samples: int,
     prediction_sample_policy: str,
 ) -> dict[str, object]:
@@ -277,6 +297,9 @@ def _train_manifest_epochs_run(
             if timeout_requested:
                 break
 
+        final["sample_counts"] = {"train": train_sample_count, "validation": val_sample_count}
+        if data_policy_metadata:
+            final["data_policy"] = data_policy_metadata
         best_metrics = _best_validation_metrics(
             validation_records, model_artifact="outputs/models/best_epoch_model.pt"
         )
