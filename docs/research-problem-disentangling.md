@@ -32,17 +32,17 @@ A trusted Research Problem package owns Research Problem policy and concrete cap
 
 The Harness accesses this code by loading a configured filesystem Research Problem package provider, validating the returned Research Problem Spec, registering it, and then using only the checked Spec interface and adapters.
 
-## Current GVCCS leaks in reusable Harness modules
+## Completed disentangling status
 
-The present codebase already has a Research Problem Spec Registry and a Problem Support Library, but many reusable Harness modules still import or name GVCCS directly:
+The migration slices are complete for the current tracer-bullet Harness. Reusable Harness modules no longer directly import GVCCS dataset types or adapters during package import. Research Problem-specific behavior is reached through checked Spec adapters loaded by the filesystem provider path, and regression tests now guard that reusable Harness modules do not add new direct GVCCS imports.
 
-- `src/ml_autoresearch/gvccs.py` contains the trusted GVCCS dataset adapter and temporal-frame semantics, but it currently lives inside the Harness package.
-- `src/ml_autoresearch/training.py` directly discovers GVCCS samples, builds GVCCS datasets, applies GVCCS-specific augmentation policy, derives Contrail Mask auxiliary targets, and selects `val/dice`.
-- `src/ml_autoresearch/runs.py`, `src/ml_autoresearch/batches.py`, `src/ml_autoresearch/execution.py`, `src/ml_autoresearch/container_runner.py`, and `src/ml_autoresearch/cli.py` expose `gvccs`-named training operations.
-- `src/ml_autoresearch/evaluations.py` and `src/ml_autoresearch/evaluation_requests.py` directly run GVCCS whole-validation failure analysis.
-- `src/ml_autoresearch/artifacts.py` uses `GVCCSSample`, `Frame Sequence`, positive Contrail Mask assumptions, and channel-stacked temporal RGB rendering.
-- `src/ml_autoresearch/autonomy_step.py` infers GVCCS data roots and dispatches GVCCS-specific run and batch execution.
-- tests and fixture candidates use GVCCS terms heavily; those can remain as Research Problem-specific tests, but reusable Harness tests need a fake Research Problem package to prove the seam.
+Intentional remaining exceptions:
+
+- `src/ml_autoresearch/research_problem_packages/gvccs/` is the in-repository compatibility location for the initial Ground-Camera Contrail Detection Research Problem until the external `/home/iross/code/gvccs-research-problem` package becomes the canonical source.
+- `src/ml_autoresearch/gvccs.py` is a compatibility-only re-export for older GVCCS-specific tests and callers; reusable Harness code should not import it.
+- `src/ml_autoresearch/research_problems.py` keeps an explicit lazy built-in provider path for Ground-Camera Contrail Detection compatibility. Importing the module does not import the GVCCS package; requesting the default built-in Spec does.
+- `train_gvccs`, `run_candidate_with_gvccs_data`, `run_experiment_batch_with_gvccs_data`, and `train-gvccs` command paths are compatibility-only wrappers around the generic Research Problem dispatch for existing GVCCS workflows.
+- GVCCS-specific tests, fixtures, research notes, Candidate Experiments, and campaign artifacts intentionally keep GVCCS terminology because they describe the initial Research Problem history.
 
 ## Target module ownership
 
@@ -69,15 +69,17 @@ Suggested ownership:
 
 ## Vertical migration slices
 
-1. Add filesystem Research Problem provider loading and provenance recording using a tiny fake Research Problem package in tests.
-2. Move the built-in Ground-Camera Contrail Detection Spec behind a provider function and make Candidate validation use the loaded provider instead of a hard-coded default.
-3. Replace `train_gvccs*` APIs with a generic Research Problem training dispatch that asks the Spec for data loaders, metric selection, and target/loss behavior.
-4. Move GVCCS dataset and input-mode construction out of reusable Harness imports and into the GVCCS package.
-5. Move augmentation policy and auxiliary target derivation behind Research Problem adapters while keeping reusable segmentation helpers in the Problem Support Library.
-6. Replace GVCCS-specific prediction sample selection in the generic artifact writer with a Research Problem figure/sample selector adapter.
-7. Replace direct GVCCS Post-Run Evaluation imports with Research Problem evaluation adapter dispatch.
-8. Generalize CLI, batch execution, container runner commands, and autonomous-step execution so they select a configured Research Problem instead of calling GVCCS-specific entrypoints.
-9. Add regression tests that the reusable Harness imports and core tests pass without importing the GVCCS package, except through explicit configured provider loading.
+All nine planned slices are complete for the current Harness boundary:
+
+1. Filesystem Research Problem provider loading and provenance recording were added with fake-package tests.
+2. The built-in Ground-Camera Contrail Detection Spec moved behind a provider function and Candidate validation can use loaded provider registries.
+3. Generic Research Problem training dispatch asks the Spec adapter for datasets, metrics, losses, targets, and data-policy behavior.
+4. GVCCS dataset and input-mode construction live behind the GVCCS Research Problem adapter, not reusable Harness imports.
+5. Augmentation policy and auxiliary target derivation are adapter-owned, with reusable segmentation helpers kept in the Problem Support Library.
+6. Prediction sample selection and figure rendering dispatch through adapter hooks.
+7. Post-Run Evaluation dispatch uses the Research Problem evaluation adapter.
+8. CLI, batch execution, container runner, and autonomous-step flows have generic Research Problem paths; GVCCS-named paths are compatibility-only wrappers.
+9. Regression tests prove reusable Harness imports and a fake Research Problem flow work while the GVCCS package is simulated as unavailable.
 
 ## Deletion test
 

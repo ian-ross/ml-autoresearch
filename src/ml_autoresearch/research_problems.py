@@ -408,27 +408,42 @@ def build_ground_camera_contrail_detection_spec(data_config: Mapping[str, object
     return build_spec(data_config)
 
 
-GROUND_CAMERA_CONTRAIL_DETECTION_SPEC = build_ground_camera_contrail_detection_spec()
+_BUILTIN_REGISTRY = ResearchProblemSpecRegistry(default_id=DEFAULT_RESEARCH_PROBLEM_ID)
 
 
-_BUILTIN_REGISTRY = ResearchProblemSpecRegistry(
-    (GROUND_CAMERA_CONTRAIL_DETECTION_SPEC,), default_id=DEFAULT_RESEARCH_PROBLEM_ID
-)
+def _ensure_builtin_research_problem_spec(spec_id: str) -> None:
+    """Register lazy built-in Research Problem Specs only when they are requested.
+
+    Importing this reusable Harness module must not import the built-in GVCCS
+    Research Problem package. GVCCS-specific code is loaded only through this
+    explicit compatibility/provider path.
+    """
+
+    if spec_id != DEFAULT_RESEARCH_PROBLEM_ID:
+        return
+    try:
+        _BUILTIN_REGISTRY.get(spec_id)
+    except UnknownResearchProblemSpecError:
+        _BUILTIN_REGISTRY.register(build_ground_camera_contrail_detection_spec())
 
 
 def get_research_problem_spec(spec_id: str) -> ResearchProblemSpec:
     """Look up a built-in Research Problem Spec by id."""
 
+    _ensure_builtin_research_problem_spec(spec_id)
     return _BUILTIN_REGISTRY.get(spec_id)
 
 
 def get_default_research_problem_spec() -> ResearchProblemSpec:
     """Return the default built-in Research Problem Spec."""
 
+    _ensure_builtin_research_problem_spec(DEFAULT_RESEARCH_PROBLEM_ID)
     return _BUILTIN_REGISTRY.default()
 
 
 def registered_research_problem_ids() -> tuple[str, ...]:
     """Return ids for built-in registered Research Problem Specs."""
 
-    return _BUILTIN_REGISTRY.ids()
+    ids = set(_BUILTIN_REGISTRY.ids())
+    ids.add(DEFAULT_RESEARCH_PROBLEM_ID)
+    return tuple(sorted(ids))

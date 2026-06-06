@@ -16,7 +16,10 @@ def main() -> None:
     train_synthetic = subparsers.add_parser("train-synthetic")
     train_synthetic.add_argument("--max-prediction-samples", type=int, default=2)
     train_synthetic.add_argument("--prediction-sample-policy", choices=["first_n", "adjacent_and_scattered"], default="first_n")
-    train_gvccs_parser = subparsers.add_parser("train-gvccs")
+    train_gvccs_parser = subparsers.add_parser(
+        "train-gvccs",
+        help="Compatibility-only GVCCS wrapper; prefer train-research-problem with a provider config.",
+    )
     train_gvccs_parser.add_argument("--max-samples", type=int, default=None)
     train_gvccs_parser.add_argument("--max-prediction-samples", type=int, default=2)
     train_gvccs_parser.add_argument("--prediction-sample-policy", choices=["first_n", "adjacent_and_scattered"], default="first_n")

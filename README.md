@@ -144,7 +144,7 @@ The manual Docker command remains a valid fallback and builds the same default i
 docker build -t ml-autoresearch-runner:local .
 ```
 
-Run against the configured Research Problem data root using the default Docker backend. The current committed example is the Ground-Camera Contrail Detection Research Problem with a local GVCCS-like or real GVCCS data root:
+Run against the configured Research Problem data root using the default Docker backend. The current committed example is the initial Ground-Camera Contrail Detection Research Problem with a local GVCCS-like or real GVCCS data root:
 
 ```bash
 uv run ml-autoresearch run-candidate \
@@ -156,7 +156,9 @@ uv run ml-autoresearch run-candidate \
   --no-require-proposal
 ```
 
-Prediction Sample Policy is a Run-level Harness option, not a Candidate Experiment manifest option. Supported values are `first_n` (default) and `adjacent_and_scattered`.
+Research Problem-specific trusted code is loaded through a filesystem provider configuration, not by Candidate Experiments. A configuration names the Research Problem id, the local package root, the provider target such as `gvccs.research_problem:build_spec`, the expected contract version, and data configuration such as the dataset root. The Harness validates the returned Spec, records provider provenance in Run metadata, and then uses only the checked Research Problem adapter interface. The built-in GVCCS options and `train-gvccs` command paths remain compatibility-only entrypoints for the initial Research Problem while the generic Research Problem dispatch is the reusable Harness path.
+
+Prediction Sample Policy is a Run-level Harness option, not a Candidate Experiment manifest option. Supported values are `first_n` (default) and `adjacent_and_scattered` for the GVCCS example adapter.
 
 Docker GPU access is disabled by default. Before launching GPU-enabled Candidate Experiment training on the cluster, validate GPU visibility inside the same runner image used for candidate execution:
 

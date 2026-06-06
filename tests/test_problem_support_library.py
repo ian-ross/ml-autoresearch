@@ -1,10 +1,10 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 import torch
 from PIL import Image
 
-from ml_autoresearch.gvccs import GVCCSSample
 from ml_autoresearch.problem_support.imaging import (
     deterministic_photometric_perturbation,
     horizontal_flip_image_mask,
@@ -61,14 +61,20 @@ def test_problem_support_segmentation_metrics_and_auxiliary_targets_are_reusable
     assert derive_boundary_target_v1(target).sum().item() == 9
 
 
+@dataclass(frozen=True)
+class GenericFrame:
+    frame_id: int
+    image_path: Path
+
+
 def test_problem_support_infers_timestamped_frame_sequences_without_gvccs_types() -> None:
     samples = [
-        GVCCSSample(1, Path("cam_20260601000000.png"), 1, 1, ()),
-        GVCCSSample(2, Path("cam_20260601000030.png"), 1, 1, ()),
-        GVCCSSample(3, Path("cam_20260601000200.png"), 1, 1, ()),
-        GVCCSSample(4, Path("no_timestamp.png"), 1, 1, ()),
+        GenericFrame(1, Path("cam_20260601000000.png")),
+        GenericFrame(2, Path("cam_20260601000030.png")),
+        GenericFrame(3, Path("cam_20260601000200.png")),
+        GenericFrame(4, Path("no_timestamp.png")),
     ]
 
     sequences = infer_timestamped_frame_sequences(samples, filename_for_item=lambda sample: sample.image_path.name)
 
-    assert [[sample.image_id for sample in sequence] for sequence in sequences] == [[1, 2], [3]]
+    assert [[sample.frame_id for sample in sequence] for sequence in sequences] == [[1, 2], [3]]
