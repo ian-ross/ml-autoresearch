@@ -7,9 +7,13 @@ only the existing allowlisted manifest contract.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import importlib
+import subprocess
+import sys
+from collections.abc import Callable, Iterable, Mapping
+from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 DEFAULT_RESEARCH_PROBLEM_ID = "ground_camera_contrail_detection"
@@ -17,6 +21,10 @@ DEFAULT_RESEARCH_PROBLEM_ID = "ground_camera_contrail_detection"
 
 class ResearchProblemSpecError(ValueError):
     """Base error for Research Problem Spec registry failures."""
+
+
+class ResearchProblemProviderLoadError(ResearchProblemSpecError):
+    """Raised when a configured filesystem Research Problem provider cannot be loaded."""
 
 
 class DuplicateResearchProblemSpecError(ResearchProblemSpecError):
@@ -40,6 +48,7 @@ class ResearchProblemSpec(BaseModel):
 
     id: str = Field(min_length=1)
     version: str = Field(min_length=1)
+    contract_version: str = Field(default="v0", min_length=1)
     input_modes: tuple[str, ...] = Field(min_length=1)
     input_specs: dict[str, dict[str, object]] = Field(default_factory=dict)
     output_forms: tuple[str, ...] = Field(min_length=1)
@@ -124,6 +133,58 @@ class ResearchProblemSpec(BaseModel):
         return output_spec
 
 
+class ResearchProblemProviderConfig(BaseModel):
+    """Harness-owned configuration for a trusted filesystem Research Problem provider."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    id: str = Field(min_length=1)
+    package_root: Path
+    provider_target: str = Field(min_length=1)
+    expected_contract_version: str = Field(min_length=1)
+    data_config: dict[str, object] = Field(default_factory=dict)
+
+
+class ResearchProblemProviderProvenance(BaseModel):
+    """Source provenance for a loaded filesystem Research Problem provider."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    resolved_package_root: Path
+    provider_target: str = Field(min_length=1)
+    git: dict[str, object] | None = None
+
+    def run_metadata(self) -> dict[str, object]:
+        """Return JSON-serialisable provider provenance for Run metadata."""
+
+        metadata: dict[str, object] = {
+            "target": self.provider_target,
+            "resolved_package_root": str(self.resolved_package_root),
+        }
+        if self.git is not None:
+            metadata["git"] = self.git
+        return metadata
+
+
+class LoadedResearchProblemSpec(BaseModel):
+    """A checked Research Problem Spec plus provider provenance."""
+
+    model_config = ConfigDict(frozen=True)
+
+    spec: ResearchProblemSpec
+    provenance: ResearchProblemProviderProvenance
+
+    def run_metadata(self) -> dict[str, object]:
+        """Return JSON-serialisable Research Problem metadata for Run recording."""
+
+        return {
+            "id": self.spec.id,
+            "version": self.spec.version,
+            "contract_version": self.spec.contract_version,
+            "provider": self.provenance.run_metadata(),
+        }
+
+
 class ResearchProblemSpecRegistry:
     """In-memory registry for trusted Research Problem Specs."""
 
@@ -134,11 +195,17 @@ class ResearchProblemSpecRegistry:
         default_id: str = DEFAULT_RESEARCH_PROBLEM_ID,
     ) -> None:
         self._specs: dict[str, ResearchProblemSpec] = {}
+        self._provenance: dict[str, ResearchProblemProviderProvenance] = {}
         self._default_id = default_id
         for spec in specs:
             self.register(spec)
 
-    def register(self, spec: ResearchProblemSpec) -> ResearchProblemSpec:
+    def register(
+        self,
+        spec: ResearchProblemSpec,
+        *,
+        provenance: ResearchProblemProviderProvenance | None = None,
+    ) -> ResearchProblemSpec:
         """Register a spec and return it.
 
         Duplicate ids are rejected so lookup by id stays unambiguous.
@@ -147,6 +214,8 @@ class ResearchProblemSpecRegistry:
         if spec.id in self._specs:
             raise DuplicateResearchProblemSpecError(f"research problem spec already registered: {spec.id}")
         self._specs[spec.id] = spec
+        if provenance is not None:
+            self._provenance[spec.id] = provenance
         return spec
 
     def get(self, spec_id: str) -> ResearchProblemSpec:
@@ -166,6 +235,142 @@ class ResearchProblemSpecRegistry:
         """Return registered Research Problem ids in deterministic order."""
 
         return tuple(sorted(self._specs))
+
+    def get_provenance(self, spec_id: str) -> ResearchProblemProviderProvenance | None:
+        """Return provider provenance for ``spec_id`` when it was loaded from a provider."""
+
+        self.get(spec_id)
+        return self._provenance.get(spec_id)
+
+
+def load_research_problem_provider(
+    config: ResearchProblemProviderConfig,
+    *,
+    registry: ResearchProblemSpecRegistry | None = None,
+) -> LoadedResearchProblemSpec:
+    """Load, validate, and optionally register a trusted filesystem Research Problem provider."""
+
+    package_root = _resolve_package_root(config.package_root)
+    module_name, symbol_name = _parse_provider_target(config.provider_target)
+    provider = _import_provider(package_root, module_name, symbol_name)
+    raw_spec = _call_provider(provider, config)
+    spec = _check_provider_spec(raw_spec, config)
+    provenance = ResearchProblemProviderProvenance(
+        resolved_package_root=package_root,
+        provider_target=config.provider_target,
+        git=_git_provenance(package_root),
+    )
+    if registry is not None:
+        registry.register(spec, provenance=provenance)
+    return LoadedResearchProblemSpec(spec=spec, provenance=provenance)
+
+
+def _resolve_package_root(package_root: Path) -> Path:
+    try:
+        resolved = package_root.expanduser().resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ResearchProblemProviderLoadError(f"Research Problem package root does not exist: {package_root}") from exc
+    if not resolved.is_dir():
+        raise ResearchProblemProviderLoadError(f"Research Problem package root is not a directory: {resolved}")
+    return resolved
+
+
+def _parse_provider_target(provider_target: str) -> tuple[str, str]:
+    if ":" not in provider_target:
+        raise ResearchProblemProviderLoadError(
+            f"Research Problem provider target must be 'module:symbol', got {provider_target!r}"
+        )
+    module_name, symbol_name = provider_target.split(":", 1)
+    if not module_name or not symbol_name:
+        raise ResearchProblemProviderLoadError(
+            f"Research Problem provider target must be 'module:symbol', got {provider_target!r}"
+        )
+    return module_name, symbol_name
+
+
+def _import_provider(package_root: Path, module_name: str, symbol_name: str) -> Callable[..., object]:
+    package_root_text = str(package_root)
+    inserted = False
+    if package_root_text not in sys.path:
+        sys.path.insert(0, package_root_text)
+        inserted = True
+    try:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:
+            raise ResearchProblemProviderLoadError(
+                f"cannot import Research Problem provider module {module_name!r} from {package_root}"
+            ) from exc
+        try:
+            provider = getattr(module, symbol_name)
+        except AttributeError as exc:
+            raise ResearchProblemProviderLoadError(
+                f"Research Problem provider module {module_name!r} does not define provider symbol {symbol_name!r}"
+            ) from exc
+        if not callable(provider):
+            raise ResearchProblemProviderLoadError(
+                f"Research Problem provider target {module_name}:{symbol_name} is not callable"
+            )
+        return provider
+    finally:
+        if inserted:
+            try:
+                sys.path.remove(package_root_text)
+            except ValueError:
+                pass
+
+
+def _call_provider(provider: Callable[..., object], config: ResearchProblemProviderConfig) -> object:
+    try:
+        return provider(data_config=dict(config.data_config))
+    except TypeError:
+        try:
+            return provider()
+        except Exception as exc:
+            raise ResearchProblemProviderLoadError(f"Research Problem provider {config.provider_target!r} failed: {exc}") from exc
+    except Exception as exc:
+        raise ResearchProblemProviderLoadError(f"Research Problem provider {config.provider_target!r} failed: {exc}") from exc
+
+
+def _check_provider_spec(raw_spec: object, config: ResearchProblemProviderConfig) -> ResearchProblemSpec:
+    if isinstance(raw_spec, ResearchProblemSpec):
+        spec = raw_spec
+    else:
+        try:
+            spec = ResearchProblemSpec.model_validate(raw_spec)
+        except ValidationError as exc:
+            raise ResearchProblemProviderLoadError(f"invalid Research Problem Spec returned by provider: {exc}") from exc
+    if spec.id != config.id:
+        raise ResearchProblemProviderLoadError(
+            f"Research Problem Spec id mismatch: configured {config.id!r}, provider returned {spec.id!r}"
+        )
+    if spec.contract_version != config.expected_contract_version:
+        raise ResearchProblemProviderLoadError(
+            "Research Problem Spec contract-version mismatch: "
+            f"configured {config.expected_contract_version!r}, provider returned {spec.contract_version!r}"
+        )
+    return spec
+
+
+def _git_provenance(package_root: Path) -> dict[str, object] | None:
+    def run_git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(package_root), *args],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    inside = run_git("rev-parse", "--is-inside-work-tree")
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return None
+    commit = run_git("rev-parse", "HEAD")
+    if commit.returncode != 0:
+        return None
+    status = run_git("status", "--porcelain")
+    dirty = status.returncode == 0 and bool(status.stdout.strip())
+    return {"commit": commit.stdout.strip(), "dirty": dirty}
 
 
 GROUND_CAMERA_CONTRAIL_DETECTION_SPEC = ResearchProblemSpec(
