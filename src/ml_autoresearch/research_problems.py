@@ -295,6 +295,7 @@ def _import_provider(package_root: Path, module_name: str, symbol_name: str) -> 
         sys.path.insert(0, package_root_text)
         inserted = True
     try:
+        _evict_provider_module_cache(package_root, module_name)
         try:
             module = importlib.import_module(module_name)
         except Exception as exc:
@@ -318,6 +319,25 @@ def _import_provider(package_root: Path, module_name: str, symbol_name: str) -> 
                 sys.path.remove(package_root_text)
             except ValueError:
                 pass
+
+
+def _evict_provider_module_cache(package_root: Path, module_name: str) -> None:
+    """Avoid reusing a same-named provider module from another filesystem package."""
+
+    names = [module_name]
+    top_level = module_name.split(".", 1)[0]
+    if top_level != module_name:
+        names.append(top_level)
+    for name in names:
+        cached = sys.modules.get(name)
+        cached_file = getattr(cached, "__file__", None) if cached is not None else None
+        if cached_file is None:
+            continue
+        try:
+            cached_path = Path(cached_file).resolve()
+            cached_path.relative_to(package_root)
+        except (OSError, ValueError):
+            sys.modules.pop(name, None)
 
 
 def _call_provider(provider: Callable[..., object], config: ResearchProblemProviderConfig) -> object:
@@ -373,43 +393,55 @@ def _git_provenance(package_root: Path) -> dict[str, object] | None:
     return {"commit": commit.stdout.strip(), "dirty": dirty}
 
 
-GROUND_CAMERA_CONTRAIL_DETECTION_SPEC = ResearchProblemSpec(
-    id=DEFAULT_RESEARCH_PROBLEM_ID,
-    version="v0",
-    input_modes=("single_frame_rgb", "centered_temporal_rgb_clip"),
-    input_specs={
-        "single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]},
-        "centered_temporal_rgb_clip": {
-            "mode": "centered_temporal_rgb_clip",
-            "shape": [9, 128, 128],
-            "clip_length": 3,
-            "frame_stride": 1,
-            "layout": "channel_stacked_rgb",
-            "target_frame": "center",
+def build_ground_camera_contrail_detection_spec(data_config: Mapping[str, object] | None = None) -> ResearchProblemSpec:
+    """Provider for the Ground-Camera Contrail Detection Research Problem Spec.
+
+    The optional ``data_config`` argument is accepted for compatibility with
+    filesystem provider loading; this declarative v0 Spec does not need data
+    paths to define its manifest allowlists.
+    """
+
+    del data_config
+    return ResearchProblemSpec(
+        id=DEFAULT_RESEARCH_PROBLEM_ID,
+        version="v0",
+        input_modes=("single_frame_rgb", "centered_temporal_rgb_clip"),
+        input_specs={
+            "single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]},
+            "centered_temporal_rgb_clip": {
+                "mode": "centered_temporal_rgb_clip",
+                "shape": [9, 128, 128],
+                "clip_length": 3,
+                "frame_stride": 1,
+                "layout": "channel_stacked_rgb",
+                "target_frame": "center",
+            },
         },
-    },
-    output_forms=("mask_logits",),
-    output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
-    auxiliary_targets=("line", "boundary"),
-    auxiliary_outputs={"line": "line_logits", "boundary": "boundary_logits"},
-    auxiliary_output_shapes={"line": [1, 128, 128], "boundary": [1, 128, 128]},
-    losses=("bce_dice",),
-    auxiliary_losses=("weighted_bce",),
-    optimizers=("adamw",),
-    sampling_policies=("sequential", "deterministic_shuffle"),
-    frame_selection_policies=("all_target_frames", "temporal_eligible_center"),
-    input_mode_frame_selection_defaults={
-        "single_frame_rgb": "all_target_frames",
-        "centered_temporal_rgb_clip": "temporal_eligible_center",
-    },
-    augmentation_policies=(
-        "none",
-        "light_geometric",
-        "light_photometric",
-        "light_combined",
-    ),
-    primary_metric="val/dice",
-)
+        output_forms=("mask_logits",),
+        output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
+        auxiliary_targets=("line", "boundary"),
+        auxiliary_outputs={"line": "line_logits", "boundary": "boundary_logits"},
+        auxiliary_output_shapes={"line": [1, 128, 128], "boundary": [1, 128, 128]},
+        losses=("bce_dice",),
+        auxiliary_losses=("weighted_bce",),
+        optimizers=("adamw",),
+        sampling_policies=("sequential", "deterministic_shuffle"),
+        frame_selection_policies=("all_target_frames", "temporal_eligible_center"),
+        input_mode_frame_selection_defaults={
+            "single_frame_rgb": "all_target_frames",
+            "centered_temporal_rgb_clip": "temporal_eligible_center",
+        },
+        augmentation_policies=(
+            "none",
+            "light_geometric",
+            "light_photometric",
+            "light_combined",
+        ),
+        primary_metric="val/dice",
+    )
+
+
+GROUND_CAMERA_CONTRAIL_DETECTION_SPEC = build_ground_camera_contrail_detection_spec()
 
 
 _BUILTIN_REGISTRY = ResearchProblemSpecRegistry(

@@ -5,6 +5,7 @@ import subprocess
 import pytest
 
 from ml_autoresearch.research_problems import (
+    DEFAULT_RESEARCH_PROBLEM_ID,
     ResearchProblemProviderConfig,
     ResearchProblemProviderLoadError,
     ResearchProblemSpecRegistry,
@@ -61,6 +62,22 @@ def _config(root, target="tiny_problem.research_problem:build_spec"):
         expected_contract_version="v0",
         data_config={"dataset_root": "/trusted/data"},
     )
+
+
+def test_ground_camera_contrail_detection_provider_can_be_loaded_from_filesystem() -> None:
+    registry = ResearchProblemSpecRegistry(default_id=DEFAULT_RESEARCH_PROBLEM_ID)
+    config = ResearchProblemProviderConfig(
+        id=DEFAULT_RESEARCH_PROBLEM_ID,
+        package_root="src",
+        provider_target="ml_autoresearch.research_problems:build_ground_camera_contrail_detection_spec",
+        expected_contract_version="v0",
+    )
+
+    loaded = load_research_problem_provider(config, registry=registry)
+
+    assert loaded.spec.id == "ground_camera_contrail_detection"
+    assert loaded.spec.input_modes == ("single_frame_rgb", "centered_temporal_rgb_clip")
+    assert registry.get(DEFAULT_RESEARCH_PROBLEM_ID) == loaded.spec
 
 
 def test_loads_filesystem_research_problem_provider_and_registers_spec(tmp_path) -> None:

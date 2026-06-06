@@ -6,6 +6,7 @@ from ml_autoresearch.candidate_execution_config import (
     CandidateExecutionConfigError,
     execution_backend_from_config,
     load_candidate_execution_config,
+    load_configured_research_problem_registry,
 )
 from ml_autoresearch.execution import DockerBackend, NativeBackend
 
@@ -39,6 +40,36 @@ prediction_sample_policy = "adjacent_and_scattered"
     assert backend.docker_image == "custom:tag"
     assert backend.enable_gpu is True
     assert backend.rootless_container_root is True
+
+
+def test_candidate_execution_config_loads_research_problem_provider_registry(tmp_path: Path) -> None:
+    package = tmp_path / "tiny_problem"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "research_problem.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "def build_spec(data_config=None):\n"
+        "    return ResearchProblemSpec(\n"
+        "        id='tiny_problem', version='test-v0', contract_version='v0',\n"
+        "        input_modes=('tiny_rgb',), input_specs={'tiny_rgb': {'mode': 'tiny_rgb', 'shape': [3, 8, 8]}},\n"
+        "        output_forms=('tiny_mask_logits',), output_specs={'tiny_mask_logits': {'form': 'tiny_mask_logits', 'shape': [1, 8, 8]}},\n"
+        "        losses=('tiny_loss',), optimizers=('sgd',),\n"
+        "        sampling_policies=('sequential',), augmentation_policies=('none',), primary_metric='val/tiny_score')\n"
+    )
+    (tmp_path / "candidate-execution.toml").write_text(
+        '''
+[research_problem]
+id = "tiny_problem"
+package_root = "."
+provider_target = "tiny_problem.research_problem:build_spec"
+expected_contract_version = "v0"
+'''.lstrip()
+    )
+
+    registry = load_configured_research_problem_registry(tmp_path)
+
+    assert registry is not None
+    assert registry.get("tiny_problem").losses == ("tiny_loss",)
 
 
 def test_candidate_execution_config_defaults_to_native_when_absent(tmp_path: Path) -> None:

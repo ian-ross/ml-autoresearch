@@ -18,7 +18,7 @@ from ml_autoresearch.candidates import CandidateValidationError, validate_candid
 from ml_autoresearch.errors import GVCCSDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
-from ml_autoresearch.research_problems import get_research_problem_spec
+from ml_autoresearch.research_problems import ResearchProblemSpecRegistry, get_research_problem_spec
 
 
 class RunStatus(StrEnum):
@@ -606,14 +606,21 @@ def _read_evaluation_summary_dir(evaluation_dir: Path) -> dict[str, object]:
     return summary
 
 
-def _research_problem_identity(manifest: object) -> dict[str, str]:
-    spec = get_research_problem_spec(str(getattr(manifest, "research_problem")))
+def _research_problem_identity(
+    manifest: object,
+    registry: ResearchProblemSpecRegistry | None = None,
+) -> dict[str, str]:
+    spec_id = str(getattr(manifest, "research_problem"))
+    spec = registry.get(spec_id) if registry is not None else get_research_problem_spec(spec_id)
     return {"id": spec.id, "version": spec.version}
 
 
-def _resolved_manifest_payload(manifest: object) -> dict[str, object]:
+def _resolved_manifest_payload(
+    manifest: object,
+    registry: ResearchProblemSpecRegistry | None = None,
+) -> dict[str, object]:
     payload = manifest.model_dump(mode="json")
-    payload["research_problem"] = _research_problem_identity(manifest)
+    payload["research_problem"] = _research_problem_identity(manifest, registry)
     data_policy = payload.setdefault("data", {})
     selected = data_policy.get("augmentation_policy", "none")
     data_policy["augmentation_policy"] = selected
@@ -668,6 +675,7 @@ def submit_candidate(
     backend: ExecutionBackend | None = None,
     ledger_path: str | Path | None = None,
     require_proposal: bool = False,
+    research_problem_registry: ResearchProblemSpecRegistry | None = None,
 ) -> RunSubmission:
     """Submit a local Candidate Experiment directory and create a Run record.
 
@@ -689,7 +697,11 @@ def submit_candidate(
     created_at = _now_iso()
 
     try:
-        manifest = validate_candidate_directory(source, require_proposal=require_proposal)
+        manifest = validate_candidate_directory(
+            source,
+            require_proposal=require_proposal,
+            research_problem_registry=research_problem_registry,
+        )
     except CandidateValidationError as exc:
         reason = str(exc)
         validation_log.write_text(f"Candidate validation failed: {reason}\n")
@@ -732,14 +744,14 @@ def submit_candidate(
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, repair_policy_reason, RunFailureClassification.CONTRACT_VIOLATION)
 
-    research_problem = _research_problem_identity(manifest)
+    research_problem = _research_problem_identity(manifest, research_problem_registry)
     validation_log.write_text("Candidate validation accepted.\n")
     proposal_path = source / "PROPOSAL.md"
     if proposal_path.is_file():
         _record_proposal_created_event(proposal_path, manifest.name, resolved_ledger_path=resolved_ledger_path)
     _record_candidate_created_event(source, manifest.name, proposal_id=manifest.name if proposal_path.is_file() else None, repair_lineage=repair_lineage, resolved_ledger_path=resolved_ledger_path)
     shutil.copytree(source, run_dir / "candidate")
-    _write_yaml(run_dir / "resolved_manifest.yaml", _resolved_manifest_payload(manifest))
+    _write_yaml(run_dir / "resolved_manifest.yaml", _resolved_manifest_payload(manifest, research_problem_registry))
     _write_metadata(
         run_dir,
         run_id=run_id,

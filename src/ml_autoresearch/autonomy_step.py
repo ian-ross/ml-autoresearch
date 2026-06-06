@@ -356,12 +356,17 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
     next_action = ingestion.get("next_action")
     if handoff_type == "candidate_submission" and next_action == "run_candidate":
         candidate_path = _required_relative_path(root, ingestion, "canonical_path")
-        from ml_autoresearch.candidate_execution_config import execution_backend_from_config, load_candidate_execution_config
+        from ml_autoresearch.candidate_execution_config import (
+            execution_backend_from_config,
+            load_candidate_execution_config,
+            load_configured_research_problem_registry,
+        )
         from ml_autoresearch.runs import RunStatus, RunSubmission, submit_candidate, train_accepted_run_with_gvccs_data
 
         config = load_candidate_execution_config(root)
         data_root = config.data_root or _infer_gvccs_data_root(root)
         backend = execution_backend_from_config(config)
+        research_problem_registry = load_configured_research_problem_registry(root)
         previous_result = ingestion.get("next_action_result")
         run = None
         if isinstance(previous_result, dict) and previous_result.get("run_status") == "accepted":
@@ -395,6 +400,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
                 backend=backend,
                 ledger_path=root / "research-ledger.jsonl",
                 require_proposal=True,
+                research_problem_registry=research_problem_registry,
             )
             if run.status.value == "accepted":
                 run = train_accepted_run_with_gvccs_data(

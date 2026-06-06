@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Literal
 
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend
+from ml_autoresearch.research_problems import (
+    DEFAULT_RESEARCH_PROBLEM_ID,
+    ResearchProblemProviderConfig,
+    ResearchProblemSpecRegistry,
+    load_research_problem_provider,
+)
 
 CONFIG_FILENAME = "candidate-execution.toml"
 
@@ -29,6 +35,7 @@ class CandidateExecutionConfig:
     max_samples: int | None = None
     max_prediction_samples: int = 2
     prediction_sample_policy: Literal["first_n", "adjacent_and_scattered"] = "first_n"
+    research_problem_provider: ResearchProblemProviderConfig | None = None
 
 
 def load_candidate_execution_config(project_root: str | Path = Path(".")) -> CandidateExecutionConfig:
@@ -49,6 +56,7 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
     docker_user = _optional_string(settings, "docker_user")
     docker_rootless_container_root = _bool(settings, "docker_rootless_container_root", False)
     data_root = _optional_path(settings, "data_root", root)
+    research_problem_provider = _research_problem_provider_config(data, root)
     max_samples = _optional_int(settings, "max_samples", minimum=1)
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
     prediction_sample_policy = _literal(
@@ -82,7 +90,23 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
         max_samples=max_samples,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,  # type: ignore[arg-type]
+        research_problem_provider=research_problem_provider,
     )
+
+
+def load_configured_research_problem_registry(project_root: str | Path = Path(".")) -> ResearchProblemSpecRegistry | None:
+    """Load the configured trusted Research Problem Spec Registry, when configured.
+
+    ``None`` preserves compatibility/bootstrap behavior where callers use the
+    built-in Ground-Camera Contrail Detection Spec.
+    """
+
+    config = load_candidate_execution_config(project_root)
+    if config.research_problem_provider is None:
+        return None
+    registry = ResearchProblemSpecRegistry(default_id=config.research_problem_provider.id)
+    load_research_problem_provider(config.research_problem_provider, registry=registry)
+    return registry
 
 
 def execution_backend_from_config(config: CandidateExecutionConfig) -> ExecutionBackend:
@@ -97,6 +121,28 @@ def execution_backend_from_config(config: CandidateExecutionConfig) -> Execution
         enable_gpu=config.docker_enable_gpu,
         container_user=config.docker_user,
         rootless_container_root=config.docker_rootless_container_root,
+    )
+
+
+def _research_problem_provider_config(data: dict[str, object], project_root: Path) -> ResearchProblemProviderConfig | None:
+    settings = data.get("research_problem")
+    if settings is None:
+        return None
+    if not isinstance(settings, dict):
+        raise CandidateExecutionConfigError("[research_problem] must be a table")
+    spec_id = _string(settings, "id", DEFAULT_RESEARCH_PROBLEM_ID)
+    package_root = _path(settings, "package_root", project_root)
+    provider_target = _string(settings, "provider_target", "ml_autoresearch.research_problems:build_ground_camera_contrail_detection_spec")
+    expected_contract_version = _string(settings, "expected_contract_version", "v0")
+    data_config = settings.get("data_config", {})
+    if not isinstance(data_config, dict):
+        raise CandidateExecutionConfigError("research_problem.data_config must be a table")
+    return ResearchProblemProviderConfig(
+        id=spec_id,
+        package_root=package_root,
+        provider_target=provider_target,
+        expected_contract_version=expected_contract_version,
+        data_config=dict(data_config),
     )
 
 
@@ -150,8 +196,13 @@ def _optional_path(settings: dict[str, object], key: str, project_root: Path) ->
     value = settings.get(key)
     if value is None:
         return None
+    return _path(settings, key, project_root, prefix="candidate_execution")
+
+
+def _path(settings: dict[str, object], key: str, project_root: Path, *, prefix: str = "research_problem") -> Path:
+    value = settings.get(key)
     if not isinstance(value, str) or not value:
-        raise CandidateExecutionConfigError(f"candidate_execution.{key} must be a non-empty string")
+        raise CandidateExecutionConfigError(f"{prefix}.{key} must be a non-empty string")
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = project_root / path
