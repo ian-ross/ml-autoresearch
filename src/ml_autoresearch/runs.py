@@ -168,7 +168,7 @@ def run_candidate_with_gvccs_data(
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
 
-    data_path = _validate_host_data_root(data_root)
+    data_path = _validate_gvccs_data_root_through_adapter(data_root)
     selected_backend = backend or NativeBackend()
     return _run_candidate_training(
         candidate_dir,
@@ -181,7 +181,7 @@ def run_candidate_with_gvccs_data(
             prediction_sample_policy=prediction_sample_policy,
         ),
         backend=selected_backend,
-        dataset=_gvccs_dataset_metadata(data_path),
+        dataset=_gvccs_dataset_metadata_through_adapter(data_path),
         ledger_path=ledger_path,
         require_proposal=require_proposal,
     )
@@ -239,7 +239,7 @@ def train_accepted_run_with_gvccs_data(
     metadata = _read_metadata(path)
     if metadata.get("status") != RunStatus.ACCEPTED.value:
         raise ValueError(f"accepted Run required for training continuation: {path}")
-    data_path = _validate_host_data_root(data_root)
+    data_path = _validate_gvccs_data_root_through_adapter(data_root)
     selected_backend = backend or NativeBackend()
     return _train_accepted_run(
         RunSubmission(str(metadata.get("run_id") or path.name), path, RunStatus.ACCEPTED),
@@ -251,7 +251,7 @@ def train_accepted_run_with_gvccs_data(
             prediction_sample_policy=prediction_sample_policy,
         ),
         backend=selected_backend,
-        dataset=_gvccs_dataset_metadata(data_path),
+        dataset=_gvccs_dataset_metadata_through_adapter(data_path),
         ledger_path=_resolve_ledger_path(path.parent, ledger_path),
     )
 
@@ -1097,6 +1097,14 @@ def _record_run_failed(
 
 
 def _validate_host_data_root(data_root: str | Path) -> Path:
+    return _validate_gvccs_data_root_through_adapter(data_root)
+
+
+def _validate_gvccs_data_root_through_adapter(data_root: str | Path) -> Path:
+    adapter = get_research_problem_spec("ground_camera_contrail_detection").training_adapter
+    validate_data_root = getattr(adapter, "validate_data_root", None)
+    if callable(validate_data_root):
+        return Path(validate_data_root({"dataset_root": str(data_root)})).resolve()
     path = Path(data_root)
     if not path.exists():
         raise GVCCSDataError(f"GVCCS data root does not exist: {path}")
@@ -1106,7 +1114,14 @@ def _validate_host_data_root(data_root: str | Path) -> Path:
 
 
 def _gvccs_dataset_metadata(data_root: Path) -> dict[str, object]:
-    return {"id": "gvccs", "host_data_path": str(data_root), "container_data_path": "/data"}
+    return _gvccs_dataset_metadata_through_adapter(data_root)
+
+
+def _gvccs_dataset_metadata_through_adapter(data_root: Path) -> dict[str, object]:
+    adapter = get_research_problem_spec("ground_camera_contrail_detection").training_adapter
+    if adapter is None:
+        raise TrainingError("Ground-Camera Contrail Detection Research Problem does not provide a training adapter")
+    return adapter.dataset_metadata({"dataset_root": str(data_root)})
 
 
 def _data_policy_from_training_result(training_result: object, run_dir: Path) -> dict[str, object] | None:

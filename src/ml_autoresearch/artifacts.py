@@ -9,8 +9,8 @@ from typing import Any
 import torch
 from torch.utils.data import DataLoader
 
-from ml_autoresearch.gvccs import GVCCSSample, infer_frame_sequences
 from ml_autoresearch.metrics import binary_segmentation_metrics
+from ml_autoresearch.problem_support.frame_sequences import infer_timestamped_frame_sequences
 from ml_autoresearch.problem_support.imaging import (
     save_mask_tensor,
     save_overlay,
@@ -115,9 +115,9 @@ def select_prediction_sample_indices(samples: object, *, policy: str, max_sample
     return _select_adjacent_and_scattered(samples, max_samples=max_samples)
 
 
-def _select_adjacent_and_scattered(samples: list[GVCCSSample], *, max_samples: int) -> list[dict[str, Any]]:
+def _select_adjacent_and_scattered(samples: list[object], *, max_samples: int) -> list[dict[str, Any]]:
     index_by_identity = {id(sample): index for index, sample in enumerate(samples)}
-    sequences = infer_frame_sequences(samples)
+    sequences = infer_timestamped_frame_sequences(samples, filename_for_item=lambda sample: getattr(sample, "image_path", ""))
     eligible_sequences = [sequence for sequence in sequences if len(sequence) >= 2 and any(_is_positive(sample) for sample in sequence)]
     selections: list[dict[str, Any]] = []
 
@@ -153,7 +153,7 @@ def _select_adjacent_and_scattered(samples: list[GVCCSSample], *, max_samples: i
     return selections[:max_samples]
 
 
-def _positive_adjacent_window(sequence: list[GVCCSSample], window_length: int) -> list[GVCCSSample]:
+def _positive_adjacent_window(sequence: list[object], window_length: int) -> list[object]:
     window_length = min(window_length, len(sequence))
     for start in range(0, len(sequence) - window_length + 1):
         window = sequence[start : start + window_length]
@@ -163,7 +163,7 @@ def _positive_adjacent_window(sequence: list[GVCCSSample], window_length: int) -
 
 
 def _scattered_singletons(
-    samples: list[GVCCSSample], budget: int, *, already_selected: set[int]
+    samples: list[object], budget: int, *, already_selected: set[int]
 ) -> list[dict[str, Any]]:
     available_positive = [index for index, sample in enumerate(samples) if index not in already_selected and _is_positive(sample)]
     available_negative = [index for index, sample in enumerate(samples) if index not in already_selected and not _is_positive(sample)]
@@ -197,12 +197,12 @@ def _selection(dataset_index: int, selection_kind: str, **extra: object) -> dict
     return payload
 
 
-def _frame_sequence_id(sequence: list[GVCCSSample]) -> str:
-    return Path(sequence[0].image_path).stem
+def _frame_sequence_id(sequence: list[object]) -> str:
+    return Path(getattr(sequence[0], "image_path")).stem
 
 
-def _is_positive(sample: GVCCSSample) -> bool:
-    return bool(sample.segmentations)
+def _is_positive(sample: object) -> bool:
+    return bool(getattr(sample, "segmentations", ()))
 
 
 def _model_device(model: torch.nn.Module) -> torch.device:

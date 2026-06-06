@@ -402,46 +402,9 @@ def build_ground_camera_contrail_detection_spec(data_config: Mapping[str, object
     paths to define its manifest allowlists.
     """
 
-    del data_config
-    from ml_autoresearch.training_adapters import GVCCSTrainingAdapter
-    return ResearchProblemSpec(
-        id=DEFAULT_RESEARCH_PROBLEM_ID,
-        version="v0",
-        input_modes=("single_frame_rgb", "centered_temporal_rgb_clip"),
-        input_specs={
-            "single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]},
-            "centered_temporal_rgb_clip": {
-                "mode": "centered_temporal_rgb_clip",
-                "shape": [9, 128, 128],
-                "clip_length": 3,
-                "frame_stride": 1,
-                "layout": "channel_stacked_rgb",
-                "target_frame": "center",
-            },
-        },
-        output_forms=("mask_logits",),
-        output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
-        auxiliary_targets=("line", "boundary"),
-        auxiliary_outputs={"line": "line_logits", "boundary": "boundary_logits"},
-        auxiliary_output_shapes={"line": [1, 128, 128], "boundary": [1, 128, 128]},
-        losses=("bce_dice",),
-        auxiliary_losses=("weighted_bce",),
-        optimizers=("adamw",),
-        sampling_policies=("sequential", "deterministic_shuffle"),
-        frame_selection_policies=("all_target_frames", "temporal_eligible_center"),
-        input_mode_frame_selection_defaults={
-            "single_frame_rgb": "all_target_frames",
-            "centered_temporal_rgb_clip": "temporal_eligible_center",
-        },
-        augmentation_policies=(
-            "none",
-            "light_geometric",
-            "light_photometric",
-            "light_combined",
-        ),
-        primary_metric="val/dice",
-        training_adapter=GVCCSTrainingAdapter(),
-    )
+    from ml_autoresearch.research_problem_packages.gvccs.adapters import build_spec
+
+    return build_spec(data_config)
 
 
 GROUND_CAMERA_CONTRAIL_DETECTION_SPEC = build_ground_camera_contrail_detection_spec()

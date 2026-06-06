@@ -14,7 +14,7 @@ import yaml
 from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.errors import TrainingError
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig, load_research_problem_provider
-from ml_autoresearch.training_adapters import GVCCSTrainingAdapter, ResearchProblemTrainingAdapter
+from ml_autoresearch.training_adapters import ResearchProblemTrainingAdapter
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.problem_support.imaging import deterministic_photometric_perturbation, horizontal_flip_image_mask
 from ml_autoresearch.problem_support.segmentation import (
@@ -200,12 +200,17 @@ def train_gvccs(
 ) -> dict[str, object]:
     """Compatibility wrapper for GVCCS data through the generic training loop."""
 
+    from ml_autoresearch.research_problems import get_default_research_problem_spec
+
+    adapter = get_default_research_problem_spec().training_adapter
+    if adapter is None:
+        raise TrainingError("default Research Problem does not provide a training adapter")
     return train_research_problem(
         candidate_dir=candidate_dir,
         resolved_manifest_path=resolved_manifest_path,
         outputs_dir=outputs_dir,
         artifact_run_dir=artifact_run_dir,
-        training_adapter=GVCCSTrainingAdapter(),
+        training_adapter=adapter,
         data_config={"dataset_root": str(data_root)},
         max_samples=max_samples,
         max_prediction_samples=max_prediction_samples,
