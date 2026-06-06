@@ -23,6 +23,7 @@ from ml_autoresearch.research_problems import (
     ResearchProblemSpecRegistry,
     load_research_problem_provider,
     get_research_problem_spec,
+    ground_camera_contrail_detection_provider_config,
 )
 
 
@@ -132,6 +133,9 @@ def run_candidate_with_research_problem(
     loaded = load_research_problem_provider(provider_config)
     if loaded.spec.training_adapter is None:
         raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")
+    validate_data_root = getattr(loaded.spec.training_adapter, "validate_data_root", None)
+    if callable(validate_data_root):
+        validate_data_root(provider_config.data_config)
     registry = ResearchProblemSpecRegistry(default_id=loaded.spec.id)
     registry.register(loaded.spec, provenance=loaded.provenance)
     selected_backend = backend or NativeBackend()
@@ -168,20 +172,16 @@ def run_candidate_with_gvccs_data(
 ) -> RunSubmission:
     """Validate, smoke-test, and synchronously train a Candidate Experiment Run on local GVCCS data."""
 
-    data_path = _validate_gvccs_data_root_through_adapter(data_root)
-    selected_backend = backend or NativeBackend()
-    return _run_candidate_training(
+    # Legacy compatibility wrapper: GVCCS now runs through the generic
+    # filesystem Research Problem provider path.
+    return run_candidate_with_research_problem(
         candidate_dir,
         runs_root,
-        lambda run_dir: selected_backend.train_gvccs(
-            run_dir,
-            data_path,
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-        ),
-        backend=selected_backend,
-        dataset=_gvccs_dataset_metadata_through_adapter(data_path),
+        ground_camera_contrail_detection_provider_config(data_root=data_root),
+        max_samples=max_samples,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+        backend=backend,
         ledger_path=ledger_path,
         require_proposal=require_proposal,
     )
@@ -239,20 +239,16 @@ def train_accepted_run_with_gvccs_data(
     metadata = _read_metadata(path)
     if metadata.get("status") != RunStatus.ACCEPTED.value:
         raise ValueError(f"accepted Run required for training continuation: {path}")
-    data_path = _validate_gvccs_data_root_through_adapter(data_root)
-    selected_backend = backend or NativeBackend()
-    return _train_accepted_run(
-        RunSubmission(str(metadata.get("run_id") or path.name), path, RunStatus.ACCEPTED),
-        lambda accepted_run_dir: selected_backend.train_gvccs(
-            accepted_run_dir,
-            data_path,
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-        ),
-        backend=selected_backend,
-        dataset=_gvccs_dataset_metadata_through_adapter(data_path),
-        ledger_path=_resolve_ledger_path(path.parent, ledger_path),
+    # Legacy compatibility wrapper: GVCCS now runs through the generic
+    # filesystem Research Problem provider path.
+    return train_accepted_run_with_research_problem(
+        run_dir,
+        ground_camera_contrail_detection_provider_config(data_root=data_root),
+        max_samples=max_samples,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+        backend=backend,
+        ledger_path=ledger_path,
     )
 
 
@@ -1101,16 +1097,16 @@ def _validate_host_data_root(data_root: str | Path) -> Path:
 
 
 def _validate_gvccs_data_root_through_adapter(data_root: str | Path) -> Path:
-    adapter = get_research_problem_spec("ground_camera_contrail_detection").training_adapter
-    validate_data_root = getattr(adapter, "validate_data_root", None)
-    if callable(validate_data_root):
-        return Path(validate_data_root({"dataset_root": str(data_root)})).resolve()
-    path = Path(data_root)
-    if not path.exists():
-        raise GVCCSDataError(f"GVCCS data root does not exist: {path}")
-    if not path.is_dir():
-        raise GVCCSDataError(f"GVCCS data root is not a directory: {path}")
-    return path.resolve()
+    """Legacy helper retained for older callers; validates through external provider."""
+
+    config = ground_camera_contrail_detection_provider_config(data_root=data_root)
+    loaded = load_research_problem_provider(config)
+    if loaded.spec.training_adapter is None:
+        raise GVCCSDataError("Ground-Camera Contrail Detection Spec does not provide a training adapter")
+    try:
+        return Path(loaded.spec.training_adapter.validate_data_root(config.data_config)).resolve()
+    except Exception as exc:  # noqa: BLE001 - compatibility error type.
+        raise GVCCSDataError(str(exc)) from exc
 
 
 def _gvccs_dataset_metadata(data_root: Path) -> dict[str, object]:
@@ -1118,10 +1114,11 @@ def _gvccs_dataset_metadata(data_root: Path) -> dict[str, object]:
 
 
 def _gvccs_dataset_metadata_through_adapter(data_root: Path) -> dict[str, object]:
-    adapter = get_research_problem_spec("ground_camera_contrail_detection").training_adapter
-    if adapter is None:
+    config = ground_camera_contrail_detection_provider_config(data_root=data_root)
+    loaded = load_research_problem_provider(config)
+    if loaded.spec.training_adapter is None:
         raise TrainingError("Ground-Camera Contrail Detection Research Problem does not provide a training adapter")
-    return adapter.dataset_metadata({"dataset_root": str(data_root)})
+    return loaded.spec.training_adapter.dataset_metadata(config.data_config)
 
 
 def _data_policy_from_training_result(training_result: object, run_dir: Path) -> dict[str, object] | None:

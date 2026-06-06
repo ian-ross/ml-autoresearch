@@ -78,7 +78,7 @@ class ExecutionBackend(Protocol):
         max_prediction_samples: int = 2,
         prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
-        """Train the copied Candidate Experiment on Harness-owned GVCCS data loading."""
+        """Legacy compatibility shim; delegates to generic Research Problem training."""
 
     def train_research_problem(
         self,
@@ -139,16 +139,15 @@ class NativeBackend:
         max_prediction_samples: int = 2,
         prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
-        from ml_autoresearch.training import train_gvccs_run
+        from ml_autoresearch.research_problems import ground_camera_contrail_detection_provider_config
 
-        train_gvccs_run(
+        return self.train_research_problem(
             run_dir,
-            data_root,
+            ground_camera_contrail_detection_provider_config(data_root=data_root),
             max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
         )
-        return OperationResult(backend=self.name, operation="train_gvccs")
 
     def train_research_problem(
         self,
@@ -231,17 +230,15 @@ class DockerBackend:
         max_prediction_samples: int = 2,
         prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
-        path = Path(run_dir)
-        data_path = self._validate_gvccs_data_root(data_root)
-        self._prepare_writable_paths(path)
-        self._ensure_image_available()
-        args = ["train-gvccs"]
-        if max_samples is not None:
-            args.append(f"--max-samples={max_samples}")
-        args.append(f"--max-prediction-samples={max_prediction_samples}")
-        args.append(f"--prediction-sample-policy={prediction_sample_policy}")
-        command = self._operation_command(path, "ml_autoresearch.container_runner", *args, data_root=data_path)
-        return self._run_training_operation(command, path, "Docker GVCCS training failed", "train_gvccs")
+        from ml_autoresearch.research_problems import ground_camera_contrail_detection_provider_config
+
+        return self.train_research_problem(
+            run_dir,
+            ground_camera_contrail_detection_provider_config(data_root=data_root),
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
 
     def train_research_problem(
         self,

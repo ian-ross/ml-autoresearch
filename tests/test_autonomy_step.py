@@ -231,10 +231,19 @@ class FakeNativeBackend:
         raise AssertionError("candidate submission next-action execution must not train synthetic data")
 
     def train_gvccs(self, run_dir: str | Path, data_root: str | Path, *, max_samples: int | None = None, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n") -> OperationResult:
+        return self.train_research_problem(
+            run_dir,
+            provider_config=None,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
+
+    def train_research_problem(self, run_dir: str | Path, provider_config, *, max_samples: int | None = None, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n") -> OperationResult:
         outputs = Path(run_dir, "outputs")
         outputs.mkdir(exist_ok=True)
         (outputs / "final_metrics.json").write_text('{"val/dice": 0.5}\n')
-        return OperationResult(backend=self.name, operation="train_gvccs")
+        return OperationResult(backend=self.name, operation="train_research_problem")
 
     def evaluate_run(self, run_dir: str | Path, *, data_root: str | Path | None = None, max_artifact_samples: int = 12) -> OperationResult:
         raise AssertionError("candidate submission next-action execution must not evaluate")

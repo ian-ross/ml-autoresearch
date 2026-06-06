@@ -44,3 +44,9 @@ def invoke_typer_cli(app, args: Iterable[str], cwd: Path | None = None) -> CliCo
         cause = getattr(result.exception, "__cause__", None)
         stderr = str(cause or result.exception)
     return CliCompleted(returncode=result.exit_code, stdout=result.stdout, stderr=stderr)
+
+# External Research Problem package roots used by disentangling regression tests.
+GVCCS_RESEARCH_PROBLEM_ROOT = Path('/home/iross/code/gvccs-research-problem')
+if GVCCS_RESEARCH_PROBLEM_ROOT.exists():
+    import sys
+    sys.path.insert(0, str(GVCCS_RESEARCH_PROBLEM_ROOT))

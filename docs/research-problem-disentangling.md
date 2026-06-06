@@ -34,14 +34,16 @@ The Harness accesses this code by loading a configured filesystem Research Probl
 
 ## Completed disentangling status
 
-The migration slices are complete for the current tracer-bullet Harness. Reusable Harness modules no longer directly import GVCCS dataset types or adapters during package import. Research Problem-specific behavior is reached through checked Spec adapters loaded by the filesystem provider path, and regression tests now guard that reusable Harness modules do not add new direct GVCCS imports.
+The migration slices are complete for the current tracer-bullet Harness. Reusable Harness modules no longer contain the GVCCS implementation package and no longer directly import GVCCS dataset types or adapters during package import. Research Problem-specific behavior is reached through checked Spec adapters loaded from filesystem provider paths, and regression tests now guard that reusable Harness modules do not add new direct GVCCS imports.
+
+Canonical filesystem packages:
+
+- `/home/iross/code/test-research-problem` contains the external fake Research Problem package used by deletion/seam regression tests.
+- `/home/iross/code/gvccs-research-problem` contains the GVCCS / Ground-Camera Contrail Detection package. Its provider target is `gvccs.research_problem:build_spec`.
 
 Intentional remaining exceptions:
 
-- `src/ml_autoresearch/research_problem_packages/gvccs/` is the in-repository compatibility location for the initial Ground-Camera Contrail Detection Research Problem until the external `/home/iross/code/gvccs-research-problem` package becomes the canonical source.
-- `src/ml_autoresearch/gvccs.py` is a compatibility-only re-export for older GVCCS-specific tests and callers; reusable Harness code should not import it.
-- `src/ml_autoresearch/research_problems.py` keeps an explicit lazy built-in provider path for Ground-Camera Contrail Detection compatibility. Importing the module does not import the GVCCS package; requesting the default built-in Spec does.
-- `train_gvccs`, `run_candidate_with_gvccs_data`, `run_experiment_batch_with_gvccs_data`, and `train-gvccs` command paths are compatibility-only wrappers around the generic Research Problem dispatch for existing GVCCS workflows.
+- `train_gvccs`, `run_candidate_with_gvccs_data`, and `run_experiment_batch_with_gvccs_data` are legacy compatibility wrappers around generic Research Problem dispatch for older GVCCS workflows. They are not the primary reusable Harness API.
 - GVCCS-specific tests, fixtures, research notes, Candidate Experiments, and campaign artifacts intentionally keep GVCCS terminology because they describe the initial Research Problem history.
 
 ## Target module ownership

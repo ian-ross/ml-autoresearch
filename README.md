@@ -156,7 +156,7 @@ uv run ml-autoresearch run-candidate \
   --no-require-proposal
 ```
 
-Research Problem-specific trusted code is loaded through a filesystem provider configuration, not by Candidate Experiments. A configuration names the Research Problem id, the local package root, the provider target such as `gvccs.research_problem:build_spec`, the expected contract version, and data configuration such as the dataset root. The Harness validates the returned Spec, records provider provenance in Run metadata, and then uses only the checked Research Problem adapter interface. The built-in GVCCS options and `train-gvccs` command paths remain compatibility-only entrypoints for the initial Research Problem while the generic Research Problem dispatch is the reusable Harness path.
+Research Problem-specific trusted code is loaded through a filesystem provider configuration, not by Candidate Experiments. A configuration names the Research Problem id, the local package root, the provider target such as `gvccs.research_problem:build_spec`, the expected contract version, and data configuration such as the dataset root. The Harness validates the returned Spec, records provider provenance in Run metadata, and then uses only the checked Research Problem adapter interface. The GVCCS example package lives outside this Harness repository at `/home/iross/code/gvccs-research-problem`; any GVCCS-named Python wrappers are legacy compatibility shims around generic Research Problem dispatch.
 
 Prediction Sample Policy is a Run-level Harness option, not a Candidate Experiment manifest option. Supported values are `first_n` (default) and `adjacent_and_scattered` for the GVCCS example adapter.
 

@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 
 DEFAULT_RESEARCH_PROBLEM_ID = "ground_camera_contrail_detection"
+DEFAULT_GVCCS_RESEARCH_PROBLEM_ROOT = Path("/home/iross/code/gvccs-research-problem")
+DEFAULT_GVCCS_PROVIDER_TARGET = "gvccs.research_problem:build_spec"
 
 
 class ResearchProblemSpecError(ValueError):
@@ -395,17 +397,34 @@ def _git_provenance(package_root: Path) -> dict[str, object] | None:
     return {"commit": commit.stdout.strip(), "dirty": dirty}
 
 
+def ground_camera_contrail_detection_provider_config(
+    *,
+    package_root: str | Path = DEFAULT_GVCCS_RESEARCH_PROBLEM_ROOT,
+    data_root: str | Path | None = None,
+) -> ResearchProblemProviderConfig:
+    """Return the filesystem provider config for the GVCCS Research Problem package."""
+
+    data_config: dict[str, object] = {}
+    if data_root is not None:
+        data_config["dataset_root"] = str(data_root)
+    return ResearchProblemProviderConfig(
+        id=DEFAULT_RESEARCH_PROBLEM_ID,
+        package_root=Path(package_root),
+        provider_target=DEFAULT_GVCCS_PROVIDER_TARGET,
+        expected_contract_version="v0",
+        data_config=data_config,
+    )
+
+
 def build_ground_camera_contrail_detection_spec(data_config: Mapping[str, object] | None = None) -> ResearchProblemSpec:
-    """Provider for the Ground-Camera Contrail Detection Research Problem Spec.
+    """Compatibility provider loaded from the external GVCCS Research Problem package."""
 
-    The optional ``data_config`` argument is accepted for compatibility with
-    filesystem provider loading; this declarative v0 Spec does not need data
-    paths to define its manifest allowlists.
-    """
-
-    from ml_autoresearch.research_problem_packages.gvccs.adapters import build_spec
-
-    return build_spec(data_config)
+    loaded = load_research_problem_provider(
+        ground_camera_contrail_detection_provider_config(
+            data_root=data_config.get("dataset_root") if data_config is not None else None,
+        )
+    )
+    return loaded.spec
 
 
 _BUILTIN_REGISTRY = ResearchProblemSpecRegistry(default_id=DEFAULT_RESEARCH_PROBLEM_ID)
@@ -414,9 +433,9 @@ _BUILTIN_REGISTRY = ResearchProblemSpecRegistry(default_id=DEFAULT_RESEARCH_PROB
 def _ensure_builtin_research_problem_spec(spec_id: str) -> None:
     """Register lazy built-in Research Problem Specs only when they are requested.
 
-    Importing this reusable Harness module must not import the built-in GVCCS
-    Research Problem package. GVCCS-specific code is loaded only through this
-    explicit compatibility/provider path.
+    Importing this reusable Harness module must not import any GVCCS code.
+    GVCCS-specific code is loaded only through the configured filesystem
+    Research Problem provider package.
     """
 
     if spec_id != DEFAULT_RESEARCH_PROBLEM_ID:

@@ -168,18 +168,16 @@ def test_docker_backend_constructs_gvccs_training_command_with_read_only_data_mo
     )
 
     assert result.backend == "docker"
-    assert result.operation == "train_gvccs"
+    assert result.operation == "train_research_problem"
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
     assert calls[1] == ["docker", "info", "--format", "{{json .SecurityOptions}}"]
     docker_run = calls[2]
-    assert docker_run[-6:] == [
-        "-m",
-        "ml_autoresearch.container_runner",
-        "train-gvccs",
-        "--max-samples=4",
-        "--max-prediction-samples=1",
-        "--prediction-sample-policy=adjacent_and_scattered",
-    ]
+    assert "ml_autoresearch.container_runner" in docker_run
+    assert "train-research-problem" in docker_run
+    assert any(arg.startswith("--provider-config-json=") for arg in docker_run)
+    assert "--max-samples=4" in docker_run
+    assert "--max-prediction-samples=1" in docker_run
+    assert "--prediction-sample-policy=adjacent_and_scattered" in docker_run
     joined = "\n".join(docker_run)
     assert f"{data_root}:/data:ro,z" in joined
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
@@ -197,12 +195,12 @@ def test_docker_backend_rejects_missing_or_file_gvccs_data_root_before_launch(tm
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     backend = DockerBackend("custom:tag")
-    with pytest.raises(RuntimeError, match="GVCCS data root does not exist"):
+    with pytest.raises(RuntimeError, match="Research Problem data root does not exist"):
         backend.train_gvccs(tmp_path / "run", tmp_path / "missing")
 
     file_root = tmp_path / "not-a-dir"
     file_root.write_text("x")
-    with pytest.raises(RuntimeError, match="GVCCS data root is not a directory"):
+    with pytest.raises(RuntimeError, match="Research Problem data root is not a directory"):
         backend.train_gvccs(tmp_path / "run", file_root)
 
     assert calls == []

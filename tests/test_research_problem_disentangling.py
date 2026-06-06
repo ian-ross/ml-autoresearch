@@ -9,17 +9,15 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-APPROVED_GVCCS_IMPORTS = {
-    Path("src/ml_autoresearch/gvccs.py"),  # compatibility-only re-export for older callers.
-    Path("src/ml_autoresearch/research_problems.py"),  # explicit built-in provider-loading compatibility path.
-}
-APPROVED_GVCCS_IMPORT_PREFIXES = (
-    Path("src/ml_autoresearch/research_problem_packages/gvccs"),
-)
+APPROVED_GVCCS_IMPORTS: set[Path] = set()
+APPROVED_GVCCS_IMPORT_PREFIXES: tuple[Path, ...] = ()
 
 
 def test_reusable_harness_modules_do_not_directly_import_gvccs_package() -> None:
     """Guard the deletion seam: reusable Harness modules must not import GVCCS directly."""
+
+    assert not (PROJECT_ROOT / "src/ml_autoresearch/research_problem_packages/gvccs").exists()
+    assert not (PROJECT_ROOT / "src/ml_autoresearch/gvccs.py").exists()
 
     violations: list[str] = []
     for path in sorted((PROJECT_ROOT / "src/ml_autoresearch").rglob("*.py")):
@@ -43,8 +41,7 @@ def test_reusable_harness_modules_do_not_directly_import_gvccs_package() -> None
 
 
 def test_harness_imports_and_fake_research_problem_flow_work_when_gvccs_package_is_unavailable(tmp_path: Path) -> None:
-    package_root = tmp_path / "fake_problem_package"
-    _write_fake_problem_package(package_root)
+    package_root = Path("/home/iross/code/test-research-problem")
     candidate = tmp_path / "candidate"
     _write_fake_candidate(candidate)
     runs_root = tmp_path / "runs"
@@ -61,8 +58,8 @@ sys.path.insert(0, {str(PROJECT_ROOT / 'src')!r})
 
 class BlockGVCCS(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        blocked = ('ml_autoresearch.gvccs', 'ml_autoresearch.research_problem_packages.gvccs')
-        if fullname in blocked or fullname.startswith('ml_autoresearch.research_problem_packages.gvccs.'):
+        blocked = ('ml_autoresearch.gvccs', 'gvccs')
+        if fullname in blocked or fullname.startswith('gvccs.'):
             raise ModuleNotFoundError(f'Simulated deleted GVCCS package: {{fullname}}')
         return None
 

@@ -5,8 +5,8 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from ml_autoresearch.artifacts import select_prediction_sample_indices, write_prediction_sample_artifacts
-from ml_autoresearch.gvccs import GVCCSSample, infer_frame_sequences
-from ml_autoresearch.research_problem_packages.gvccs.adapters import GVCCSTrainingAdapter
+from gvccs import GVCCSSample, infer_frame_sequences
+from gvccs.adapters import GVCCSTrainingAdapter
 
 
 def sample(name: str, *, image_id: int, positive: bool = False) -> GVCCSSample:

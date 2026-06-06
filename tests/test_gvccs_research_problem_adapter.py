@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from ml_autoresearch.research_problems import get_research_problem_spec
-from ml_autoresearch.research_problem_packages.gvccs import discover_gvccs_samples, select_gvccs_frames
+from gvccs import discover_gvccs_samples, select_gvccs_frames
 
 
 FIXTURE_ROOT = Path("tests/fixtures/gvccs_like")

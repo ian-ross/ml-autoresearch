@@ -10,6 +10,7 @@ from typing import Literal
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend
 from ml_autoresearch.research_problems import (
     DEFAULT_RESEARCH_PROBLEM_ID,
+    DEFAULT_GVCCS_PROVIDER_TARGET,
     ResearchProblemProviderConfig,
     ResearchProblemSpecRegistry,
     load_research_problem_provider,
@@ -154,7 +155,7 @@ def _research_problem_provider_config(data: dict[str, object], project_root: Pat
         raise CandidateExecutionConfigError("[research_problem] must be a table")
     spec_id = _string(settings, "id", DEFAULT_RESEARCH_PROBLEM_ID)
     package_root = _path(settings, "package_root", project_root)
-    provider_target = _string(settings, "provider_target", "ml_autoresearch.research_problems:build_ground_camera_contrail_detection_spec")
+    provider_target = _string(settings, "provider_target", DEFAULT_GVCCS_PROVIDER_TARGET)
     expected_contract_version = _string(settings, "expected_contract_version", "v0")
     data_config = settings.get("data_config", {})
     if not isinstance(data_config, dict):
