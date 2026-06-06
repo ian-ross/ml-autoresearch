@@ -252,25 +252,25 @@ class DockerBackend:
         max_prediction_samples: int = 2,
         prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
-        if provider_config.id != "ground_camera_contrail_detection":
-            raise RuntimeError("Docker generic Research Problem training requires container provider-package mounting support")
-        data_root = provider_config.data_config.get("dataset_root") or provider_config.data_config.get("data_root")
-        if not isinstance(data_root, str):
-            raise RuntimeError("Docker Ground-Camera Contrail Detection training requires data_config.dataset_root")
-        result = self.train_gvccs(
-            run_dir,
-            data_root,
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
+        path = Path(run_dir)
+        provider_package_root = self._validate_research_problem_package_root(provider_config.package_root)
+        data_path = self._research_problem_data_root(provider_config)
+        container_config = self._container_research_problem_config(provider_config, data_root_mounted=data_path is not None)
+        self._prepare_writable_paths(path)
+        self._ensure_image_available()
+        args = ["train-research-problem", f"--provider-config-json={container_config.model_dump_json()}"]
+        if max_samples is not None:
+            args.append(f"--max-samples={max_samples}")
+        args.append(f"--max-prediction-samples={max_prediction_samples}")
+        args.append(f"--prediction-sample-policy={prediction_sample_policy}")
+        command = self._operation_command(
+            path,
+            "ml_autoresearch.container_runner",
+            *args,
+            data_root=data_path,
+            provider_package_root=provider_package_root,
         )
-        return OperationResult(
-            backend=result.backend,
-            operation="train_research_problem",
-            docker_image=result.docker_image,
-            lifecycle_status=result.lifecycle_status,
-            timeout=result.timeout,
-        )
+        return self._run_training_operation(command, path, "Docker Research Problem training failed", "train_research_problem")
 
     def evaluate_run(
         self,
@@ -401,6 +401,7 @@ class DockerBackend:
         data_root: Path | None = None,
         outputs_read_only: bool = False,
         evaluations_writable: bool = False,
+        provider_package_root: Path | None = None,
     ) -> list[str]:
         container_name = f"ml-autoresearch-{run_dir.name}-{uuid.uuid4().hex[:12]}"
         docker_is_rootless = self._docker_is_rootless() if self.container_user is None and not self.rootless_container_root else False
@@ -455,6 +456,8 @@ class DockerBackend:
             command.extend(["--gpus", "all"])
         if data_root is not None:
             command.extend(["--volume", f"{data_root}:/data:ro,z"])
+        if provider_package_root is not None:
+            command.extend(["--volume", f"{provider_package_root}:/research_problem_package:ro,z"])
         command.extend(["--entrypoint", "python", self.docker_image, "-m", module, *args])
         return command
 
@@ -497,15 +500,45 @@ class DockerBackend:
         return self._validate_gvccs_data_root(str(dataset["host_data_path"]))
 
     def _validate_gvccs_data_root(self, data_root: str | Path) -> Path:
-        path = Path(data_root)
+        return self._validate_host_directory(data_root, label="GVCCS data root")
+
+    def _validate_research_problem_package_root(self, package_root: str | Path) -> Path:
+        return self._validate_host_directory(package_root, label="Research Problem package root")
+
+    def _research_problem_data_root(self, provider_config: ResearchProblemProviderConfig) -> Path | None:
+        data_root = provider_config.data_config.get("dataset_root") or provider_config.data_config.get("data_root")
+        if data_root is None:
+            return None
+        if not isinstance(data_root, str):
+            raise RuntimeError("Research Problem data root must be configured as a string")
+        return self._validate_host_directory(data_root, label="Research Problem data root")
+
+    def _container_research_problem_config(
+        self,
+        provider_config: ResearchProblemProviderConfig,
+        *,
+        data_root_mounted: bool,
+    ) -> ResearchProblemProviderConfig:
+        data_config = dict(provider_config.data_config)
+        if data_root_mounted:
+            if "dataset_root" in data_config:
+                data_config["dataset_root"] = "/data"
+            if "data_root" in data_config:
+                data_config["data_root"] = "/data"
+        return provider_config.model_copy(
+            update={"package_root": Path("/research_problem_package"), "data_config": data_config}
+        )
+
+    def _validate_host_directory(self, value: str | Path, *, label: str) -> Path:
+        path = Path(value)
         if not path.exists():
-            raise RuntimeError(f"GVCCS data root does not exist: {path}")
+            raise RuntimeError(f"{label} does not exist: {path}")
         if not path.is_dir():
-            raise RuntimeError(f"GVCCS data root is not a directory: {path}")
+            raise RuntimeError(f"{label} is not a directory: {path}")
         try:
             return path.resolve(strict=True)
         except OSError as exc:
-            raise RuntimeError(f"GVCCS data root cannot be resolved: {path}: {exc}") from exc
+            raise RuntimeError(f"{label} cannot be resolved: {path}: {exc}") from exc
 
 
 def docker_gpu_validation_command(docker_image: str = DEFAULT_DOCKER_IMAGE) -> list[str]:

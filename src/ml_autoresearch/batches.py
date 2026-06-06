@@ -12,11 +12,13 @@ from typing import Any
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import ExecutionBackend
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
+from ml_autoresearch.research_problems import ResearchProblemProviderConfig
 from ml_autoresearch.runs import (
     RunStatus,
     get_run_summary,
     submit_candidate,
     train_accepted_run_with_gvccs_data,
+    train_accepted_run_with_research_problem,
     train_accepted_run_with_synthetic_fixture,
 )
 
@@ -73,7 +75,7 @@ def run_experiment_batch_with_gvccs_data(
     prediction_sample_policy: str = "first_n",
     ledger_path: str | Path | None = None,
 ) -> dict[str, object]:
-    """Validate and synchronously execute a bounded GVCCS Experiment Batch."""
+    """Compatibility wrapper for a GVCCS Experiment Batch."""
 
     return _run_experiment_batch(
         batch_dir,
@@ -87,6 +89,42 @@ def run_experiment_batch_with_gvccs_data(
         train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_gvccs_data(
             run_dir,
             data_root,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            backend=selected_backend,
+            ledger_path=resolved_ledger_path,
+        ),
+    )
+
+
+def run_experiment_batch_with_research_problem(
+    batch_dir: str | Path,
+    *,
+    batches_root: str | Path,
+    runs_root: str | Path,
+    provider_config: ResearchProblemProviderConfig,
+    backend: ExecutionBackend | None = None,
+    max_parallel_runs: int = MAX_PARALLEL_RUNS,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+    ledger_path: str | Path | None = None,
+) -> dict[str, object]:
+    """Validate and synchronously execute a bounded Experiment Batch through a Research Problem provider."""
+
+    return _run_experiment_batch(
+        batch_dir,
+        batches_root=batches_root,
+        runs_root=runs_root,
+        backend=backend,
+        max_parallel_runs=max_parallel_runs,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+        ledger_path=ledger_path,
+        train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_research_problem(
+            run_dir,
+            provider_config,
             max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,

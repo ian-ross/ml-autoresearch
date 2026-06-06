@@ -124,6 +124,28 @@ def execution_backend_from_config(config: CandidateExecutionConfig) -> Execution
     )
 
 
+def resolve_configured_research_problem_provider(
+    config: CandidateExecutionConfig,
+    *,
+    data_root_override: str | Path | None = None,
+) -> ResearchProblemProviderConfig | None:
+    """Return the configured Research Problem provider with data-root compatibility applied."""
+
+    provider = config.research_problem_provider
+    if provider is None:
+        return None
+    data_config = dict(provider.data_config)
+    data_root = data_root_override if data_root_override is not None else config.data_root
+    if data_root is not None:
+        if "dataset_root" in data_config:
+            data_config["dataset_root"] = str(data_root)
+        elif "data_root" in data_config:
+            data_config["data_root"] = str(data_root)
+        else:
+            data_config["dataset_root"] = str(data_root)
+    return provider.model_copy(update={"data_config": data_config})
+
+
 def _research_problem_provider_config(data: dict[str, object], project_root: Path) -> ResearchProblemProviderConfig | None:
     settings = data.get("research_problem")
     if settings is None:

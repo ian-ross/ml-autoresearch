@@ -360,11 +360,19 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
             execution_backend_from_config,
             load_candidate_execution_config,
             load_configured_research_problem_registry,
+            resolve_configured_research_problem_provider,
         )
-        from ml_autoresearch.runs import RunStatus, RunSubmission, submit_candidate, train_accepted_run_with_gvccs_data
+        from ml_autoresearch.runs import (
+            RunStatus,
+            RunSubmission,
+            submit_candidate,
+            train_accepted_run_with_gvccs_data,
+            train_accepted_run_with_research_problem,
+        )
 
         config = load_candidate_execution_config(root)
-        data_root = config.data_root or _infer_gvccs_data_root(root)
+        provider_config = resolve_configured_research_problem_provider(config)
+        data_root = None if provider_config is not None else (config.data_root or _infer_research_problem_data_root(root))
         backend = execution_backend_from_config(config)
         research_problem_registry = load_configured_research_problem_registry(root)
         previous_result = ingestion.get("next_action_result")
@@ -378,15 +386,27 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
                     previous_metadata = json.loads(previous_metadata_path.read_text())
                     previous_status = previous_metadata.get("status")
                     if previous_status == RunStatus.ACCEPTED.value:
-                        run = train_accepted_run_with_gvccs_data(
-                            previous_run_path,
-                            data_root,
-                            max_samples=config.max_samples,
-                            max_prediction_samples=config.max_prediction_samples,
-                            prediction_sample_policy=config.prediction_sample_policy,
-                            backend=backend,
-                            ledger_path=root / "research-ledger.jsonl",
-                        )
+                        if provider_config is not None:
+                            run = train_accepted_run_with_research_problem(
+                                previous_run_path,
+                                provider_config,
+                                max_samples=config.max_samples,
+                                max_prediction_samples=config.max_prediction_samples,
+                                prediction_sample_policy=config.prediction_sample_policy,
+                                backend=backend,
+                                ledger_path=root / "research-ledger.jsonl",
+                            )
+                        else:
+                            assert data_root is not None
+                            run = train_accepted_run_with_gvccs_data(
+                                previous_run_path,
+                                data_root,
+                                max_samples=config.max_samples,
+                                max_prediction_samples=config.max_prediction_samples,
+                                prediction_sample_policy=config.prediction_sample_policy,
+                                backend=backend,
+                                ledger_path=root / "research-ledger.jsonl",
+                            )
                     elif previous_status in {status.value for status in RunStatus}:
                         run = RunSubmission(str(previous_metadata.get("run_id") or previous_run_path.name), previous_run_path, RunStatus(str(previous_status)))
                     else:
@@ -403,15 +423,27 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
                 research_problem_registry=research_problem_registry,
             )
             if run.status.value == "accepted":
-                run = train_accepted_run_with_gvccs_data(
-                    run.run_dir,
-                    data_root,
-                    max_samples=config.max_samples,
-                    max_prediction_samples=config.max_prediction_samples,
-                    prediction_sample_policy=config.prediction_sample_policy,
-                    backend=backend,
-                    ledger_path=root / "research-ledger.jsonl",
-                )
+                if provider_config is not None:
+                    run = train_accepted_run_with_research_problem(
+                        run.run_dir,
+                        provider_config,
+                        max_samples=config.max_samples,
+                        max_prediction_samples=config.max_prediction_samples,
+                        prediction_sample_policy=config.prediction_sample_policy,
+                        backend=backend,
+                        ledger_path=root / "research-ledger.jsonl",
+                    )
+                else:
+                    assert data_root is not None
+                    run = train_accepted_run_with_gvccs_data(
+                        run.run_dir,
+                        data_root,
+                        max_samples=config.max_samples,
+                        max_prediction_samples=config.max_prediction_samples,
+                        prediction_sample_policy=config.prediction_sample_policy,
+                        backend=backend,
+                        ledger_path=root / "research-ledger.jsonl",
+                    )
         return {
             "status": "completed",
             "executed": True,
@@ -424,23 +456,42 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
         }
     if handoff_type == "experiment_batch_submission" and next_action == "run_experiment_batch":
         batch_path = _required_relative_path(root, ingestion, "canonical_path")
-        from ml_autoresearch.batches import run_experiment_batch_with_gvccs_data
-        from ml_autoresearch.candidate_execution_config import execution_backend_from_config, load_candidate_execution_config
+        from ml_autoresearch.batches import run_experiment_batch_with_gvccs_data, run_experiment_batch_with_research_problem
+        from ml_autoresearch.candidate_execution_config import (
+            execution_backend_from_config,
+            load_candidate_execution_config,
+            resolve_configured_research_problem_provider,
+        )
 
         config = load_candidate_execution_config(root)
-        data_root = config.data_root or _infer_gvccs_data_root(root)
-        result = run_experiment_batch_with_gvccs_data(
-            batch_path,
-            batches_root=root / "batches",
-            runs_root=root / "runs",
-            data_root=data_root,
-            backend=execution_backend_from_config(config),
-            max_parallel_runs=4,
-            max_samples=config.max_samples,
-            max_prediction_samples=config.max_prediction_samples,
-            prediction_sample_policy=config.prediction_sample_policy,
-            ledger_path=root / "research-ledger.jsonl",
-        )
+        provider_config = resolve_configured_research_problem_provider(config)
+        if provider_config is not None:
+            result = run_experiment_batch_with_research_problem(
+                batch_path,
+                batches_root=root / "batches",
+                runs_root=root / "runs",
+                provider_config=provider_config,
+                backend=execution_backend_from_config(config),
+                max_parallel_runs=4,
+                max_samples=config.max_samples,
+                max_prediction_samples=config.max_prediction_samples,
+                prediction_sample_policy=config.prediction_sample_policy,
+                ledger_path=root / "research-ledger.jsonl",
+            )
+        else:
+            data_root = config.data_root or _infer_research_problem_data_root(root)
+            result = run_experiment_batch_with_gvccs_data(
+                batch_path,
+                batches_root=root / "batches",
+                runs_root=root / "runs",
+                data_root=data_root,
+                backend=execution_backend_from_config(config),
+                max_parallel_runs=4,
+                max_samples=config.max_samples,
+                max_prediction_samples=config.max_prediction_samples,
+                prediction_sample_policy=config.prediction_sample_policy,
+                ledger_path=root / "research-ledger.jsonl",
+            )
         return {
             "status": "completed",
             "executed": True,
@@ -470,7 +521,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
     return {"status": "skipped", "executed": False, "reason": f"no executable Harness action for {handoff_type!r}"}
 
 
-def _infer_gvccs_data_root(root: Path) -> Path:
+def _infer_research_problem_data_root(root: Path) -> Path:
     candidates: list[Path] = []
     runs_root = root / "runs"
     if runs_root.is_dir():
@@ -489,7 +540,7 @@ def _infer_gvccs_data_root(root: Path) -> Path:
         if candidate.is_dir():
             return candidate
     raise AutonomyStepError(
-        "cannot execute GVCCS next action: no prior completed Run with an accessible GVCCS dataset host_data_path"
+        "cannot execute Research Problem next action: no configured data root and no prior completed Run with an accessible dataset host_data_path"
     )
 
 

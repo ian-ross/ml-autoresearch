@@ -58,7 +58,7 @@ The Harness copies accepted candidate source into the Run directory. Later phase
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
-Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container. `/outputs` is a run-scoped writable bind mount and `/scratch` is bounded tmpfs. Docker GVCCS training also mounts the host `--data-root` read-only at `/data`; `/outputs` and `/scratch` remain the only writable paths.
+Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container. `/outputs` is a run-scoped writable bind mount and `/scratch` is bounded tmpfs. Docker Research Problem training mounts the configured trusted Research Problem package read-only at `/research_problem_package`; when the Research Problem has a configured data root, the host path is mounted read-only at `/data`. `/outputs` and `/scratch` remain the only writable paths.
 
 ## Run command
 
@@ -66,9 +66,9 @@ Observation commands read metrics and summaries from the `outputs/` layout. Dock
 ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --synthetic-fixture
 ```
 
-`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Docker synthetic training and smoke testing use no data mount. Docker GVCCS training validates the host `--data-root`, mounts it read-only at `/data`, and records dataset metadata in `run_metadata.json`.
+`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Docker synthetic training and smoke testing use no data mount. Non-synthetic execution loads the configured trusted Research Problem provider from `candidate-execution.toml` when present, passes that package into native or Docker-backed operations, and records Research Problem and dataset metadata in `run_metadata.json`.
 
-Harness-owned autonomous next actions read project-local `candidate-execution.toml` for the Candidate Execution Boundary policy. This file captures the backend, Docker image, GPU policy, rootless/user policy, local GVCCS `data_root`, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
+Harness-owned autonomous next actions read project-local `candidate-execution.toml` for the Candidate Execution Boundary policy. This file captures the backend, Docker image, GPU policy, rootless/user policy, active Research Problem id, provider package path/target, Research Problem data root, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
 
 GVCCS example:
 

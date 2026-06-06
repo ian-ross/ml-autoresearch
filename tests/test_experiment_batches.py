@@ -112,7 +112,6 @@ Request two Runs with Harness-owned concurrency.
         write_candidate(candidates, name)
     return batch
 
-
 def test_valid_experiment_batch_runs_all_candidates_and_writes_summary(tmp_path: Path):
     batch_dir = write_batch(tmp_path, ["variant_a", "variant_b"])
 
@@ -142,7 +141,6 @@ def test_valid_experiment_batch_runs_all_candidates_and_writes_summary(tmp_path:
     assert "batch_run_started" in event_types
     assert "experiment_batch_completed" in event_types
 
-
 def test_experiment_batch_rejects_oversized_batch_before_creating_runs(tmp_path: Path):
     batch_dir = write_batch(tmp_path, ["a", "b", "c", "d", "e"])
 
@@ -156,7 +154,6 @@ def test_experiment_batch_rejects_oversized_batch_before_creating_runs(tmp_path:
         )
 
     assert not (tmp_path / "runs").exists()
-
 
 def test_experiment_batch_static_validation_is_all_or_nothing(tmp_path: Path):
     batch_dir = write_batch(tmp_path, ["valid", "invalid"])
@@ -173,7 +170,6 @@ def test_experiment_batch_static_validation_is_all_or_nothing(tmp_path: Path):
 
     assert not (tmp_path / "runs").exists()
 
-
 def test_experiment_batch_keeps_siblings_after_post_start_run_failure(tmp_path: Path):
     batch_dir = write_batch(tmp_path, ["variant_ok", "variant_fails"])
 
@@ -188,3 +184,55 @@ def test_experiment_batch_keeps_siblings_after_post_start_run_failure(tmp_path: 
     assert result["status"] == "partially_failed"
     statuses = {item["candidate_id"]: item["status"] for item in result["runs"]}
     assert statuses == {"variant_ok": "completed", "variant_fails": "failed"}
+
+def test_experiment_batch_uses_generic_research_problem_training_dispatch(tmp_path: Path):
+    from ml_autoresearch.batches import run_experiment_batch_with_research_problem
+    from ml_autoresearch.research_problems import ResearchProblemProviderConfig
+
+    class GenericBackend(FastBackend):
+        def __init__(self):
+            super().__init__()
+            self.provider_ids: list[str] = []
+
+        def train_research_problem(self, run_dir, provider_config, *, max_samples=None, max_prediction_samples=2, prediction_sample_policy="first_n"):
+            self.provider_ids.append(provider_config.id)
+            return self.train_synthetic(run_dir, max_prediction_samples=max_prediction_samples, prediction_sample_policy=prediction_sample_policy)
+
+    batch_dir = write_batch(tmp_path, ["variant_a"])
+    provider_root = tmp_path / "provider"
+    (provider_root / "problem_pkg").mkdir(parents=True)
+    (provider_root / "problem_pkg" / "__init__.py").write_text("")
+    (provider_root / "problem_pkg" / "provider.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "class Adapter:\n"
+        "    def dataset_metadata(self, data_config):\n"
+        "        return {'kind': 'dummy_research_problem'}\n"
+        "def build_spec(data_config=None):\n"
+        "    return ResearchProblemSpec(\n"
+        "        id='other_problem', version='v0', contract_version='v0',\n"
+        "        input_modes=('single_frame_rgb',), input_specs={'single_frame_rgb': {'mode': 'single_frame_rgb', 'shape': [3, 128, 128]}},\n"
+        "        output_forms=('mask_logits',), output_specs={'mask_logits': {'form': 'mask_logits', 'shape': [1, 128, 128]}},\n"
+        "        losses=('bce_dice',), optimizers=('adamw',), sampling_policies=('sequential',),\n"
+        "        augmentation_policies=('none',), primary_metric='val/dice', training_adapter=Adapter(),\n"
+        "    )\n"
+    )
+    backend = GenericBackend()
+    provider_config = ResearchProblemProviderConfig(
+        id="other_problem",
+        package_root=provider_root,
+        provider_target="problem_pkg.provider:build_spec",
+        expected_contract_version="v0",
+        data_config={},
+    )
+
+    result = run_experiment_batch_with_research_problem(
+        batch_dir,
+        batches_root=tmp_path / "batches",
+        runs_root=tmp_path / "runs",
+        provider_config=provider_config,
+        backend=backend,
+        ledger_path=tmp_path / "research-ledger.jsonl",
+    )
+
+    assert result["status"] == "completed"
+    assert backend.provider_ids == ["other_problem"]

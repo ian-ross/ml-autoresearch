@@ -42,7 +42,6 @@ training:
     (candidate / "model.py").write_text(VALID_MODEL)
     return candidate
 
-
 def test_native_backend_synthetic_training_preserves_existing_outputs(tmp_path: Path):
     candidate = write_candidate(tmp_path)
 
@@ -55,7 +54,6 @@ def test_native_backend_synthetic_training_preserves_existing_outputs(tmp_path: 
     assert (run.run_dir / "outputs" / "prediction_samples").is_dir()
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
     assert metadata["execution_backend"] == {"name": "native", "developer_unsafe": True}
-
 
 def test_docker_backend_constructs_structurally_contained_synthetic_training_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -130,7 +128,6 @@ class NoArtifactBackend:
     ) -> OperationResult:
         return OperationResult(backend=self.name, operation="train_synthetic")
 
-
 def test_host_harness_marks_training_failed_when_backend_omits_required_synthetic_outputs(tmp_path: Path):
     candidate = write_candidate(tmp_path)
 
@@ -141,7 +138,6 @@ def test_host_harness_marks_training_failed_when_backend_omits_required_syntheti
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "failed"
     assert "required synthetic training artifact is missing" in metadata["training_failure_reason"]
-
 
 def test_docker_backend_constructs_gvccs_training_command_with_read_only_data_mount(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -191,7 +187,6 @@ def test_docker_backend_constructs_gvccs_training_command_with_read_only_data_mo
     assert "/data" in joined
     assert f"{data_root}:/data:z" not in joined
 
-
 def test_docker_backend_rejects_missing_or_file_gvccs_data_root_before_launch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     calls: list[list[str]] = []
 
@@ -211,7 +206,6 @@ def test_docker_backend_rejects_missing_or_file_gvccs_data_root_before_launch(tm
         backend.train_gvccs(tmp_path / "run", file_root)
 
     assert calls == []
-
 
 def test_docker_training_timeout_requests_graceful_shutdown_and_records_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     run_dir = tmp_path / "runs" / "run_1"
@@ -252,7 +246,6 @@ def test_docker_training_timeout_requests_graceful_shutdown_and_records_event(tm
     assert any(call[:2] == ["docker", "exec"] and call[2].startswith("ml-autoresearch-") for call in run_calls)
     assert "budget exhausted" in (run_dir / "outputs" / "logs" / "harness_timeout.log").read_text()
 
-
 def test_docker_training_timeout_force_kills_after_grace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     run_dir = tmp_path / "runs" / "run_1"
     (run_dir / "candidate").mkdir(parents=True)
@@ -284,3 +277,63 @@ def test_docker_training_timeout_force_kills_after_grace(tmp_path: Path, monkeyp
 
     assert any(call[:2] == ["docker", "kill"] for call in run_calls)
     assert "force-terminated" in (run_dir / "outputs" / "logs" / "harness_timeout.log").read_text()
+
+def test_docker_backend_constructs_generic_research_problem_training_command_with_provider_mount(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from ml_autoresearch.research_problems import ResearchProblemProviderConfig
+
+    run_dir = tmp_path / "runs" / "run_1"
+    data_root = tmp_path / "research-data"
+    provider_root = tmp_path / "provider"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "logs").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+    data_root.mkdir()
+    provider_root.mkdir()
+    config = ResearchProblemProviderConfig(
+        id="other_problem",
+        package_root=provider_root,
+        provider_target="problem_pkg.provider:build_spec",
+        expected_contract_version="v0",
+        data_config={"dataset_root": str(data_root)},
+    )
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = DockerBackend("custom:tag").train_research_problem(
+        run_dir,
+        config,
+        max_samples=4,
+        max_prediction_samples=1,
+        prediction_sample_policy="adjacent_and_scattered",
+    )
+
+    assert result.backend == "docker"
+    assert result.operation == "train_research_problem"
+    docker_run = calls[2]
+    joined = "\n".join(docker_run)
+    assert f"{data_root.resolve(strict=True)}:/data:ro,z" in joined
+    assert f"{provider_root.resolve(strict=True)}:/research_problem_package:ro,z" in joined
+    assert "train-gvccs" not in docker_run
+    assert docker_run[-6] == "ml_autoresearch.container_runner"
+    assert docker_run[-5] == "train-research-problem"
+    provider_arg = docker_run[-4]
+    assert provider_arg.startswith("--provider-config-json=")
+    payload = json.loads(provider_arg.split("=", 1)[1])
+    assert payload["id"] == "other_problem"
+    assert payload["package_root"] == "/research_problem_package"
+    assert payload["data_config"]["dataset_root"] == "/data"
+    assert docker_run[-3:] == [
+        "--max-samples=4",
+        "--max-prediction-samples=1",
+        "--prediction-sample-policy=adjacent_and_scattered",
+    ]

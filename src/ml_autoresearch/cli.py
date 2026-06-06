@@ -545,9 +545,10 @@ def run_experiment_batch_command(
     batch: Annotated[Path, typer.Option(help="Path to a local Experiment Batch directory.")],
     batches_root: Annotated[Path, typer.Option(help="Directory where Experiment Batch artifact directories are created.")],
     runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
-    synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated contrail data.")] = False,
-    data_root: Annotated[Path | None, typer.Option("--data-root", help="Local GVCCS Dataset root for non-synthetic batch execution.")] = None,
-    max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of discovered GVCCS samples used.")] = None,
+    project_root: Annotated[Path, typer.Option(help="Project root containing optional candidate-execution.toml Research Problem provider config.")] = Path("."),
+    synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated fixture data.")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root", help="Research Problem data root for non-synthetic batch execution.")] = None,
+    max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of Research Problem samples used.")] = None,
     max_parallel_runs: Annotated[int, typer.Option("--max-parallel-runs", help="Harness-owned parallel Run cap, capped at 4.")] = 4,
     max_prediction_samples: Annotated[
         int,
@@ -575,7 +576,18 @@ def run_experiment_batch_command(
 ) -> None:
     """Validate and synchronously run a bounded Experiment Batch."""
 
-    from ml_autoresearch.batches import ExperimentBatchError, run_experiment_batch_with_gvccs_data, run_experiment_batch_with_synthetic_fixture
+    from ml_autoresearch.batches import (
+        ExperimentBatchError,
+        run_experiment_batch_with_gvccs_data,
+        run_experiment_batch_with_research_problem,
+        run_experiment_batch_with_synthetic_fixture,
+    )
+    from ml_autoresearch.candidate_execution_config import (
+        CandidateExecutionConfigError,
+        load_candidate_execution_config,
+        resolve_configured_research_problem_provider,
+    )
+    from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
@@ -591,21 +603,37 @@ def run_experiment_batch_command(
                 ledger_path=ledger_path,
             )
         else:
-            if data_root is None:
-                raise typer.BadParameter("--data-root is required unless --synthetic-fixture is set")
-            result = run_experiment_batch_with_gvccs_data(
-                batch,
-                batches_root=batches_root,
-                runs_root=runs_root,
-                data_root=data_root,
-                backend=selected_backend,
-                max_parallel_runs=max_parallel_runs,
-                max_samples=max_samples,
-                max_prediction_samples=max_prediction_samples,
-                prediction_sample_policy=prediction_sample_policy,
-                ledger_path=ledger_path,
-            )
-    except (ExperimentBatchError, ResearchLedgerError, OSError) as exc:
+            config = load_candidate_execution_config(project_root)
+            provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root)
+            if provider_config is not None:
+                result = run_experiment_batch_with_research_problem(
+                    batch,
+                    batches_root=batches_root,
+                    runs_root=runs_root,
+                    provider_config=provider_config,
+                    backend=selected_backend,
+                    max_parallel_runs=max_parallel_runs,
+                    max_samples=max_samples,
+                    max_prediction_samples=max_prediction_samples,
+                    prediction_sample_policy=prediction_sample_policy,
+                    ledger_path=ledger_path,
+                )
+            else:
+                if data_root is None:
+                    raise typer.BadParameter("provide --data-root or configure [research_problem].data_config in candidate-execution.toml")
+                result = run_experiment_batch_with_gvccs_data(
+                    batch,
+                    batches_root=batches_root,
+                    runs_root=runs_root,
+                    data_root=data_root,
+                    backend=selected_backend,
+                    max_parallel_runs=max_parallel_runs,
+                    max_samples=max_samples,
+                    max_prediction_samples=max_prediction_samples,
+                    prediction_sample_policy=prediction_sample_policy,
+                    ledger_path=ledger_path,
+                )
+    except (CandidateExecutionConfigError, ExperimentBatchError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
     if result.get("status") != "completed":
@@ -616,9 +644,10 @@ def run_experiment_batch_command(
 def run_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
     runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
-    synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated contrail data.")] = False,
-    data_root: Annotated[Path | None, typer.Option("--data-root", help="Local GVCCS Dataset root.")] = None,
-    max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of discovered GVCCS samples used.")] = None,
+    project_root: Annotated[Path, typer.Option(help="Project root containing optional candidate-execution.toml Research Problem provider config.")] = Path("."),
+    synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated fixture data.")] = False,
+    data_root: Annotated[Path | None, typer.Option("--data-root", help="Research Problem data root.")] = None,
+    max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of Research Problem samples used.")] = None,
     max_prediction_samples: Annotated[
         int,
         typer.Option("--max-prediction-samples", help="Maximum number of qualitative prediction samples to write."),
@@ -670,7 +699,13 @@ def run_candidate_command(
     if daemonize:
         _daemonize_current_run_candidate(runs_root)
         return
-    from ml_autoresearch.runs import run_candidate_with_gvccs_data, run_candidate_with_synthetic_fixture
+    from ml_autoresearch.candidate_execution_config import (
+        CandidateExecutionConfigError,
+        load_candidate_execution_config,
+        resolve_configured_research_problem_provider,
+    )
+    from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
+    from ml_autoresearch.runs import run_candidate_with_gvccs_data, run_candidate_with_research_problem, run_candidate_with_synthetic_fixture
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
@@ -684,21 +719,41 @@ def run_candidate_command(
                 ledger_path=ledger_path,
                 require_proposal=require_proposal,
             )
-        elif data_root is not None:
-            run = run_candidate_with_gvccs_data(
-                candidate,
-                runs_root,
-                data_root,
-                max_samples=max_samples,
-                max_prediction_samples=max_prediction_samples,
-                prediction_sample_policy=prediction_sample_policy,
-                backend=selected_backend,
-                ledger_path=ledger_path,
-                require_proposal=require_proposal,
-            )
         else:
-            raise typer.BadParameter("provide --data-root /path/to/gvccs or --synthetic-fixture")
-    except (ResearchLedgerError, OSError) as exc:
+            if data_root is not None:
+                if not data_root.exists():
+                    raise typer.BadParameter(f"GVCCS data root does not exist: {data_root}")
+                if not data_root.is_dir():
+                    raise typer.BadParameter(f"GVCCS data root is not a directory: {data_root}")
+            config = load_candidate_execution_config(project_root)
+            provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root)
+            if provider_config is not None:
+                run = run_candidate_with_research_problem(
+                    candidate,
+                    runs_root,
+                    provider_config,
+                    max_samples=max_samples,
+                    max_prediction_samples=max_prediction_samples,
+                    prediction_sample_policy=prediction_sample_policy,
+                    backend=selected_backend,
+                    ledger_path=ledger_path,
+                    require_proposal=require_proposal,
+                )
+            elif data_root is not None:
+                run = run_candidate_with_gvccs_data(
+                    candidate,
+                    runs_root,
+                    data_root,
+                    max_samples=max_samples,
+                    max_prediction_samples=max_prediction_samples,
+                    prediction_sample_policy=prediction_sample_policy,
+                    backend=selected_backend,
+                    ledger_path=ledger_path,
+                    require_proposal=require_proposal,
+                )
+            else:
+                raise typer.BadParameter("provide --data-root, --synthetic-fixture, or configure [research_problem]")
+    except (CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
     _echo_run(run)
     if run.status != RunStatus.COMPLETED:

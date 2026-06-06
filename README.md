@@ -13,8 +13,8 @@ This repository currently contains the local tracer-bullet Harness with a Docker
 - validate a local Candidate Experiment directory
 - create Harness-owned Run directories
 - smoke-test candidate models through the controlled `build_model(input_spec, output_spec)` interface
-- train one epoch on deterministic synthetic data or a local GVCCS-like/GVCCS dataset
-- for Docker GVCCS training, mount the host `--data-root` read-only at `/data` inside the container
+- train one epoch on deterministic synthetic data or the configured trusted Research Problem data
+- for Docker Research Problem training, mount the trusted Research Problem package read-only and mount the host data root read-only at `/data` when configured
 - write local Run artifacts such as metrics, metadata, logs, model summaries, and prediction samples
 - record validated Research Ledger events for proposals, candidates, Runs, evaluations, capability requests, reports, and pauses
 - inspect local Runs without MLflow
@@ -144,7 +144,7 @@ The manual Docker command remains a valid fallback and builds the same default i
 docker build -t ml-autoresearch-runner:local .
 ```
 
-Run against a local GVCCS-like or real GVCCS data root using the default Docker backend:
+Run against the configured Research Problem data root using the default Docker backend. The current committed example is the Ground-Camera Contrail Detection Research Problem with a local GVCCS-like or real GVCCS data root:
 
 ```bash
 uv run ml-autoresearch run-candidate \
@@ -178,7 +178,7 @@ uv run ml-autoresearch run-candidate \
   --no-require-proposal
 ```
 
-Real GVCCS data is not committed to this repository. The Docker backend validates the host path and mounts it read-only at `/data`; Candidate Experiments cannot choose data paths or mounts. See [`docs/gvccs-data.md`](docs/gvccs-data.md) for expected local layout.
+Real GVCCS data is not committed to this repository. The Docker backend validates the configured Research Problem data path, mounts it read-only at `/data`, and mounts the trusted provider package read-only; Candidate Experiments cannot choose data paths, provider packages, or mounts. See [`docs/gvccs-data.md`](docs/gvccs-data.md) for the GVCCS example layout.
 
 ## Inspecting local Runs
 

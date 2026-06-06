@@ -6,9 +6,17 @@ docker_image = "ml-autoresearch-runner:local"
 docker_enable_gpu = true
 docker_rootless_container_root = true
 
-# Local GVCCS Dataset root mounted read-only into Docker at /data.
+# Compatibility data-root override for local GVCCS examples; [research_problem]
+# below is the canonical Harness Research Problem configuration.
 data_root = "/net/d16/data/iross/GVCCS"
 
 # Bounded run defaults for autonomous candidate execution.
 max_prediction_samples = 2
 prediction_sample_policy = "first_n"
+
+[research_problem]
+id = "ground_camera_contrail_detection"
+package_root = "."
+provider_target = "ml_autoresearch.research_problems:build_ground_camera_contrail_detection_spec"
+expected_contract_version = "v0"
+data_config = { dataset_root = "/net/d16/data/iross/GVCCS" }
