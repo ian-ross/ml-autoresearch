@@ -223,7 +223,7 @@ def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):
             assert image.size == (128, 128)
     assert "GVCCS" in (run.run_dir / "outputs" / "logs" / "training.log").read_text()
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
-    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0"}
+    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
     assert metadata["dataset"] == {
         "id": "gvccs",
         "host_data_path": str(FIXTURE_ROOT.resolve()),

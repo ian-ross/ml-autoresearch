@@ -71,7 +71,7 @@ def test_resolved_gvccs_manifest_and_smoke_specs_stay_single_frame_mask_only(tmp
     assert resolved == {
         "name": "single_frame_small_unet",
         "description": "Small standard U-Net-style single-frame mask-only segmentation baseline.",
-        "research_problem": {"id": "ground_camera_contrail_detection", "version": "v0"},
+        "research_problem": {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"},
         "input_mode": "single_frame_rgb",
         "output_form": "mask_logits",
         "auxiliary_targets": [],
@@ -101,7 +101,7 @@ def test_gvccs_training_artifact_names_and_key_metrics_stay_stable(tmp_path: Pat
 
     assert run.status == RunStatus.COMPLETED
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
-    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0"}
+    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
     assert metadata["artifacts"] == {
         "prediction_samples": "outputs/prediction_samples/samples.json",
         "best_metrics": "outputs/best_metrics.json",

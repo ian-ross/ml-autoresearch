@@ -44,7 +44,7 @@ class ResearchProblemSpec(BaseModel):
     downstream callers are deliberately migrated.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
     id: str = Field(min_length=1)
     version: str = Field(min_length=1)
@@ -64,6 +64,7 @@ class ResearchProblemSpec(BaseModel):
     input_mode_frame_selection_defaults: dict[str, str] = Field(default_factory=dict)
     augmentation_policies: tuple[str, ...] = Field(min_length=1)
     primary_metric: str = Field(min_length=1)
+    training_adapter: object | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def spec_mappings_match_allowlists(self) -> "ResearchProblemSpec":
@@ -402,6 +403,7 @@ def build_ground_camera_contrail_detection_spec(data_config: Mapping[str, object
     """
 
     del data_config
+    from ml_autoresearch.training_adapters import GVCCSTrainingAdapter
     return ResearchProblemSpec(
         id=DEFAULT_RESEARCH_PROBLEM_ID,
         version="v0",
@@ -438,6 +440,7 @@ def build_ground_camera_contrail_detection_spec(data_config: Mapping[str, object
             "light_combined",
         ),
         primary_metric="val/dice",
+        training_adapter=GVCCSTrainingAdapter(),
     )
 
 

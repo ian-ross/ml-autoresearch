@@ -119,14 +119,14 @@ def test_get_run_summary_reads_one_run_without_mlflow(tmp_path: Path):
         "completed",
         0.82,
         best_dice=0.9,
-        research_problem={"id": "ground_camera_contrail_detection", "version": "v0"},
+        research_problem={"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"},
     )
 
     summary = get_run_summary(runs_root, "run_done")
 
     assert summary["run_id"] == "run_done"
     assert summary["status"] == "completed"
-    assert summary["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0"}
+    assert summary["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
     assert summary["metrics"]["val/dice"] == 0.82
     assert summary["best_metrics"]["selection_metric"] == "val/dice"
     assert summary["best_metrics"]["selection_value"] == 0.9

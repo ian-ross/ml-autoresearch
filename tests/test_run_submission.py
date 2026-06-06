@@ -61,7 +61,7 @@ def test_submit_candidate_creates_accepted_run_directory(tmp_path: Path):
     resolved = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
     assert resolved["name"] == "single_frame_unet_baseline"
     assert resolved["description"] == "Tiny single-frame mask-only baseline for harness validation."
-    assert resolved["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0"}
+    assert resolved["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
     assert resolved["input_mode"] == "single_frame_rgb"
     assert resolved["output_form"] == "mask_logits"
     assert resolved["auxiliary_targets"] == []
@@ -74,7 +74,7 @@ def test_submit_candidate_creates_accepted_run_directory(tmp_path: Path):
     assert metadata["run_id"] == run.run_id
     assert metadata["status"] == "accepted"
     assert metadata["candidate_source"]["path"] == str(candidate.resolve())
-    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0"}
+    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
     assert metadata["rejection_reason"] is None
     assert metadata["created_at"]
     assert metadata["updated_at"]

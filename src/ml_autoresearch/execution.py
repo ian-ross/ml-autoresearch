@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from ml_autoresearch.research_problems import ResearchProblemProviderConfig
+
 DEFAULT_DOCKER_IMAGE = "ml-autoresearch-runner:local"
 MANUAL_DOCKER_BUILD_COMMAND = f"docker build -t {DEFAULT_DOCKER_IMAGE} ."
 DEFAULT_DOCKER_MEMORY_LIMIT = "4g"
@@ -78,6 +80,17 @@ class ExecutionBackend(Protocol):
     ) -> OperationResult:
         """Train the copied Candidate Experiment on Harness-owned GVCCS data loading."""
 
+    def train_research_problem(
+        self,
+        run_dir: str | Path,
+        provider_config: ResearchProblemProviderConfig,
+        *,
+        max_samples: int | None = None,
+        max_prediction_samples: int = 2,
+        prediction_sample_policy: str = "first_n",
+    ) -> OperationResult:
+        """Train through the configured trusted Research Problem provider."""
+
     def evaluate_run(
         self,
         run_dir: str | Path,
@@ -136,6 +149,26 @@ class NativeBackend:
             prediction_sample_policy=prediction_sample_policy,
         )
         return OperationResult(backend=self.name, operation="train_gvccs")
+
+    def train_research_problem(
+        self,
+        run_dir: str | Path,
+        provider_config: ResearchProblemProviderConfig,
+        *,
+        max_samples: int | None = None,
+        max_prediction_samples: int = 2,
+        prediction_sample_policy: str = "first_n",
+    ) -> OperationResult:
+        from ml_autoresearch.training import train_research_problem_run
+
+        train_research_problem_run(
+            run_dir,
+            provider_config,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
+        return OperationResult(backend=self.name, operation="train_research_problem")
 
     def evaluate_run(
         self,
@@ -209,6 +242,35 @@ class DockerBackend:
         args.append(f"--prediction-sample-policy={prediction_sample_policy}")
         command = self._operation_command(path, "ml_autoresearch.container_runner", *args, data_root=data_path)
         return self._run_training_operation(command, path, "Docker GVCCS training failed", "train_gvccs")
+
+    def train_research_problem(
+        self,
+        run_dir: str | Path,
+        provider_config: ResearchProblemProviderConfig,
+        *,
+        max_samples: int | None = None,
+        max_prediction_samples: int = 2,
+        prediction_sample_policy: str = "first_n",
+    ) -> OperationResult:
+        if provider_config.id != "ground_camera_contrail_detection":
+            raise RuntimeError("Docker generic Research Problem training requires container provider-package mounting support")
+        data_root = provider_config.data_config.get("dataset_root") or provider_config.data_config.get("data_root")
+        if not isinstance(data_root, str):
+            raise RuntimeError("Docker Ground-Camera Contrail Detection training requires data_config.dataset_root")
+        result = self.train_gvccs(
+            run_dir,
+            data_root,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
+        return OperationResult(
+            backend=result.backend,
+            operation="train_research_problem",
+            docker_image=result.docker_image,
+            lifecycle_status=result.lifecycle_status,
+            timeout=result.timeout,
+        )
 
     def evaluate_run(
         self,

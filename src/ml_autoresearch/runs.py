@@ -18,7 +18,12 @@ from ml_autoresearch.candidates import CandidateValidationError, validate_candid
 from ml_autoresearch.errors import GVCCSDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
-from ml_autoresearch.research_problems import ResearchProblemSpecRegistry, get_research_problem_spec
+from ml_autoresearch.research_problems import (
+    ResearchProblemProviderConfig,
+    ResearchProblemSpecRegistry,
+    load_research_problem_provider,
+    get_research_problem_spec,
+)
 
 
 class RunStatus(StrEnum):
@@ -110,6 +115,45 @@ def run_candidate_with_synthetic_fixture(
     )
 
 
+def run_candidate_with_research_problem(
+    candidate_dir: str | Path,
+    runs_root: str | Path,
+    provider_config: ResearchProblemProviderConfig,
+    *,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+    backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
+    require_proposal: bool = False,
+) -> RunSubmission:
+    """Validate, smoke-test, and train through a generic Research Problem provider."""
+
+    loaded = load_research_problem_provider(provider_config)
+    if loaded.spec.training_adapter is None:
+        raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")
+    registry = ResearchProblemSpecRegistry(default_id=loaded.spec.id)
+    registry.register(loaded.spec, provenance=loaded.provenance)
+    selected_backend = backend or NativeBackend()
+    return _run_candidate_training(
+        candidate_dir,
+        runs_root,
+        lambda run_dir: selected_backend.train_research_problem(
+            run_dir,
+            provider_config,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        ),
+        backend=selected_backend,
+        dataset=loaded.spec.training_adapter.dataset_metadata(provider_config.data_config),
+        research_problem=loaded.run_metadata(),
+        research_problem_registry=registry,
+        ledger_path=ledger_path,
+        require_proposal=require_proposal,
+    )
+
+
 def run_candidate_with_gvccs_data(
     candidate_dir: str | Path,
     runs_root: str | Path,
@@ -140,6 +184,42 @@ def run_candidate_with_gvccs_data(
         dataset=_gvccs_dataset_metadata(data_path),
         ledger_path=ledger_path,
         require_proposal=require_proposal,
+    )
+
+
+def train_accepted_run_with_research_problem(
+    run_dir: str | Path,
+    provider_config: ResearchProblemProviderConfig,
+    *,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+    backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
+) -> RunSubmission:
+    """Synchronously train an accepted Run through a generic Research Problem provider."""
+
+    path = Path(run_dir)
+    metadata = _read_metadata(path)
+    if metadata.get("status") != RunStatus.ACCEPTED.value:
+        raise ValueError(f"accepted Run required for training continuation: {path}")
+    loaded = load_research_problem_provider(provider_config)
+    if loaded.spec.training_adapter is None:
+        raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")
+    selected_backend = backend or NativeBackend()
+    return _train_accepted_run(
+        RunSubmission(str(metadata.get("run_id") or path.name), path, RunStatus.ACCEPTED),
+        lambda accepted_run_dir: selected_backend.train_research_problem(
+            accepted_run_dir,
+            provider_config,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        ),
+        backend=selected_backend,
+        dataset=loaded.spec.training_adapter.dataset_metadata(provider_config.data_config),
+        research_problem=loaded.run_metadata(),
+        ledger_path=_resolve_ledger_path(path.parent, ledger_path),
     )
 
 
@@ -330,6 +410,8 @@ def _run_candidate_training(
     *,
     backend: ExecutionBackend | None = None,
     dataset: dict[str, object] | None = None,
+    research_problem: dict[str, object] | None = None,
+    research_problem_registry: ResearchProblemSpecRegistry | None = None,
     ledger_path: str | Path | None = None,
     require_proposal: bool = False,
 ) -> RunSubmission:
@@ -340,10 +422,18 @@ def _run_candidate_training(
         backend=backend,
         ledger_path=resolved_ledger_path,
         require_proposal=require_proposal,
+        research_problem_registry=research_problem_registry,
     )
     if run.status != RunStatus.ACCEPTED:
         return run
-    return _train_accepted_run(run, trainer, backend=backend, dataset=dataset, ledger_path=resolved_ledger_path)
+    return _train_accepted_run(
+        run,
+        trainer,
+        backend=backend,
+        dataset=dataset,
+        research_problem=research_problem,
+        ledger_path=resolved_ledger_path,
+    )
 
 
 def _train_accepted_run(
@@ -352,6 +442,7 @@ def _train_accepted_run(
     *,
     backend: ExecutionBackend | None = None,
     dataset: dict[str, object] | None = None,
+    research_problem: dict[str, object] | None = None,
     ledger_path: str | Path,
 ) -> RunSubmission:
     metadata = _read_metadata(run.run_dir)
@@ -377,6 +468,7 @@ def _train_accepted_run(
         training_failure_reason=None,
         execution_backend=execution_backend,
         dataset=dataset,
+        research_problem=research_problem,
         repair_lineage=repair_lineage,
     )
     resource_lifecycle = None
@@ -398,6 +490,7 @@ def _train_accepted_run(
             failure_classification=RunFailureClassification.RESOURCE_FAILURE,
             execution_backend=execution_backend,
             dataset=dataset,
+            research_problem=research_problem,
             training_lifecycle={"status": "timeout_forced", "timeout": exc.timeout_metadata},
             repair_lineage=repair_lineage,
         )
@@ -425,6 +518,7 @@ def _train_accepted_run(
             failure_classification=classification,
             execution_backend=execution_backend,
             dataset=dataset,
+            research_problem=research_problem,
             training_lifecycle=failure_lifecycle,
             repair_lineage=repair_lineage,
         )
@@ -444,6 +538,7 @@ def _train_accepted_run(
         artifacts=_artifacts_from_training_result(training_result),
         execution_backend=execution_backend,
         dataset=dataset,
+        research_problem=research_problem,
         training_lifecycle=_merge_training_lifecycle(training_result, resource_lifecycle or {}),
         repair_lineage=repair_lineage,
         data_policy=_data_policy_from_training_result(training_result, run.run_dir),
@@ -609,10 +704,14 @@ def _read_evaluation_summary_dir(evaluation_dir: Path) -> dict[str, object]:
 def _research_problem_identity(
     manifest: object,
     registry: ResearchProblemSpecRegistry | None = None,
-) -> dict[str, str]:
+) -> dict[str, object]:
     spec_id = str(getattr(manifest, "research_problem"))
     spec = registry.get(spec_id) if registry is not None else get_research_problem_spec(spec_id)
-    return {"id": spec.id, "version": spec.version}
+    identity: dict[str, object] = {"id": spec.id, "version": spec.version, "contract_version": spec.contract_version}
+    provenance = registry.get_provenance(spec_id) if registry is not None else None
+    if provenance is not None:
+        identity["provider"] = provenance.run_metadata()
+    return identity
 
 
 def _resolved_manifest_payload(
@@ -1066,7 +1165,7 @@ def _write_metadata(
     dataset: dict[str, object] | None = None,
     training_lifecycle: dict[str, object] | None = None,
     repair_lineage: dict[str, object] | None = None,
-    research_problem: dict[str, str] | None = None,
+    research_problem: dict[str, object] | None = None,
     data_policy: dict[str, object] | None = None,
     sample_counts: dict[str, object] | None = None,
 ) -> None:

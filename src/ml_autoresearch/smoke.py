@@ -19,9 +19,12 @@ import yaml
 from ml_autoresearch.errors import SmokeTestError
 from ml_autoresearch.research_problems import (
     DEFAULT_RESEARCH_PROBLEM_ID,
+    ResearchProblemProviderConfig,
+    ResearchProblemProviderLoadError,
     ResearchProblemSpecError,
     ResearchProblemSpecRegistry,
     get_research_problem_spec,
+    load_research_problem_provider,
 )
 
 
@@ -171,7 +174,40 @@ def _research_problem_spec_for_resolved_manifest(
         spec_id = DEFAULT_RESEARCH_PROBLEM_ID
     if registry is not None:
         return registry.get(spec_id)
+    loaded_registry = _registry_from_resolved_manifest_provider(manifest, spec_id)
+    if loaded_registry is not None:
+        return loaded_registry.get(spec_id)
     return get_research_problem_spec(spec_id)
+
+
+def _registry_from_resolved_manifest_provider(
+    manifest: dict[str, object], spec_id: str
+) -> ResearchProblemSpecRegistry | None:
+    research_problem = manifest.get("research_problem")
+    if not isinstance(research_problem, dict):
+        return None
+    provider = research_problem.get("provider")
+    if not isinstance(provider, dict):
+        return None
+    target = provider.get("target")
+    package_root = provider.get("resolved_package_root")
+    contract_version = research_problem.get("contract_version")
+    if not isinstance(target, str) or not isinstance(package_root, str) or not isinstance(contract_version, str):
+        return None
+    registry = ResearchProblemSpecRegistry(default_id=spec_id)
+    try:
+        load_research_problem_provider(
+            ResearchProblemProviderConfig(
+                id=spec_id,
+                package_root=Path(package_root),
+                provider_target=target,
+                expected_contract_version=contract_version,
+            ),
+            registry=registry,
+        )
+    except ResearchProblemProviderLoadError as exc:
+        raise SmokeTestError(str(exc)) from exc
+    return registry
 
 
 def expected_output_names(output_spec: dict[str, object]) -> list[str]:

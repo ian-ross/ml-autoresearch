@@ -13,13 +13,8 @@ import yaml
 
 from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.errors import TrainingError
-from ml_autoresearch.gvccs import (
-    GVCCSDataset,
-    GVCCSTemporalClipDataset,
-    discover_gvccs_samples,
-    deterministic_train_val_split,
-    select_gvccs_frames,
-)
+from ml_autoresearch.research_problems import ResearchProblemProviderConfig, load_research_problem_provider
+from ml_autoresearch.training_adapters import GVCCSTrainingAdapter, ResearchProblemTrainingAdapter
 from ml_autoresearch.metrics import binary_segmentation_metrics
 from ml_autoresearch.problem_support.imaging import deterministic_photometric_perturbation, horizontal_flip_image_mask
 from ml_autoresearch.problem_support.segmentation import (
@@ -93,6 +88,82 @@ def train_synthetic_fixture(
     )
 
 
+def train_research_problem_run(
+    run_dir: str | Path,
+    provider_config: ResearchProblemProviderConfig,
+    *,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+) -> dict[str, object]:
+    """Train a Run through the active trusted Research Problem Spec adapter."""
+
+    loaded = load_research_problem_provider(provider_config)
+    adapter = loaded.spec.training_adapter
+    if adapter is None:
+        raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")
+    path = Path(run_dir)
+    return train_research_problem(
+        candidate_dir=path / "candidate",
+        resolved_manifest_path=path / "resolved_manifest.yaml",
+        outputs_dir=path / "outputs",
+        artifact_run_dir=path,
+        training_adapter=adapter,
+        data_config=provider_config.data_config,
+        max_samples=max_samples,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+    )
+
+
+def train_research_problem(
+    *,
+    candidate_dir: str | Path,
+    resolved_manifest_path: str | Path,
+    outputs_dir: str | Path,
+    artifact_run_dir: str | Path,
+    training_adapter: ResearchProblemTrainingAdapter,
+    data_config: dict[str, object],
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+) -> dict[str, object]:
+    """Train with explicit Harness-controlled paths via a Research Problem adapter."""
+
+    try:
+        datasets = training_adapter.build_datasets(
+            data_config=data_config,
+            resolved_manifest_path=resolved_manifest_path,
+            max_samples=max_samples,
+        )
+    except TrainingError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - trusted adapter failures should fail the Run clearly.
+        raise TrainingError(str(exc)) from exc
+    train_loader_factory = lambda batch_size, sampling_policy, augmentation_policy: _data_loader_for_sampling(  # noqa: E731
+        datasets.train_dataset, batch_size=batch_size, sampling_policy=sampling_policy, augmentation_policy=augmentation_policy
+    )
+    val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
+        datasets.validation_dataset, batch_size=batch_size, sampling_policy="sequential"
+    )
+    return _train_manifest_epochs_run(
+        candidate_dir=candidate_dir,
+        resolved_manifest_path=resolved_manifest_path,
+        outputs_dir=outputs_dir,
+        artifact_run_dir=artifact_run_dir,
+        start_line=datasets.start_line,
+        success_line=datasets.success_line,
+        failure_prefix=datasets.failure_prefix,
+        train_loader_factory=train_loader_factory,
+        val_loader_factory=val_loader_factory,
+        train_sample_count=len(datasets.train_dataset),
+        val_sample_count=len(datasets.validation_dataset),
+        data_policy_metadata=datasets.data_policy_metadata,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+    )
+
+
 def train_gvccs_run(
     run_dir: str | Path,
     data_root: str | Path,
@@ -101,7 +172,7 @@ def train_gvccs_run(
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
 ) -> dict[str, object]:
-    """Train local GVCCS RGB image and binary Contrail Mask pairs for the resolved manifest budget."""
+    """Compatibility wrapper for GVCCS training via generic Research Problem dispatch."""
 
     path = Path(run_dir)
     return train_gvccs(
@@ -127,50 +198,16 @@ def train_gvccs(
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
 ) -> dict[str, object]:
-    """Train GVCCS data with explicit Harness-controlled mounted paths."""
+    """Compatibility wrapper for GVCCS data through the generic training loop."""
 
-    samples = discover_gvccs_samples(data_root, split="train", max_samples=max_samples)
-    manifest = yaml.safe_load(Path(resolved_manifest_path).read_text())
-    input_mode = str(manifest.get("input_mode", "single_frame_rgb"))
-    data_policy = manifest.get("data", {}) or {}
-    frame_selection_policy = str(data_policy.get("frame_selection_policy_effective") or data_policy.get("frame_selection_policy") or "all_target_frames")
-    if input_mode == "centered_temporal_rgb_clip":
-        if frame_selection_policy != "temporal_eligible_center":
-            raise TrainingError("centered_temporal_rgb_clip requires frame_selection_policy temporal_eligible_center")
-        all_clips = GVCCSTemporalClipDataset(samples).clips
-        split = deterministic_train_val_split(all_clips)  # type: ignore[arg-type]
-        train_dataset = GVCCSTemporalClipDataset(split.train)  # type: ignore[arg-type]
-        val_dataset = GVCCSTemporalClipDataset(split.val)  # type: ignore[arg-type]
-    elif input_mode == "single_frame_rgb":
-        selected_samples = select_gvccs_frames(samples, frame_selection_policy)
-        split = deterministic_train_val_split(selected_samples)
-        train_dataset = GVCCSDataset(split.train)
-        val_dataset = GVCCSDataset(split.val)
-    else:
-        raise TrainingError(f"unsupported input mode for GVCCS training: {input_mode}")
-
-    train_loader_factory = lambda batch_size, sampling_policy, augmentation_policy: _data_loader_for_sampling(  # noqa: E731
-        train_dataset, batch_size=batch_size, sampling_policy=sampling_policy, augmentation_policy=augmentation_policy
-    )
-    val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
-        val_dataset, batch_size=batch_size, sampling_policy="sequential"
-    )
-    return _train_manifest_epochs_run(
+    return train_research_problem(
         candidate_dir=candidate_dir,
         resolved_manifest_path=resolved_manifest_path,
         outputs_dir=outputs_dir,
         artifact_run_dir=artifact_run_dir,
-        start_line=f"Starting GVCCS training from {Path(data_root)} with {len(train_dataset)} train and {len(val_dataset)} val samples.",
-        success_line="GVCCS training completed.",
-        failure_prefix="GVCCS training failed",
-        train_loader_factory=train_loader_factory,
-        val_loader_factory=val_loader_factory,
-        train_sample_count=len(train_dataset),
-        val_sample_count=len(val_dataset),
-        data_policy_metadata={
-            "frame_selection_policy": frame_selection_policy,
-            "frame_selection_policy_effective": frame_selection_policy,
-        },
+        training_adapter=GVCCSTrainingAdapter(),
+        data_config={"dataset_root": str(data_root)},
+        max_samples=max_samples,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
     )
