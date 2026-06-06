@@ -46,8 +46,8 @@ The migration slices are complete for the current tracer-bullet Harness. Reusabl
 
 Canonical filesystem packages:
 
-- `/home/iross/code/test-research-problem` contains the external fake Research Problem package used by deletion/seam regression tests.
-- `/home/iross/code/gvccs-research-problem` contains the GVCCS / Ground-Camera Contrail Detection package. Its provider target is `gvccs.research_problem:build_spec`.
+- `/home/iross/code/test-research-problem` contains the external fake Research Problem package used by deletion/seam regression tests. It also ships minimal `brief/overview.md` and `brief/baselines.md` examples for automated Research Problem Brief discovery tests.
+- `/home/iross/code/gvccs-research-problem` contains the GVCCS / Ground-Camera Contrail Detection package. Its provider target is `gvccs.research_problem:build_spec`, and its `brief/ground-camera-contrail-detection.md` file is the initial realistic Research Problem Brief example for Research Problem authors.
 
 Intentional remaining exceptions:
 

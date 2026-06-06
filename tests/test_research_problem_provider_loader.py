@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 import subprocess
-import uuid
 from pathlib import Path
 
 import pytest
@@ -128,44 +126,54 @@ def test_provider_can_return_mapping_that_is_checked_before_registration(tmp_pat
     assert registry.get("tiny_problem") == loaded.spec
 
 
-def test_external_fake_provider_package_can_declare_brief_documents() -> None:
+def test_external_fake_provider_package_ships_brief_documents_used_by_harness_tests() -> None:
     package_root = Path("/home/iross/code/test-research-problem")
-    package = package_root / "tiny_problem"
-    module_name = f"brief_provider_{os.getpid()}_{uuid.uuid4().hex}"
-    provider_path = package / f"{module_name}.py"
-    brief_dir = package_root / "brief" / module_name
-    overview = brief_dir / "overview.md"
-    baselines = brief_dir / "baselines.md"
-    try:
-        brief_dir.mkdir(parents=True)
-        overview.write_text("# External overview\n")
-        baselines.write_text("# External baselines\n")
-        provider_path.write_text(
-            "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
-            "def build_spec(data_config=None):\n"
-            "    return ResearchProblemSpec(\n"
-            "        id='tiny_problem', version='test-spec-v0', contract_version='v0',\n"
-            "        input_modes=('tiny_rgb',), input_specs={'tiny_rgb': {'mode': 'tiny_rgb', 'shape': [3, 8, 8]}},\n"
-            "        output_forms=('tiny_mask_logits',), output_specs={'tiny_mask_logits': {'form': 'tiny_mask_logits', 'shape': [1, 8, 8]}},\n"
-            "        losses=('tiny_bce',), optimizers=('adamw',), sampling_policies=('sequential',),\n"
-            "        augmentation_policies=('none',), primary_metric='val/tiny_dice',\n"
-            f"        brief_documents=(\n"
-            f"            {{'name': 'overview', 'role': 'problem_overview', 'path': 'brief/{module_name}/overview.md'}},\n"
-            f"            {{'name': 'baselines', 'role': 'baseline_description', 'path': 'brief/{module_name}/baselines.md', 'required': True}},\n"
-            f"        ),\n"
-            "    )\n"
+
+    loaded = load_research_problem_provider(_config(package_root))
+
+    assert [(document.name, document.role) for document in loaded.brief_documents] == [
+        ("overview", "problem_overview"),
+        ("baselines", "baseline_description"),
+    ]
+    assert [document.summary for document in loaded.brief_documents] == [
+        "Tiny synthetic segmentation problem overview.",
+        "Minimal deterministic baseline notes for Harness tests.",
+    ]
+    assert loaded.brief_documents[0].resolved_path == (package_root / "brief" / "overview.md").resolve()
+    assert loaded.brief_documents[1].resolved_path == (package_root / "brief" / "baselines.md").resolve()
+    assert loaded.brief_documents[1].required is True
+    assert "Tiny Problem Overview" in loaded.brief_documents[0].resolved_path.read_text()
+
+
+def test_external_gvccs_provider_package_ships_ground_camera_contrail_detection_brief() -> None:
+    package_root = Path("/home/iross/code/gvccs-research-problem")
+    loaded = load_research_problem_provider(
+        ResearchProblemProviderConfig(
+            id="ground_camera_contrail_detection",
+            package_root=package_root,
+            provider_target="gvccs.research_problem:build_spec",
+            expected_contract_version="v0",
+            data_config={"dataset_root": "/trusted/gvccs"},
         )
+    )
 
-        loaded = load_research_problem_provider(_config(package_root, f"tiny_problem.{module_name}:build_spec"))
-
-        assert [document.name for document in loaded.brief_documents] == ["overview", "baselines"]
-        assert loaded.brief_documents[0].resolved_path == overview.resolve()
-        assert loaded.brief_documents[1].resolved_path == baselines.resolve()
-    finally:
-        provider_path.unlink(missing_ok=True)
-        overview.unlink(missing_ok=True)
-        baselines.unlink(missing_ok=True)
-        brief_dir.rmdir() if brief_dir.exists() else None
+    assert len(loaded.brief_documents) == 1
+    document = loaded.brief_documents[0]
+    assert document.name == "ground_camera_contrail_detection"
+    assert document.role == "problem_brief"
+    assert document.required is True
+    assert document.resolved_path == (package_root / "brief" / "ground-camera-contrail-detection.md").resolve()
+    assert document.metadata()["resolved_path"].startswith(str(package_root.resolve()))
+    text = document.resolved_path.read_text()
+    for required_section in [
+        "## Task context",
+        "## Data notes",
+        "## Baseline and prior-approach notes",
+        "## Reference pointers",
+        "## Architecture suggestions",
+    ]:
+        assert required_section in text
+    assert "zenodo.org/records/16612390" in text
 
 
 def test_provider_brief_documents_are_resolved_relative_to_package_root(tmp_path) -> None:
