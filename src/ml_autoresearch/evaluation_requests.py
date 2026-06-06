@@ -87,6 +87,27 @@ class EvaluationRequest(BaseModel):
         return self
 
 
+def _metadata_data_root(metadata: dict[str, object]) -> Path | None:
+    dataset = metadata.get("dataset")
+    if not isinstance(dataset, dict):
+        return None
+    host_data_path = dataset.get("host_data_path")
+    if not isinstance(host_data_path, str) or not host_data_path:
+        return None
+    return Path(host_data_path)
+
+
+def _ensure_research_problem_supports_mode(spec: object, mode: str) -> None:
+    adapter = getattr(spec, "evaluation_adapter", None)
+    if adapter is None:
+        raise EvaluationRequestError(f"Research Problem {getattr(spec, 'id', '<unknown>')!r} does not support evaluation mode: {mode}")
+    supported = getattr(adapter, "supported_evaluation_modes", None)
+    if supported is not None and mode not in tuple(str(item) for item in supported):
+        raise EvaluationRequestError(f"Research Problem {getattr(spec, 'id', '<unknown>')!r} does not support evaluation mode: {mode}")
+    if not callable(getattr(adapter, "run_evaluation_mode", None)):
+        raise EvaluationRequestError(f"Research Problem {getattr(spec, 'id', '<unknown>')!r} evaluation adapter is invalid")
+
+
 def _is_safe_target_run_id(target_run_id: str) -> bool:
     if target_run_id != target_run_id.strip():
         return False
@@ -145,6 +166,21 @@ def run_post_run_evaluation(
     metadata_path = run_dir / "run_metadata.json"
     if not metadata_path.is_file():
         raise EvaluationRequestError(f"target Run is missing run_metadata.json: {request.target_run_id}")
+    try:
+        run_metadata = json.loads(metadata_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise EvaluationRequestError(f"target Run metadata is invalid JSON: {request.target_run_id}: {exc}") from exc
+    if not isinstance(run_metadata, dict):
+        raise EvaluationRequestError(f"target Run metadata must be a JSON object: {request.target_run_id}")
+    from ml_autoresearch.evaluations import resolve_run_research_problem
+
+    precheck_data_root = _metadata_data_root(run_metadata)
+    try:
+        research_problem = resolve_run_research_problem(run_metadata, data_root=precheck_data_root)
+        if request.evaluation_mode == "failure_bucket_review":
+            _ensure_research_problem_supports_mode(research_problem.spec, "whole_validation_failure_analysis")
+    except Exception as exc:  # noqa: BLE001 - normalize adapter/spec errors at the request boundary.
+        raise EvaluationRequestError(str(exc)) from exc
 
     evaluation_id = _evaluation_id(request.request_id)
     relative_evaluation_dir = Path("outputs") / "evaluations" / evaluation_id
@@ -166,6 +202,7 @@ def run_post_run_evaluation(
         "expected_decision_impact": request.expected_decision_impact,
         "parameters": request.parameters.model_dump(exclude_none=True),
         "artifact_budget": request.artifact_budget.model_dump(),
+        "research_problem": research_problem.metadata,
         "artifacts": {"summary": str(summary_rel)},
     }
     _write_json(evaluation_dir / "summary.json", summary)
@@ -213,10 +250,11 @@ def _run_failure_bucket_review(
 
     from ml_autoresearch.evaluations import (
         DEFAULT_EVALUATION_THRESHOLD,
-        _evaluate_gvccs_validation_split,
+        dispatch_evaluation_mode,
         _model_artifact_from_best_metrics,
         _read_json,
         _resolve_data_root,
+        resolve_run_research_problem,
     )
 
     run_metadata = _read_json(run_dir / "run_metadata.json")
@@ -232,8 +270,11 @@ def _run_failure_bucket_review(
         raise EvaluationRequestError("failure_bucket_review requires at least one diagnostic artifact")
 
     data_root = _resolve_data_root(run_metadata, None)
+    research_problem = resolve_run_research_problem(run_metadata, data_root=data_root)
     model_artifact = _model_artifact_from_best_metrics(run_dir)
-    aggregate, per_sample_records, threshold_sweep, diagnostic_manifest = _evaluate_gvccs_validation_split(
+    aggregate, per_sample_records, threshold_sweep, diagnostic_manifest = dispatch_evaluation_mode(
+        research_problem=research_problem,
+        mode="whole_validation_failure_analysis",
         run_dir=run_dir,
         data_root=data_root,
         model_artifact_path=run_dir / model_artifact,
@@ -264,6 +305,7 @@ def _run_failure_bucket_review(
         "status": "completed",
         "split": "val",
         "threshold": threshold,
+        "research_problem": research_problem.metadata,
         "data_root": str(data_root),
         "model_artifact": model_artifact,
         "artifacts": {

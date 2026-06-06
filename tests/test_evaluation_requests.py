@@ -95,6 +95,7 @@ def test_post_run_evaluation_requires_valid_request_and_links_artifacts_to_reque
     summary = json.loads((evaluation_dir / "summary.json").read_text())
     assert metadata["request_id"] == "eval-threshold-sweep-run-123"
     assert metadata["parent_run_id"] == "run_123"
+    assert metadata["research_problem"]["id"] == "ground_camera_contrail_detection"
     assert metadata["artifacts"]["summary"] == "outputs/evaluations/eval_eval-threshold-sweep-run-123/summary.json"
     assert summary["request_id"] == "eval-threshold-sweep-run-123"
     assert summary["parent_run_id"] == "run_123"
@@ -118,6 +119,74 @@ def test_failed_evaluation_request_validation_does_not_create_artifacts_or_succe
 
     assert not (runs_root / "run_123" / "outputs" / "evaluations").exists()
     assert not ledger.exists()
+
+
+def write_fake_problem_provider_without_evaluation_adapter(root: Path) -> None:
+    package = root / "fake_problem"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "research_problem.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "def build_spec(data_config=None):\n"
+        "    return ResearchProblemSpec(\n"
+        "        id='fake_problem', version='v1', contract_version='v0',\n"
+        "        input_modes=('fake_rgb',), input_specs={'fake_rgb': {'mode': 'fake_rgb', 'shape': [3, 8, 8]}},\n"
+        "        output_forms=('mask_logits',), output_specs={'mask_logits': {'form': 'mask_logits', 'shape': [1, 8, 8]}},\n"
+        "        losses=('bce_dice',), optimizers=('adamw',), sampling_policies=('sequential',),\n"
+        "        augmentation_policies=('none',), primary_metric='val/dice',\n"
+        "    )\n"
+    )
+
+
+def write_fake_provider_run(runs_root: Path, package_root: Path, run_id: str = "run_123") -> Path:
+    run_dir = runs_root / run_id
+    (run_dir / "outputs").mkdir(parents=True)
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "status": "completed",
+                "research_problem": {
+                    "id": "fake_problem",
+                    "version": "v1",
+                    "contract_version": "v0",
+                    "provider": {
+                        "target": "fake_problem.research_problem:build_spec",
+                        "resolved_package_root": str(package_root),
+                    },
+                },
+            }
+        )
+    )
+    return run_dir
+
+
+def test_threshold_sweep_metadata_records_research_problem_provider_provenance(tmp_path: Path) -> None:
+    write_fake_problem_provider_without_evaluation_adapter(tmp_path)
+    runs_root = tmp_path / "runs"
+    write_fake_provider_run(runs_root, tmp_path)
+    result = run_post_run_evaluation(write_request(tmp_path / "request.yaml"), runs_root=runs_root, ledger_path=tmp_path / "ledger.jsonl")
+
+    metadata = result["evaluation"]
+    assert metadata["research_problem"]["id"] == "fake_problem"
+    assert metadata["research_problem"]["provider"]["target"] == "fake_problem.research_problem:build_spec"
+    assert metadata["research_problem"]["provider"]["resolved_package_root"] == str(tmp_path.resolve())
+
+
+def test_failure_bucket_review_without_research_problem_evaluation_adapter_does_not_create_artifacts(tmp_path: Path) -> None:
+    write_fake_problem_provider_without_evaluation_adapter(tmp_path)
+    runs_root = tmp_path / "runs"
+    run_dir = write_fake_provider_run(runs_root, tmp_path)
+    request_path = write_request(
+        tmp_path / "request.yaml",
+        evaluation_mode="failure_bucket_review",
+        parameters={"failure_bucket_count": 3},
+    )
+
+    with pytest.raises(EvaluationRequestError, match="does not support evaluation mode"):
+        run_post_run_evaluation(request_path, runs_root=runs_root, ledger_path=tmp_path / "ledger.jsonl")
+
+    assert not (run_dir / "outputs" / "evaluations").exists()
 
 
 def test_run_post_run_evaluation_cli_requires_request(tmp_path: Path) -> None:

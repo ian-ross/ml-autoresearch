@@ -15,6 +15,40 @@ _AUGMENTATION_SEED = 20260502
 
 
 @dataclass(frozen=True)
+class GVCCSEvaluationAdapter:
+    """Evaluation adapter for Ground-Camera Contrail Detection on GVCCS data."""
+
+    supported_evaluation_modes = ("whole_validation_failure_analysis",)
+
+    def run_evaluation_mode(
+        self,
+        *,
+        mode: str,
+        run_dir: Path,
+        data_root: Path,
+        model_artifact_path: Path,
+        threshold: float,
+        evaluation_dir: Path,
+        max_artifact_samples: int,
+    ):
+        if mode != "whole_validation_failure_analysis":
+            from ml_autoresearch.evaluations import EvaluationError
+
+            raise EvaluationError(f"unsupported evaluation mode for Ground-Camera Contrail Detection: {mode}")
+        from ml_autoresearch.evaluations import evaluate_binary_segmentation_validation_split
+
+        return evaluate_binary_segmentation_validation_split(
+            adapter=GVCCSTrainingAdapter(),
+            run_dir=run_dir,
+            data_root=data_root,
+            model_artifact_path=model_artifact_path,
+            threshold=threshold,
+            evaluation_dir=evaluation_dir,
+            max_artifact_samples=max_artifact_samples,
+        )
+
+
+@dataclass(frozen=True)
 class GVCCSTrainingAdapter:
     """Dataset/input-mode adapter for Ground-Camera Contrail Detection on GVCCS data."""
 
@@ -391,6 +425,7 @@ def build_spec(data_config: Mapping[str, object] | None = None):
         augmentation_policies=("none", "light_geometric", "light_photometric", "light_combined"),
         primary_metric="val/dice",
         training_adapter=GVCCSTrainingAdapter(),
+        evaluation_adapter=GVCCSEvaluationAdapter(),
     )
 
 

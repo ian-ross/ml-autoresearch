@@ -65,6 +65,7 @@ class ResearchProblemSpec(BaseModel):
     augmentation_policies: tuple[str, ...] = Field(min_length=1)
     primary_metric: str = Field(min_length=1)
     training_adapter: object | None = Field(default=None, exclude=True)
+    evaluation_adapter: object | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def spec_mappings_match_allowlists(self) -> "ResearchProblemSpec":

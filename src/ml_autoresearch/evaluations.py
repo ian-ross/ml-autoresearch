@@ -13,10 +13,14 @@ from typing import Literal
 import torch
 import yaml
 
-from ml_autoresearch.problem_support.imaging import save_mask_tensor, save_overlay, save_probability_heatmap, save_rgb_tensor
 from ml_autoresearch.problem_support.segmentation import binary_confusion_counts
 from ml_autoresearch.metrics import binary_segmentation_metrics
-from ml_autoresearch.research_problems import get_default_research_problem_spec
+from ml_autoresearch.research_problems import (
+    ResearchProblemProviderConfig,
+    ResearchProblemProviderLoadError,
+    get_research_problem_spec,
+    load_research_problem_provider,
+)
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
 from ml_autoresearch.smoke import _extract_mask_logits, _import_candidate_model, input_spec_from_resolved_manifest, output_spec_from_resolved_manifest
 
@@ -37,6 +41,14 @@ class EvaluationResult:
     evaluation_request_id: str | None = None
     request_path: Path | None = None
     ledger_events: tuple[dict[str, object], ...] = ()
+
+
+@dataclass(frozen=True)
+class ResolvedEvaluationResearchProblem:
+    """Research Problem Spec and provenance selected for one Post-Run Evaluation."""
+
+    spec: object
+    metadata: dict[str, object]
 
 
 def evaluate_run(
@@ -108,7 +120,11 @@ def evaluate_run(
 
         if max_artifact_samples < 1:
             raise EvaluationError("max_artifact_samples must be at least 1")
-        aggregate, per_sample_records, threshold_sweep, diagnostic_manifest = _evaluate_gvccs_validation_split(
+        research_problem = resolve_run_research_problem(metadata, data_root=resolved_data_root)
+        base_metadata["research_problem"] = research_problem.metadata
+        aggregate, per_sample_records, threshold_sweep, diagnostic_manifest = dispatch_evaluation_mode(
+            research_problem=research_problem,
+            mode="whole_validation_failure_analysis",
             run_dir=source_run_dir,
             data_root=resolved_data_root,
             model_artifact_path=model_artifact_path,
@@ -268,8 +284,87 @@ def _manual_evaluation_request_id(evaluation_id: str) -> str:
     return f"manual_{evaluation_id}"
 
 
-def _evaluate_gvccs_validation_split(
+def resolve_run_research_problem(metadata: dict[str, object], *, data_root: Path | None = None) -> ResolvedEvaluationResearchProblem:
+    """Resolve the Research Problem Spec used by a completed Run for evaluation dispatch."""
+
+    raw_research_problem = metadata.get("research_problem")
+    if not isinstance(raw_research_problem, dict):
+        # Compatibility for pre-spec Runs: resolve through the built-in
+        # Ground-Camera Contrail Detection Spec but still record provenance.
+        spec = get_research_problem_spec("ground_camera_contrail_detection")
+        return ResolvedEvaluationResearchProblem(
+            spec=spec,
+            metadata={"id": spec.id, "version": spec.version, "contract_version": spec.contract_version},
+        )
+
+    spec_id = raw_research_problem.get("id")
+    if not isinstance(spec_id, str) or not spec_id:
+        raise EvaluationError("source Run research_problem metadata is missing id")
+    contract_version = raw_research_problem.get("contract_version")
+    provider = raw_research_problem.get("provider")
+    if isinstance(provider, dict):
+        target = provider.get("target")
+        root = provider.get("resolved_package_root")
+        if not isinstance(target, str) or not target:
+            raise EvaluationError("source Run research_problem provider metadata is missing target")
+        if not isinstance(root, str) or not root:
+            raise EvaluationError("source Run research_problem provider metadata is missing resolved_package_root")
+        if not isinstance(contract_version, str) or not contract_version:
+            raise EvaluationError("source Run research_problem metadata is missing contract_version")
+        try:
+            loaded = load_research_problem_provider(
+                ResearchProblemProviderConfig(
+                    id=spec_id,
+                    package_root=Path(root),
+                    provider_target=target,
+                    expected_contract_version=contract_version,
+                    data_config={"dataset_root": str(data_root)} if data_root is not None else {},
+                )
+            )
+        except ResearchProblemProviderLoadError as exc:
+            raise EvaluationError(str(exc)) from exc
+        return ResolvedEvaluationResearchProblem(spec=loaded.spec, metadata=loaded.run_metadata())
+
+    spec = get_research_problem_spec(spec_id)
+    return ResolvedEvaluationResearchProblem(
+        spec=spec,
+        metadata={"id": spec.id, "version": spec.version, "contract_version": spec.contract_version},
+    )
+
+
+def dispatch_evaluation_mode(
     *,
+    research_problem: ResolvedEvaluationResearchProblem,
+    mode: str,
+    run_dir: Path,
+    data_root: Path,
+    model_artifact_path: Path,
+    threshold: float,
+    evaluation_dir: Path,
+    max_artifact_samples: int,
+) -> tuple[dict[str, float], list[dict[str, object]], dict[str, object], dict[str, object]]:
+    """Invoke the active Research Problem evaluation adapter for an approved mode."""
+
+    adapter = getattr(research_problem.spec, "evaluation_adapter", None)
+    if adapter is None:
+        raise EvaluationError(f"Research Problem {getattr(research_problem.spec, 'id', '<unknown>')!r} does not provide an evaluation adapter")
+    run_mode = getattr(adapter, "run_evaluation_mode", None)
+    if not callable(run_mode):
+        raise EvaluationError(f"Research Problem {getattr(research_problem.spec, 'id', '<unknown>')!r} evaluation adapter is invalid")
+    return run_mode(
+        mode=mode,
+        run_dir=run_dir,
+        data_root=data_root,
+        model_artifact_path=model_artifact_path,
+        threshold=threshold,
+        evaluation_dir=evaluation_dir,
+        max_artifact_samples=max_artifact_samples,
+    )
+
+
+def evaluate_binary_segmentation_validation_split(
+    *,
+    adapter: object,
     run_dir: Path,
     data_root: Path,
     model_artifact_path: Path,
@@ -281,7 +376,6 @@ def _evaluate_gvccs_validation_split(
     batch_size = int(manifest.get("training", {}).get("batch_size", 1))
     input_spec = input_spec_from_resolved_manifest(run_dir / "resolved_manifest.yaml")
     output_spec = output_spec_from_resolved_manifest(run_dir / "resolved_manifest.yaml")
-    adapter = get_default_research_problem_spec().training_adapter
     build_evaluation_dataset = getattr(adapter, "build_evaluation_dataset", None)
     if not callable(build_evaluation_dataset):
         raise EvaluationError("Research Problem does not provide an evaluation dataset adapter")
@@ -323,12 +417,13 @@ def _evaluate_gvccs_validation_split(
                 sample_target = target_masks[offset : offset + 1]
                 metrics = binary_segmentation_metrics(sample_prediction, sample_target)
                 sample = dataset.samples[index]
+                image_path = getattr(sample, "image_path", "")
                 per_sample_records.append(
                     {
                         "sample_id": f"val/{index:06d}",
                         "dataset_index": index,
-                        "image_id": sample.image_id,
-                        "image_path": str(sample.image_path),
+                        "image_id": str(getattr(sample, "image_id", Path(str(image_path)).stem)),
+                        "image_path": str(image_path),
                         **metrics,
                         **binary_confusion_counts(sample_prediction, sample_target),
                     }
@@ -340,6 +435,7 @@ def _evaluate_gvccs_validation_split(
     aggregate = binary_segmentation_metrics(prediction_tensor, target_tensor)
     threshold_sweep = _threshold_sweep_summary(probability_tensor, target_tensor)
     diagnostic_manifest = _write_diagnostic_sample_artifacts(
+        adapter=adapter,
         evaluation_dir=evaluation_dir,
         dataset=dataset,
         inputs=input_tensor,
@@ -358,6 +454,7 @@ _confusion_counts = binary_confusion_counts
 
 def _write_diagnostic_sample_artifacts(
     *,
+    adapter: object,
     evaluation_dir: Path,
     dataset: object,
     inputs: torch.Tensor,
@@ -382,15 +479,15 @@ def _write_diagnostic_sample_artifacts(
             "overlay": f"{prefix}_overlay.png",
             "probability_heatmap": f"{prefix}_probability_heatmap.png",
         }
-        image = _display_rgb_from_model_input(inputs[dataset_index].detach().cpu().clamp(0.0, 1.0))
+        display_input = getattr(adapter, "display_prediction_sample_input", None)
+        write_images = getattr(adapter, "write_prediction_sample_images", None)
+        if not callable(display_input) or not callable(write_images):
+            raise EvaluationError("Research Problem evaluation adapter cannot render diagnostic samples")
+        image = display_input(inputs[dataset_index].detach().cpu().clamp(0.0, 1.0))
         target = targets[dataset_index].detach().cpu().bool()
         prediction = predictions[dataset_index].detach().cpu().bool()
         probability = probabilities[dataset_index].detach().cpu()
-        save_rgb_tensor(diagnostics_dir / paths["input"], image)
-        save_mask_tensor(diagnostics_dir / paths["ground_truth"], target)
-        save_mask_tensor(diagnostics_dir / paths["prediction"], prediction)
-        save_overlay(diagnostics_dir / paths["overlay"], image, target, prediction)
-        save_probability_heatmap(diagnostics_dir / paths["probability_heatmap"], probability)
+        write_images(diagnostics_dir, paths, image, target, prediction, probability)
 
         source = dataset.samples[dataset_index]
         samples.append(
@@ -603,10 +700,10 @@ def _resolve_data_root(metadata: dict[str, object], override: str | Path | None)
         return Path(override)
     dataset = metadata.get("dataset")
     if not isinstance(dataset, dict):
-        raise EvaluationError("source Run metadata does not contain GVCCS data root; pass --data-root")
+        raise EvaluationError("source Run metadata does not contain Research Problem data root; pass --data-root")
     host_data_path = dataset.get("host_data_path")
     if not isinstance(host_data_path, str) or not host_data_path:
-        raise EvaluationError("source Run metadata does not contain GVCCS data root; pass --data-root")
+        raise EvaluationError("source Run metadata does not contain Research Problem data root; pass --data-root")
     return Path(host_data_path)
 
 
