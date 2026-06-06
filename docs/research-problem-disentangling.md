@@ -32,6 +32,14 @@ A trusted Research Problem package owns Research Problem policy and concrete cap
 
 The Harness accesses this code by loading a configured filesystem Research Problem package provider, validating the returned Research Problem Spec, registering it, and then using only the checked Spec interface and adapters.
 
+## Research Problem Brief documents
+
+The Research Problem Spec is the normative, machine-checkable execution contract: it declares the input modes, output forms, losses, optimizers, metrics, data-policy choices, and trusted adapters that the Harness validates and uses during Runs. Missing required contract fields remain hard errors.
+
+A filesystem Research Problem package may also declare Research Problem Brief documents through `brief_documents` on `ResearchProblemSpec`. Each brief document has a stable `name`, a stable `role` (for example `problem_overview`, `domain_data_notes`, `literature_references`, `baseline_description`, or `modeling_suggestions`), a package-relative `path`, an optional short `summary`, and an optional `required` flag.
+
+Brief documents are advisory context for progressive disclosure to humans and agents. The Harness resolves their paths relative to the Research Problem package root and exposes the resolved metadata after provider loading, but it does not treat advisory missing files as execution-contract failures. A document marked `required=True` must exist. Absolute paths, parent-directory escapes such as `../notes.md`, backslash-separated paths, and paths that resolve outside the package root are rejected so a provider cannot accidentally point into the Harness repository or another filesystem location.
+
 ## Completed disentangling status
 
 The migration slices are complete for the current tracer-bullet Harness. Reusable Harness modules no longer contain the GVCCS implementation package and no longer directly import GVCCS dataset types or adapters during package import. Research Problem-specific behavior is reached through checked Spec adapters loaded from filesystem provider paths, and regression tests now guard that reusable Harness modules do not add new direct GVCCS imports.

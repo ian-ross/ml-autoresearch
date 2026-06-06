@@ -13,7 +13,7 @@ import sys
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
 class ResearchProblemSpecError(ValueError):
@@ -30,6 +30,55 @@ class DuplicateResearchProblemSpecError(ResearchProblemSpecError):
 
 class UnknownResearchProblemSpecError(ResearchProblemSpecError):
     """Raised when a spec id is not present in a registry."""
+
+
+class ResearchProblemBriefDocument(BaseModel):
+    """Advisory Research Problem Brief document declared by a provider."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+    name: str = Field(min_length=1)
+    role: str = Field(min_length=1)
+    path: Path
+    summary: str | None = None
+    required: bool = False
+
+    @field_validator("path")
+    @classmethod
+    def path_must_be_provider_relative(cls, path: Path) -> Path:
+        path_text = str(path)
+        if path.is_absolute():
+            raise ValueError("brief document path must be relative to the Research Problem package")
+        if "\\" in path_text:
+            raise ValueError("brief document path must use portable forward-slash separators")
+        if any(part in ("", ".", "..") for part in path.parts):
+            raise ValueError("brief document path must not contain empty, current-directory, or parent-directory parts")
+        return path
+
+
+class ResolvedResearchProblemBriefDocument(BaseModel):
+    """Research Problem Brief document with its provider-root-relative path resolved."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+    name: str = Field(min_length=1)
+    role: str = Field(min_length=1)
+    path: Path
+    resolved_path: Path
+    summary: str | None = None
+    required: bool = False
+
+    def metadata(self) -> dict[str, object]:
+        metadata: dict[str, object] = {
+            "name": self.name,
+            "role": self.role,
+            "path": self.path.as_posix(),
+            "resolved_path": str(self.resolved_path),
+            "required": self.required,
+        }
+        if self.summary is not None:
+            metadata["summary"] = self.summary
+        return metadata
 
 
 class ResearchProblemSpec(BaseModel):
@@ -61,6 +110,7 @@ class ResearchProblemSpec(BaseModel):
     input_mode_frame_selection_defaults: dict[str, str] = Field(default_factory=dict)
     augmentation_policies: tuple[str, ...] = Field(min_length=1)
     primary_metric: str = Field(min_length=1)
+    brief_documents: tuple[ResearchProblemBriefDocument, ...] = ()
     training_adapter: object | None = Field(default=None, exclude=True)
     evaluation_adapter: object | None = Field(default=None, exclude=True)
 
@@ -90,6 +140,11 @@ class ResearchProblemSpec(BaseModel):
         if unknown_auxiliary_shapes:
             unknown = ", ".join(sorted(unknown_auxiliary_shapes))
             raise ValueError(f"auxiliary_output_shapes contains unknown target(s): {unknown}")
+        brief_names = [document.name for document in self.brief_documents]
+        duplicate_brief_names = {name for name in brief_names if brief_names.count(name) > 1}
+        if duplicate_brief_names:
+            duplicates = ", ".join(sorted(duplicate_brief_names))
+            raise ValueError(f"brief_documents contains duplicate document name(s): {duplicates}")
         return self
 
     def build_input_spec(self, resolved_manifest: Mapping[str, object]) -> dict[str, object]:
@@ -172,16 +227,20 @@ class LoadedResearchProblemSpec(BaseModel):
 
     spec: ResearchProblemSpec
     provenance: ResearchProblemProviderProvenance
+    brief_documents: tuple[ResolvedResearchProblemBriefDocument, ...] = ()
 
     def run_metadata(self) -> dict[str, object]:
         """Return JSON-serialisable Research Problem metadata for Run recording."""
 
-        return {
+        metadata: dict[str, object] = {
             "id": self.spec.id,
             "version": self.spec.version,
             "contract_version": self.spec.contract_version,
             "provider": self.provenance.run_metadata(),
         }
+        if self.brief_documents:
+            metadata["brief_documents"] = [document.metadata() for document in self.brief_documents]
+        return metadata
 
 
 class ResearchProblemSpecRegistry:
@@ -261,9 +320,10 @@ def load_research_problem_provider(
         provider_target=config.provider_target,
         git=_git_provenance(package_root),
     )
+    brief_documents = _resolve_brief_documents(spec, package_root)
     if registry is not None:
         registry.register(spec, provenance=provenance)
-    return LoadedResearchProblemSpec(spec=spec, provenance=provenance)
+    return LoadedResearchProblemSpec(spec=spec, provenance=provenance, brief_documents=brief_documents)
 
 
 def _resolve_package_root(package_root: Path) -> Path:
@@ -371,6 +431,36 @@ def _check_provider_spec(raw_spec: object, config: ResearchProblemProviderConfig
             f"configured {config.expected_contract_version!r}, provider returned {spec.contract_version!r}"
         )
     return spec
+
+
+def _resolve_brief_documents(
+    spec: ResearchProblemSpec,
+    package_root: Path,
+) -> tuple[ResolvedResearchProblemBriefDocument, ...]:
+    resolved_documents: list[ResolvedResearchProblemBriefDocument] = []
+    for document in spec.brief_documents:
+        try:
+            resolved_path = (package_root / document.path).resolve(strict=False)
+            resolved_path.relative_to(package_root)
+        except (OSError, ValueError) as exc:
+            raise ResearchProblemProviderLoadError(
+                f"Research Problem Brief document {document.name!r} path escapes package root: {document.path}"
+            ) from exc
+        if document.required and not resolved_path.is_file():
+            raise ResearchProblemProviderLoadError(
+                f"required Research Problem Brief document {document.name!r} does not exist: {document.path}"
+            )
+        resolved_documents.append(
+            ResolvedResearchProblemBriefDocument(
+                name=document.name,
+                role=document.role,
+                path=document.path,
+                resolved_path=resolved_path,
+                summary=document.summary,
+                required=document.required,
+            )
+        )
+    return tuple(resolved_documents)
 
 
 def _git_provenance(package_root: Path) -> dict[str, object] | None:

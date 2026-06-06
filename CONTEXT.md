@@ -16,6 +16,10 @@ _Avoid_: Task, use case, project
 A trusted Harness-side registration for one Research Problem's concrete capabilities, such as dataset adapters, input modes, prediction targets, metrics, augmentation policies, auxiliary targets, allowed losses, reporting templates, and figure selectors. A Research Problem Spec is trusted infrastructure, not Candidate Experiment authority.
 _Avoid_: Candidate plugin, candidate-provided dataset adapter, arbitrary task config
 
+**Research Problem Brief**:
+Advisory, versioned documentation declared by a filesystem Research Problem package to support progressive disclosure of context such as problem overview, domain/data notes, literature, baselines, and modeling suggestions. The Research Problem Brief informs agents and humans but is not the normative machine-checkable execution contract unless a document is explicitly marked required by the interface.
+_Avoid_: Hidden contract, prompt-only spec, candidate authority
+
 **Research Problem Spec Registry**:
 The trusted Harness-owned seam where Research Problem Specs are registered so the reusable Harness can discover problem-specific capabilities without hard-coding every Research Problem into core infrastructure.
 _Avoid_: Plugin marketplace, candidate extension point, dynamic untrusted registry
@@ -298,6 +302,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Ground-Camera Contrail Detection** is the first **Research Problem** for **ML Autoresearch**.
 - **Ground-Camera Contrail Detection** is used to prove the autoresearch infrastructure before applying it to future Research Problems such as **Satellite Contrail Detection**.
 - A **Research Problem Spec** is the near-term trusted registration unit for a **Research Problem** before mature definitions move into separate **Research Problem Repositories**.
+- A **Research Problem Brief** provides advisory context alongside a checked **Research Problem Spec** without replacing the normative machine-checkable contract.
 - The **Research Problem Spec Registry** separates reusable **Harness** infrastructure from trusted problem-specific capability registration.
 - **Research Problem Specs** are Harness-side trusted registrations, not **Candidate Experiment** plugins or authority to bypass the **Candidate Experiment Contract**.
 - The **Problem Support Library** provides reusable trusted building blocks for **Research Problem Specs** without becoming an independent policy boundary or Candidate-facing plugin API.
