@@ -37,6 +37,29 @@ class ResearchProblemTrainingAdapter(Protocol):
     ) -> ResearchProblemDatasets:
         """Build training/validation datasets for a Resolved Manifest."""
 
+    def apply_augmentation_policy(self, dataset: object, augmentation_policy: str) -> object:
+        """Apply a Research Problem-owned augmentation policy to a dataset."""
+
+    def primary_output_name(self, output_spec: Mapping[str, object]) -> str:
+        """Return the primary model output key for training/evaluation."""
+
+    def compute_primary_loss(self, loss_name: str, logits: torch.Tensor, target_mask: torch.Tensor) -> torch.Tensor:
+        """Compute a Research Problem-approved primary training loss."""
+
+    def compute_auxiliary_losses(
+        self,
+        outputs: dict[str, torch.Tensor],
+        target_mask: torch.Tensor,
+        auxiliary_targets: list[dict[str, object]],
+    ) -> dict[str, torch.Tensor]:
+        """Derive auxiliary targets and compute weighted auxiliary losses."""
+
+    def compute_validation_metrics(self, logits: torch.Tensor, target_mask: torch.Tensor) -> dict[str, float]:
+        """Return validation metrics for primary model output selection/reporting."""
+
+    def selection_policy(self) -> tuple[str, str]:
+        """Return ``(metric_name, mode)`` used for best-epoch selection."""
+
     def build_evaluation_dataset(
         self,
         *,

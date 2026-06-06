@@ -11,6 +11,8 @@ import yaml
 from ml_autoresearch.errors import TrainingError
 from ml_autoresearch.training_adapters import ResearchProblemDatasets
 
+_AUGMENTATION_SEED = 20260502
+
 
 @dataclass(frozen=True)
 class GVCCSTrainingAdapter:
@@ -68,6 +70,68 @@ class GVCCSTrainingAdapter:
         )
         return val_dataset
 
+    def apply_augmentation_policy(self, dataset: object, augmentation_policy: str) -> object:
+        """Apply GVCCS-approved deterministic augmentation policy to a dataset."""
+
+        if augmentation_policy == "none":
+            return dataset
+        if augmentation_policy in {"light_geometric", "light_photometric", "light_combined"}:
+            return _AugmentedContrailDataset(dataset, augmentation_policy)
+        raise TrainingError(f"unsupported augmentation policy: {augmentation_policy}")
+
+    def primary_output_name(self, output_spec: Mapping[str, object]) -> str:
+        return str(output_spec.get("form", "mask_logits"))
+
+    def compute_primary_loss(self, loss_name: str, logits: torch.Tensor, target_mask: torch.Tensor) -> torch.Tensor:
+        from ml_autoresearch.problem_support.segmentation import bce_dice_loss
+
+        if loss_name != "bce_dice":
+            raise TrainingError(f"unsupported loss: {loss_name}")
+        return bce_dice_loss(logits, target_mask)
+
+    def compute_auxiliary_losses(
+        self,
+        outputs: dict[str, torch.Tensor],
+        target_mask: torch.Tensor,
+        auxiliary_targets: list[dict[str, object]],
+    ) -> dict[str, torch.Tensor]:
+        from ml_autoresearch.problem_support.segmentation import weighted_bce_loss
+
+        losses: dict[str, torch.Tensor] = {}
+        for target in auxiliary_targets:
+            name = str(target.get("name"))
+            if target.get("loss") != "weighted_bce" or name not in {"line", "boundary"}:
+                raise TrainingError(f"unsupported auxiliary target in resolved manifest: {target}")
+            auxiliary_target = self.derive_auxiliary_target(name, target_mask)
+            weight = float(target["weight"])
+            losses[name] = weight * weighted_bce_loss(outputs[str(target["output"])], auxiliary_target)
+        return losses
+
+    def derive_auxiliary_target(self, name: str, target_mask: torch.Tensor) -> torch.Tensor:
+        from ml_autoresearch.problem_support.segmentation import derive_boundary_target_v1, derive_line_target_v1
+
+        if name == "line":
+            return derive_line_target_v1(target_mask)
+        if name == "boundary":
+            return derive_boundary_target_v1(target_mask)
+        raise TrainingError(f"unsupported auxiliary target: {name}")
+
+    def compute_validation_metrics(self, logits: torch.Tensor, target_mask: torch.Tensor) -> dict[str, float]:
+        import torch
+
+        from ml_autoresearch.metrics import binary_segmentation_metrics
+
+        metrics = binary_segmentation_metrics(torch.sigmoid(logits) >= 0.5, target_mask >= 0.5)
+        return {
+            "val/dice": metrics["dice"],
+            "val/iou": metrics["iou"],
+            "val/precision": metrics["precision"],
+            "val/recall": metrics["recall"],
+        }
+
+    def selection_policy(self) -> tuple[str, str]:
+        return "val/dice", "max"
+
     def _build_split_datasets(
         self,
         *,
@@ -104,6 +168,54 @@ class GVCCSTrainingAdapter:
             split = deterministic_train_val_split(selected_samples)
             return GVCCSDataset(split.train), GVCCSDataset(split.val), frame_selection_policy
         raise TrainingError(f"unsupported input mode for GVCCS training: {input_mode}")
+
+
+class _AugmentedContrailDataset:
+    """GVCCS deterministic augmentation wrapper for training samples."""
+
+    def __init__(self, dataset: object, augmentation_policy: str) -> None:
+        self.dataset = dataset
+        self.augmentation_policy = augmentation_policy
+
+    def __len__(self) -> int:
+        return len(self.dataset)  # type: ignore[arg-type]
+
+    def __getitem__(self, index: int):
+        image, mask = self.dataset[index]  # type: ignore[index]
+        if self.augmentation_policy in {"light_geometric", "light_combined"}:
+            image, mask = _apply_light_geometric_augmentation(image, mask, index=index)
+        if self.augmentation_policy in {"light_photometric", "light_combined"}:
+            image = _apply_light_photometric_augmentation(image, index=index)
+        return image, mask
+
+
+def _apply_light_geometric_augmentation(
+    image: torch.Tensor, mask: torch.Tensor, *, index: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    # Horizontal mirroring is safe for GVCCS whole-sky contrail masks and keeps
+    # thin line geometry image-aligned. Apply on odd indices so tests and Runs
+    # remain deterministic under the Research Problem-owned policy.
+    if index % 2 == 1:
+        from ml_autoresearch.problem_support.imaging import horizontal_flip_image_mask
+
+        return horizontal_flip_image_mask(image, mask)
+    return image, mask
+
+
+def _apply_light_photometric_augmentation(image: torch.Tensor, *, index: int) -> torch.Tensor:
+    # Conservative GVCCS-specific brightness/contrast perturbation plus a tiny
+    # deterministic sensor-noise term. The Contrail Mask is intentionally not
+    # changed by photometric augmentation.
+    contrast = 1.05 if index % 2 == 0 else 0.95
+    brightness = 0.025 if index % 3 == 0 else -0.015
+    from ml_autoresearch.problem_support.imaging import deterministic_photometric_perturbation
+
+    return deterministic_photometric_perturbation(
+        image,
+        contrast=contrast,
+        brightness=brightness,
+        noise_seed=_AUGMENTATION_SEED + int(index),
+    )
 
 
 def build_spec(data_config: Mapping[str, object] | None = None):

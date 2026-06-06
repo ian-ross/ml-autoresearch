@@ -99,7 +99,8 @@ def smoke_test_candidate(
             raise SmokeTestError(f"forward pass failed: {exc}") from exc
 
         outputs = _extract_expected_outputs(raw_output, output_spec)
-        mask_logits = outputs["mask_logits"]
+        primary_output_name = str(output_spec.get("form", "mask_logits"))
+        mask_logits = outputs[primary_output_name]
         output_names = list(outputs.keys())
 
         try:
@@ -214,11 +215,12 @@ def expected_output_names(output_spec: dict[str, object]) -> list[str]:
     auxiliary_outputs = output_spec.get("auxiliary_outputs", [])
     if not isinstance(auxiliary_outputs, list):
         raise SmokeTestError("output_spec auxiliary_outputs must be a list")
-    return ["mask_logits", *[str(item["name"]) for item in auxiliary_outputs]]
+    return [str(output_spec.get("form", "mask_logits")), *[str(item["name"]) for item in auxiliary_outputs]]
 
 
 def _expected_output_shapes(output_spec: dict[str, object]) -> dict[str, list[int]]:
-    shapes = {"mask_logits": _spec_shape(output_spec, "output_spec")}
+    primary_name = str(output_spec.get("form", "mask_logits"))
+    shapes = {primary_name: _spec_shape(output_spec, "output_spec")}
     auxiliary_outputs = output_spec.get("auxiliary_outputs", [])
     if not isinstance(auxiliary_outputs, list):
         raise SmokeTestError("output_spec auxiliary_outputs must be a list")
@@ -233,9 +235,9 @@ def _extract_expected_outputs(raw_output: object, output_spec: dict[str, object]
     expected_names = expected_output_names(output_spec)
     expected_shapes = _expected_output_shapes(output_spec)
     if isinstance(raw_output, torch.Tensor):
-        if expected_names != ["mask_logits"]:
+        if len(expected_names) != 1:
             raise SmokeTestError("tensor output shorthand is only valid for mask-only candidates")
-        outputs = {"mask_logits": raw_output}
+        outputs = {expected_names[0]: raw_output}
     elif isinstance(raw_output, dict):
         keys = sorted(str(key) for key in raw_output.keys())
         if keys != sorted(expected_names):
@@ -254,8 +256,10 @@ def _extract_expected_outputs(raw_output: object, output_spec: dict[str, object]
 
 
 def _extract_mask_logits(raw_output: object, output_spec: dict[str, object] | None = None) -> tuple[torch.Tensor, list[str]]:
-    outputs = _extract_expected_outputs(raw_output, output_spec or OUTPUT_SPEC)
-    return outputs["mask_logits"], list(outputs.keys())
+    resolved_output_spec = output_spec or OUTPUT_SPEC
+    outputs = _extract_expected_outputs(raw_output, resolved_output_spec)
+    primary_name = str(resolved_output_spec.get("form", "mask_logits"))
+    return outputs[primary_name], list(outputs.keys())
 
 
 def _validate_output_tensor(name: str, tensor: torch.Tensor, expected_shape: list[int]) -> None:

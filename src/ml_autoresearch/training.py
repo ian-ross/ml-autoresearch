@@ -16,13 +16,7 @@ from ml_autoresearch.errors import TrainingError
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig, load_research_problem_provider
 from ml_autoresearch.training_adapters import ResearchProblemTrainingAdapter
 from ml_autoresearch.metrics import binary_segmentation_metrics
-from ml_autoresearch.problem_support.imaging import deterministic_photometric_perturbation, horizontal_flip_image_mask
-from ml_autoresearch.problem_support.segmentation import (
-    bce_dice_loss,
-    derive_boundary_target_v1,
-    derive_line_target_v1,
-    weighted_bce_loss,
-)
+from ml_autoresearch.problem_support.segmentation import bce_dice_loss, derive_boundary_target_v1
 from ml_autoresearch.smoke import _extract_expected_outputs, _import_candidate_model, input_spec_from_resolved_manifest, output_spec_from_resolved_manifest
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 
@@ -59,11 +53,15 @@ def train_synthetic_fixture(
 ) -> dict[str, object]:
     """Train deterministic generated Contrail Mask fixture data with explicit mounted paths."""
 
+    from ml_autoresearch.research_problems import get_default_research_problem_spec
+
+    training_adapter = get_default_research_problem_spec().training_adapter
     train_loader_factory = lambda batch_size, sampling_policy, augmentation_policy: _data_loader_for_sampling(  # noqa: E731 - local concise factory.
         SyntheticContrailDataset(TRAIN_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED),
         batch_size=batch_size,
         sampling_policy=sampling_policy,
         augmentation_policy=augmentation_policy,
+        training_adapter=training_adapter,
     )
     val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
         SyntheticContrailDataset(VAL_SAMPLES, seed=SYNTHETIC_FIXTURE_SEED + 10_000),
@@ -85,6 +83,7 @@ def train_synthetic_fixture(
         data_policy_metadata={},
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
+        training_adapter=training_adapter,
     )
 
 
@@ -141,7 +140,11 @@ def train_research_problem(
     except Exception as exc:  # noqa: BLE001 - trusted adapter failures should fail the Run clearly.
         raise TrainingError(str(exc)) from exc
     train_loader_factory = lambda batch_size, sampling_policy, augmentation_policy: _data_loader_for_sampling(  # noqa: E731
-        datasets.train_dataset, batch_size=batch_size, sampling_policy=sampling_policy, augmentation_policy=augmentation_policy
+        datasets.train_dataset,
+        batch_size=batch_size,
+        sampling_policy=sampling_policy,
+        augmentation_policy=augmentation_policy,
+        training_adapter=training_adapter,
     )
     val_loader_factory = lambda batch_size: _data_loader_for_sampling(  # noqa: E731
         datasets.validation_dataset, batch_size=batch_size, sampling_policy="sequential"
@@ -161,6 +164,7 @@ def train_research_problem(
         data_policy_metadata=datasets.data_policy_metadata,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
+        training_adapter=training_adapter,
     )
 
 
@@ -234,6 +238,7 @@ def _train_manifest_epochs_run(
     data_policy_metadata: dict[str, object],
     max_prediction_samples: int,
     prediction_sample_policy: str,
+    training_adapter: ResearchProblemTrainingAdapter | object | None = None,
 ) -> dict[str, object]:
     candidate_dir = Path(candidate_dir)
     resolved_manifest_path = Path(resolved_manifest_path)
@@ -254,8 +259,7 @@ def _train_manifest_epochs_run(
         data_policy = manifest.get("data", {})
         sampling_policy = data_policy.get("sampling_policy", "sequential")
         augmentation_policy = data_policy.get("augmentation_policy_effective", data_policy.get("augmentation_policy", "none"))
-        if training["loss"] != "bce_dice":
-            raise TrainingError(f"unsupported loss: {training['loss']}")
+        primary_loss_name = str(training["loss"])
         auxiliary_targets = manifest.get("auxiliary_targets", [])
         input_spec = input_spec_from_resolved_manifest(resolved_manifest_path)
         output_spec = output_spec_from_resolved_manifest(resolved_manifest_path)
@@ -270,6 +274,8 @@ def _train_manifest_epochs_run(
         optimizer = torch.optim.AdamW(model.parameters(), lr=float(training["learning_rate"]))
         batch_size = int(training["batch_size"])
         train_loader = train_loader_factory(batch_size, sampling_policy, augmentation_policy)
+        primary_output_name = _primary_output_name(output_spec, training_adapter)
+        selection_metric, selection_mode = _selection_policy(training_adapter)
         val_loader = val_loader_factory(batch_size)
 
         metrics_path.write_text("")
@@ -289,9 +295,9 @@ def _train_manifest_epochs_run(
                 targets = targets.to(device)
                 optimizer.zero_grad(set_to_none=True)
                 outputs = _extract_expected_outputs(model(inputs), output_spec)
-                logits = outputs["mask_logits"]
-                mask_loss = bce_dice_loss(logits, targets)
-                auxiliary_losses = _auxiliary_losses(outputs, targets, auxiliary_targets)
+                logits = outputs[primary_output_name]
+                mask_loss = _primary_loss(primary_loss_name, logits, targets, training_adapter)
+                auxiliary_losses = _auxiliary_losses(outputs, targets, auxiliary_targets, training_adapter)
                 loss = mask_loss + sum(auxiliary_losses.values())
                 loss.backward()
                 optimizer.step()
@@ -314,7 +320,15 @@ def _train_manifest_epochs_run(
                     lines.append("Wall-clock timeout requested by Harness; stopping at end-of-batch checkpoint.")
                     break
 
-            final = _evaluate(model, val_loader, device=device, output_spec=output_spec, auxiliary_targets=auxiliary_targets)
+            final = _evaluate(
+                model,
+                val_loader,
+                device=device,
+                output_spec=output_spec,
+                auxiliary_targets=auxiliary_targets,
+                primary_loss_name=primary_loss_name,
+                training_adapter=training_adapter,
+            )
             final["epoch"] = epoch
             final["hardware/device"] = device.type
             final["train/loss"] = train_loss_total / max(trained_samples, 1)
@@ -325,14 +339,15 @@ def _train_manifest_epochs_run(
                 final["run/timeout_requested"] = True
             validation_record = {"split": "val", **final}
             validation_records.append(dict(validation_record))
-            validation_value = float(validation_record["val/dice"])
-            if best_validation_value is None or validation_value > best_validation_value:
+            validation_value = float(validation_record[selection_metric])
+            is_better = validation_value > best_validation_value if selection_mode == "max" and best_validation_value is not None else validation_value < best_validation_value if best_validation_value is not None else True
+            if is_better:
                 best_validation_value = validation_value
                 _write_best_epoch_model_artifact(
                     best_epoch_model_path,
                     model=model,
                     epoch=epoch,
-                    selection_metric="val/dice",
+                    selection_metric=selection_metric,
                     selection_value=validation_value,
                 )
             _append_jsonl(metrics_path, validation_record)
@@ -343,7 +358,10 @@ def _train_manifest_epochs_run(
         if data_policy_metadata:
             final["data_policy"] = data_policy_metadata
         best_metrics = _best_validation_metrics(
-            validation_records, model_artifact="outputs/models/best_epoch_model.pt"
+            validation_records,
+            model_artifact="outputs/models/best_epoch_model.pt",
+            selection_metric=selection_metric,
+            selection_mode=selection_mode,
         )
         best_metrics_path.write_text(json.dumps(best_metrics, indent=2, sort_keys=True) + "\n")
         artifacts = write_prediction_sample_artifacts(
@@ -375,8 +393,15 @@ def _train_manifest_epochs_run(
         raise TrainingError(reason) from exc
 
 
-def _data_loader_for_sampling(dataset, *, batch_size: int, sampling_policy: str, augmentation_policy: str = "none") -> DataLoader:
-    dataset = _dataset_with_augmentation_policy(dataset, augmentation_policy)
+def _data_loader_for_sampling(
+    dataset,
+    *,
+    batch_size: int,
+    sampling_policy: str,
+    augmentation_policy: str = "none",
+    training_adapter: ResearchProblemTrainingAdapter | object | None = None,
+) -> DataLoader:
+    dataset = _dataset_with_augmentation_policy(dataset, augmentation_policy, training_adapter)
     if sampling_policy == "sequential":
         return DataLoader(dataset, batch_size=batch_size, shuffle=False)
     if sampling_policy == "deterministic_shuffle":
@@ -386,78 +411,74 @@ def _data_loader_for_sampling(dataset, *, batch_size: int, sampling_policy: str,
     raise TrainingError(f"unsupported sampling policy: {sampling_policy}")
 
 
-def _dataset_with_augmentation_policy(dataset, augmentation_policy: str):
+def _dataset_with_augmentation_policy(dataset, augmentation_policy: str, training_adapter: ResearchProblemTrainingAdapter | object | None = None):
+    if training_adapter is not None and hasattr(training_adapter, "apply_augmentation_policy"):
+        return training_adapter.apply_augmentation_policy(dataset, augmentation_policy)
     if augmentation_policy == "none":
         return dataset
-    if augmentation_policy in {"light_geometric", "light_photometric", "light_combined"}:
-        return _AugmentedContrailDataset(dataset, augmentation_policy)
+    from ml_autoresearch.research_problems import get_default_research_problem_spec
+
+    default_adapter = get_default_research_problem_spec().training_adapter
+    if default_adapter is not None and hasattr(default_adapter, "apply_augmentation_policy"):
+        return default_adapter.apply_augmentation_policy(dataset, augmentation_policy)
     raise TrainingError(f"unsupported augmentation policy: {augmentation_policy}")
 
 
-class _AugmentedContrailDataset(torch.utils.data.Dataset):
-    """Harness-owned deterministic augmentation wrapper for training samples."""
-
-    def __init__(self, dataset, augmentation_policy: str) -> None:
-        self.dataset = dataset
-        self.augmentation_policy = augmentation_policy
-
-    def __len__(self) -> int:
-        return len(self.dataset)
-
-    def __getitem__(self, index: int):
-        image, mask = self.dataset[index]
-        if self.augmentation_policy in {"light_geometric", "light_combined"}:
-            image, mask = _apply_light_geometric_augmentation(image, mask, index=index)
-        if self.augmentation_policy in {"light_photometric", "light_combined"}:
-            image = _apply_light_photometric_augmentation(image, index=index)
-        return image, mask
+def _primary_output_name(output_spec: dict[str, object], training_adapter: ResearchProblemTrainingAdapter | object | None = None) -> str:
+    if training_adapter is not None and hasattr(training_adapter, "primary_output_name"):
+        return str(training_adapter.primary_output_name(output_spec))
+    return str(output_spec.get("form"))
 
 
-def _apply_light_geometric_augmentation(
-    image: torch.Tensor, mask: torch.Tensor, *, index: int
-) -> tuple[torch.Tensor, torch.Tensor]:
-    # Horizontal mirroring is safe for GVCCS whole-sky contrail masks and keeps
-    # thin line geometry image-aligned. Apply on odd indices so tests and Runs
-    # remain deterministic under the Harness-owned policy.
-    if index % 2 == 1:
-        return horizontal_flip_image_mask(image, mask)
-    return image, mask
-
-
-def _apply_light_photometric_augmentation(image: torch.Tensor, *, index: int) -> torch.Tensor:
-    # Conservative GVCCS-specific brightness/contrast perturbation plus a tiny
-    # deterministic sensor-noise term. The Contrail Mask is intentionally not
-    # changed by photometric augmentation.
-    contrast = 1.05 if index % 2 == 0 else 0.95
-    brightness = 0.025 if index % 3 == 0 else -0.015
-    return deterministic_photometric_perturbation(
-        image,
-        contrast=contrast,
-        brightness=brightness,
-        noise_seed=SYNTHETIC_FIXTURE_SEED + int(index),
-    )
+def _primary_loss(
+    loss_name: str,
+    logits: torch.Tensor,
+    target_mask: torch.Tensor,
+    training_adapter: ResearchProblemTrainingAdapter | object | None = None,
+) -> torch.Tensor:
+    if training_adapter is not None and hasattr(training_adapter, "compute_primary_loss"):
+        return training_adapter.compute_primary_loss(loss_name, logits, target_mask)
+    if loss_name != "bce_dice":
+        raise TrainingError(f"unsupported loss: {loss_name}")
+    return bce_dice_loss(logits, target_mask)
 
 
 def _auxiliary_losses(
-    outputs: dict[str, torch.Tensor], target_mask: torch.Tensor, auxiliary_targets: list[dict[str, object]]
+    outputs: dict[str, torch.Tensor],
+    target_mask: torch.Tensor,
+    auxiliary_targets: list[dict[str, object]],
+    training_adapter: ResearchProblemTrainingAdapter | object | None = None,
 ) -> dict[str, torch.Tensor]:
-    losses: dict[str, torch.Tensor] = {}
-    for target in auxiliary_targets:
-        name = str(target.get("name"))
-        if target.get("loss") != "weighted_bce" or name not in {"line", "boundary"}:
-            raise TrainingError(f"unsupported auxiliary target in resolved manifest: {target}")
-        auxiliary_target = _derive_auxiliary_target(name, target_mask)
-        weight = float(target["weight"])
-        losses[name] = weight * weighted_bce_loss(outputs[str(target["output"])], auxiliary_target)
-    return losses
+    if training_adapter is not None and hasattr(training_adapter, "compute_auxiliary_losses"):
+        return training_adapter.compute_auxiliary_losses(outputs, target_mask, auxiliary_targets)
+    if auxiliary_targets:
+        raise TrainingError("auxiliary targets require Research Problem training adapter support")
+    return {}
 
 
-def _derive_auxiliary_target(name: str, target_mask: torch.Tensor) -> torch.Tensor:
-    if name == "line":
-        return derive_line_target_v1(target_mask)
-    if name == "boundary":
-        return derive_boundary_target_v1(target_mask)
-    raise TrainingError(f"unsupported auxiliary target: {name}")
+def _validation_metrics(
+    logits: torch.Tensor,
+    target_mask: torch.Tensor,
+    training_adapter: ResearchProblemTrainingAdapter | object | None = None,
+) -> dict[str, float]:
+    if training_adapter is not None and hasattr(training_adapter, "compute_validation_metrics"):
+        return training_adapter.compute_validation_metrics(logits, target_mask)
+    metrics = binary_segmentation_metrics(torch.sigmoid(logits) >= 0.5, target_mask >= 0.5)
+    return {
+        "val/dice": metrics["dice"],
+        "val/iou": metrics["iou"],
+        "val/precision": metrics["precision"],
+        "val/recall": metrics["recall"],
+    }
+
+
+def _selection_policy(training_adapter: ResearchProblemTrainingAdapter | object | None = None) -> tuple[str, str]:
+    if training_adapter is not None and hasattr(training_adapter, "selection_policy"):
+        metric, mode = training_adapter.selection_policy()
+        if mode not in {"max", "min"}:
+            raise TrainingError(f"unsupported selection mode: {mode}")
+        return str(metric), str(mode)
+    return "val/dice", "max"
 
 
 def _evaluate(
@@ -467,39 +488,36 @@ def _evaluate(
     device: torch.device,
     output_spec: dict[str, object] | None = None,
     auxiliary_targets: list[dict[str, object]] | None = None,
+    primary_loss_name: str = "bce_dice",
+    training_adapter: ResearchProblemTrainingAdapter | object | None = None,
 ) -> dict[str, float]:
     model.eval()
     total_mask_loss = 0.0
     total_loss = 0.0
     auxiliary_loss_totals: dict[str, float] = {}
-    predictions: list[torch.Tensor] = []
+    prediction_logits: list[torch.Tensor] = []
     targets: list[torch.Tensor] = []
     output_spec = output_spec or {"form": "mask_logits", "shape": [1, 128, 128]}
     auxiliary_targets = auxiliary_targets or []
+    primary_output_name = _primary_output_name(output_spec, training_adapter)
     with torch.no_grad():
         for inputs, target in val_loader:
             inputs = inputs.to(device)
             target = target.to(device)
             outputs = _extract_expected_outputs(model(inputs), output_spec)
-            logits = outputs["mask_logits"]
-            mask_loss = bce_dice_loss(logits, target)
-            auxiliary_losses = _auxiliary_losses(outputs, target, auxiliary_targets)
+            logits = outputs[primary_output_name]
+            mask_loss = _primary_loss(primary_loss_name, logits, target, training_adapter)
+            auxiliary_losses = _auxiliary_losses(outputs, target, auxiliary_targets, training_adapter)
             batch_total_loss = mask_loss + sum(auxiliary_losses.values())
             total_mask_loss += float(mask_loss.item()) * inputs.shape[0]
             total_loss += float(batch_total_loss.item()) * inputs.shape[0]
             for name, auxiliary_loss in auxiliary_losses.items():
                 auxiliary_loss_totals[name] = auxiliary_loss_totals.get(name, 0.0) + float(auxiliary_loss.item()) * inputs.shape[0]
-            predictions.append((torch.sigmoid(logits) >= 0.5).detach().cpu())
-            targets.append((target >= 0.5).detach().cpu())
-    metrics = binary_segmentation_metrics(torch.cat(predictions), torch.cat(targets))
+            prediction_logits.append(logits.detach().cpu())
+            targets.append(target.detach().cpu())
     sample_count = len(val_loader.dataset)
-    result = {
-        "val/dice": metrics["dice"],
-        "val/iou": metrics["iou"],
-        "val/precision": metrics["precision"],
-        "val/recall": metrics["recall"],
-        "val/loss": total_mask_loss / sample_count,
-    }
+    result = _validation_metrics(torch.cat(prediction_logits), torch.cat(targets), training_adapter)
+    result["val/loss"] = total_mask_loss / sample_count
     if auxiliary_loss_totals:
         for name, total in auxiliary_loss_totals.items():
             result[f"val/aux/{name}_loss"] = total / sample_count
@@ -508,18 +526,22 @@ def _evaluate(
 
 
 def _best_validation_metrics(
-    validation_records: list[dict[str, object]], *, model_artifact: str | None = None
+    validation_records: list[dict[str, object]],
+    *,
+    model_artifact: str | None = None,
+    selection_metric: str = "val/dice",
+    selection_mode: str = "max",
 ) -> dict[str, object]:
     if not validation_records:
         raise TrainingError("cannot report best validation metrics without validation records")
-    metric_name = "val/dice"
-    selected = max(validation_records, key=lambda record: float(record[metric_name]))
+    selector = max if selection_mode == "max" else min
+    selected = selector(validation_records, key=lambda record: float(record[selection_metric]))
     metrics = {key: value for key, value in selected.items() if key != "split"}
     summary = {
         "epoch": selected["epoch"],
-        "selection_metric": metric_name,
-        "selection_mode": "max",
-        "selection_value": selected[metric_name],
+        "selection_metric": selection_metric,
+        "selection_mode": selection_mode,
+        "selection_value": selected[selection_metric],
         "metrics": metrics,
     }
     if model_artifact is not None:
