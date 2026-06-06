@@ -156,6 +156,21 @@ in Autoresearch skills into boundary mounts, for example `CONTEXT.md` to
 `/history/research-notes/`, while keeping new draft notes under the writable
 workspace `research-notes/` directory.
 
+`prepare-agent-boundary`, `autonomy-step`, and `run-autonomous-iteration`
+require an explicit `[research_problem]` provider in root
+`candidate-execution.toml`. Agent handoff/autonomy flows do not fall back to a
+built-in/default Research Problem, because the active provider is the source of
+agent-visible Research Problem Brief metadata. During setup the Harness loads
+that provider, validates its declared brief documents, mounts the provider
+package read-only at `/research-problem`, and writes a progressive-disclosure
+brief index into both `agent-work/AGENTS.md` and
+`agent-work/RESEARCH_PROBLEM_BRIEF_INDEX.md`. Each index entry includes the
+document name/role, optional summary, required marker, mounted path, and a
+simple read command such as `cat /research-problem/brief/overview.md`. The full
+brief documents are not embedded by default; the agent starts from the index and
+selectively reads only the deeper documents needed for the current Candidate
+Experiment.
+
 The Harness installs the reviewed Autoresearch Skill Set from
 `docs/autoresearch-skills/` into `agent-work/.pi/skills/` during setup so the
 inner agent can use the campaign-manager and focused autoresearch skills as
@@ -177,6 +192,8 @@ The VM exposes these read-only paths:
   - `/history/research-notes/` — prior Research Notes.
 - `/docs` — trusted project documentation, including the Candidate Experiment
   Contract, Run lifecycle, request/report formats, and agent skill docs.
+- `/research-problem` — the active configured Research Problem provider package,
+  including any declared Research Problem Brief documents.
 - `/data` — approved read-only Research Problem data mounts, when policy
   permits.
 
@@ -291,6 +308,7 @@ mounts = [
   {path="../agent-history/batches", target="/history/batches", readonly=true},
   {path="../agent-history/research-notes", target="/history/research-notes", readonly=true},
   {path="../docs", target="/docs", readonly=true},
+  {path="/path/to/research-problem-package", target="/research-problem", readonly=true},
   {path="/path/to/gvccs", target="/data/gvccs", readonly=true},
 ]
 ```

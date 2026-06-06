@@ -229,12 +229,15 @@ def _run_experiment_batch(
     return get_batch_summary(batches_root_path, batch_id)
 
 
-def validate_experiment_batch_directory(batch_dir: str | Path) -> list[dict[str, str]]:
+def validate_experiment_batch_directory(batch_dir: str | Path, *, research_problem_registry=None) -> list[dict[str, str]]:
     """Statically validate an Experiment Batch source directory without creating Runs."""
 
     return [
         {"candidate_id": manifest.name, "source_path": str(path.resolve())}
-        for path, manifest in _validate_batch_directory(Path(batch_dir))
+        for path, manifest in _validate_batch_directory(
+            Path(batch_dir),
+            research_problem_registry=research_problem_registry,
+        )
     ]
 
 
@@ -258,7 +261,7 @@ def get_batch_summary(batches_root: str | Path, batch_id: str) -> dict[str, obje
     return _read_batch_summary_dir(batch_dir)
 
 
-def _validate_batch_directory(batch_path: Path) -> list[tuple[Path, Any]]:
+def _validate_batch_directory(batch_path: Path, *, research_problem_registry=None) -> list[tuple[Path, Any]]:
     if not batch_path.is_dir():
         raise ExperimentBatchError(f"Experiment Batch directory does not exist: {batch_path}")
     proposal = batch_path / "BATCH_PROPOSAL.md"
@@ -277,7 +280,12 @@ def _validate_batch_directory(batch_path: Path) -> list[tuple[Path, Any]]:
     errors: list[str] = []
     for candidate_dir in candidate_dirs:
         try:
-            manifest = validate_candidate_directory(candidate_dir, require_proposal=False, require_readme=True)
+            manifest = validate_candidate_directory(
+                candidate_dir,
+                require_proposal=False,
+                require_readme=True,
+                research_problem_registry=research_problem_registry,
+            )
             if manifest.name != candidate_dir.name:
                 errors.append(f"{candidate_dir.name}: manifest name must match candidate directory (got {manifest.name!r})")
             elif manifest.name in seen:

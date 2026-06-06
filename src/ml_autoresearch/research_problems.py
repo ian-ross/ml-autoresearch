@@ -16,6 +16,9 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
+_SUBPROCESS_RUN = subprocess.run
+
+
 class ResearchProblemSpecError(ValueError):
     """Base error for Research Problem Spec registry failures."""
 
@@ -465,7 +468,7 @@ def _resolve_brief_documents(
 
 def _git_provenance(package_root: Path) -> dict[str, object] | None:
     def run_git(*args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return _SUBPROCESS_RUN(
             ["git", "-C", str(package_root), *args],
             check=False,
             stdout=subprocess.PIPE,

@@ -21,7 +21,32 @@ def run_cli(cwd: Path, *args: str):
     return invoke_typer_cli(app, args, cwd=cwd)
 
 
+
+def write_fake_research_problem_provider(root: Path) -> None:
+    package = root / "fake_research_problem"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "research_problem.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "def build_spec(data_config=None):\n"
+        "    return ResearchProblemSpec(\n"
+        "        id='tiny_problem', version='test-spec-v0', contract_version='v0',\n"
+        "        input_modes=('single_frame_rgb',), input_specs={'single_frame_rgb': {'mode': 'single_frame_rgb', 'shape': [3, 16, 16]}},\n"
+        "        output_forms=('mask_logits',), output_specs={'mask_logits': {'form': 'mask_logits', 'shape': [1, 16, 16]}},\n"
+        "        losses=('bce_dice',), optimizers=('adamw',), sampling_policies=('sequential',),\n"
+        "        augmentation_policies=('none',), primary_metric='val/dice',\n"
+        "    )\n"
+    )
+    (root / "candidate-execution.toml").write_text(
+        "[research_problem]\n"
+        "id = \"tiny_problem\"\n"
+        f"package_root = \"{root}\"\n"
+        "provider_target = \"fake_research_problem.research_problem:build_spec\"\n"
+        "expected_contract_version = \"v0\"\n"
+    )
+
 def write_project(root: Path) -> None:
+    write_fake_research_problem_provider(root)
     (root / "candidates").mkdir()
     (root / "agent-work" / "submissions").mkdir(parents=True)
     (root / "agent-work" / "research-notes").mkdir(parents=True)
@@ -194,6 +219,7 @@ Request two Runs with Harness-owned concurrency.
             f"""
 name: {candidate_id}
 description: Batch candidate.
+research_problem: tiny_problem
 input_mode: single_frame_rgb
 output_form: mask_logits
 training:
@@ -230,6 +256,7 @@ def write_submission(root: Path, candidate_id: str = "agent_candidate") -> Path:
         f"""
 name: {candidate_id}
 description: Agent-submitted candidate.
+research_problem: tiny_problem
 input_mode: single_frame_rgb
 output_form: mask_logits
 training:

@@ -8,7 +8,42 @@ def run_cli(cwd: Path, *args: str):
     return invoke_typer_cli(app, args, cwd=cwd)
 
 
+
+def write_fake_research_problem_provider(root: Path) -> None:
+    package = root / "fake_research_problem"
+    (package / "brief").mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "brief" / "overview.md").write_text("# Tiny overview\n")
+    (package / "brief" / "baselines.md").write_text("# Tiny baselines\n")
+    (package / "research_problem.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "class Adapter:\n"
+        "    def validate_data_root(self, data_config): pass\n"
+        "    def dataset_metadata(self, data_config): return {'kind': 'tiny_problem'}\n"
+        "def build_spec(data_config=None):\n"
+        "    return ResearchProblemSpec(\n"
+        "        id='tiny_problem', version='test-spec-v0', contract_version='v0',\n"
+        "        input_modes=('single_frame_rgb',), input_specs={'single_frame_rgb': {'mode': 'single_frame_rgb', 'shape': [3, 16, 16]}},\n"
+        "        output_forms=('binary_mask', 'mask_logits'), output_specs={'binary_mask': {'form': 'binary_mask', 'shape': [1, 16, 16]}, 'mask_logits': {'form': 'mask_logits', 'shape': [1, 16, 16]}},\n"
+        "        losses=('bce', 'dice_bce', 'bce_dice'), optimizers=('adamw',), sampling_policies=('sequential',),\n"
+        "        augmentation_policies=('none',), primary_metric='val/dice',\n"
+        "        training_adapter=Adapter(),\n"
+        "        brief_documents=(\n"
+        "            {'name': 'overview', 'role': 'problem_overview', 'path': 'fake_research_problem/brief/overview.md', 'summary': 'Tiny problem overview.'},\n"
+        "            {'name': 'baselines', 'role': 'baseline_description', 'path': 'fake_research_problem/brief/baselines.md', 'summary': 'Tiny baseline notes.', 'required': True},\n"
+        "        ),\n"
+        "    )\n"
+    )
+    (root / "candidate-execution.toml").write_text(
+        "[research_problem]\n"
+        "id = \"tiny_problem\"\n"
+        f"package_root = \"{root}\"\n"
+        "provider_target = \"fake_research_problem.research_problem:build_spec\"\n"
+        "expected_contract_version = \"v0\"\n"
+    )
+
 def write_project(root: Path, data_mounts: str = "") -> None:
+    write_fake_research_problem_provider(root)
     (root / "CONTEXT.md").write_text("context v1\n")
     (root / "EXPERIMENT_INDEX.md").write_text("index v1\n")
     (root / "research-ledger.jsonl").write_text('{"event_type":"proposal_created"}\n')
@@ -87,6 +122,15 @@ path = "{data_root}"
 
     instructions = (tmp_path / "agent-work" / "AGENTS.md").read_text()
     assert "Agent Control Boundary path map" in instructions
+    assert "## Active Research Problem Brief" in instructions
+    assert "Active Research Problem: `tiny_problem`" in instructions
+    assert "**overview** (`problem_overview`): Tiny problem overview." in instructions
+    assert "cat /research-problem/fake_research_problem/brief/overview.md" in instructions
+    assert "# Tiny overview" not in instructions
+    brief_index = (tmp_path / "agent-work" / "RESEARCH_PROBLEM_BRIEF_INDEX.md").read_text()
+    assert "# Research Problem Brief index" in brief_index
+    assert "**baselines** (`baseline_description`): Tiny baseline notes. Required." in brief_index
+    assert "# Tiny baselines" not in brief_index
     assert "`CONTEXT.md` -> `/reference/CONTEXT.md`" in instructions
     assert "`docs/` -> `/docs/`" in instructions
     assert "`research-notes/` -> `/history/research-notes/` for prior notes" in instructions
@@ -109,6 +153,7 @@ path = "{data_root}"
         'target="/history/runs"',
         'target="/history/research-notes"',
         'target="/docs"',
+        'target="/research-problem"',
         'target="/usr/local/lib/python3.12/site-packages/ml_autoresearch"',
         'target="/usr/local/lib/python3.12/dist-packages/ml_autoresearch"',
         'target="/data/gvccs"',
@@ -120,6 +165,17 @@ path = "{data_root}"
     assert not old_dropin.exists()
     assert (tmp_path / "agent-work" / ".pi" / "fort.d" / "README.md").is_file()
 
+
+
+def test_prepare_agent_boundary_requires_explicit_research_problem_provider(tmp_path: Path):
+    write_project(tmp_path)
+    (tmp_path / "candidate-execution.toml").unlink()
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 1
+    assert "require an explicit [research_problem] provider" in completed.stderr
+    assert "built-in/default Research Problem fallback is not allowed" in completed.stderr
 
 def test_prepare_agent_boundary_fails_for_missing_data_mount_path(tmp_path: Path):
     write_project(

@@ -9,6 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ml_autoresearch.candidate_execution_config import load_candidate_execution_config
+from ml_autoresearch.research_problems import (
+    LoadedResearchProblemSpec,
+    ResearchProblemProviderLoadError,
+    load_research_problem_provider,
+)
+
 
 class AgentBoundaryError(ValueError):
     """Raised when Agent Control Boundary preparation cannot continue."""
@@ -30,6 +37,7 @@ class AgentBoundaryConfig:
     image: str
     allow_egress: bool
     data_mounts: tuple[DataMount, ...]
+    research_problem: LoadedResearchProblemSpec
 
 
 REFERENCE_FILES = ("CONTEXT.md", "EXPERIMENT_INDEX.md")
@@ -66,7 +74,24 @@ def load_agent_boundary_config(project_root: Path) -> AgentBoundaryConfig:
         image=image,
         allow_egress=allow_egress,
         data_mounts=_load_data_mounts(data.get("data_mounts", []), project_root),
+        research_problem=_load_agent_boundary_research_problem(project_root),
     )
+
+
+def _load_agent_boundary_research_problem(project_root: Path) -> LoadedResearchProblemSpec:
+    """Load the explicit Research Problem provider for agent-facing handoff context."""
+
+    candidate_config = load_candidate_execution_config(project_root)
+    provider_config = candidate_config.research_problem_provider
+    if provider_config is None:
+        raise AgentBoundaryError(
+            "Agent Control Boundary handoff/autonomy flows require an explicit [research_problem] "
+            "provider in candidate-execution.toml; built-in/default Research Problem fallback is not allowed"
+        )
+    try:
+        return load_research_problem_provider(provider_config)
+    except ResearchProblemProviderLoadError as exc:
+        raise AgentBoundaryError(f"failed to load configured Research Problem provider: {exc}") from exc
 
 
 def _string_setting(settings: dict[str, Any], key: str, default: str) -> str:
@@ -127,7 +152,8 @@ def prepare_agent_boundary(project_root: Path = Path(".")) -> dict[str, str]:
     _refresh_reference_snapshot(project_root, reference_dir)
     _refresh_history_snapshot(project_root, history_dir)
     _ensure_workspace(workspace_dir)
-    _write_agent_workspace_instructions(workspace_dir)
+    _write_research_problem_brief_index(workspace_dir, config.research_problem)
+    _write_agent_workspace_instructions(workspace_dir, config.research_problem)
     _write_managed_fort_config(project_root, workspace_dir, config)
     _install_autoresearch_skills(project_root, workspace_dir)
 
@@ -170,7 +196,40 @@ def _ensure_workspace(workspace_dir: Path) -> None:
         (workspace_dir / dirname).mkdir(parents=True, exist_ok=True)
 
 
-def _write_agent_workspace_instructions(workspace_dir: Path) -> None:
+def _write_research_problem_brief_index(workspace_dir: Path, research_problem: LoadedResearchProblemSpec) -> None:
+    (workspace_dir / "RESEARCH_PROBLEM_BRIEF_INDEX.md").write_text(
+        "# Research Problem Brief index\n\n" + _render_research_problem_brief_index(research_problem) + "\n"
+    )
+
+
+def _render_research_problem_brief_index(research_problem: LoadedResearchProblemSpec) -> str:
+    lines = [
+        f"Active Research Problem: `{research_problem.spec.id}`",
+        f"Spec version: `{research_problem.spec.version}`; contract version: `{research_problem.spec.contract_version}`",
+        "Provider package mount: `/research-problem/`",
+        "",
+        "Use progressive disclosure: start from this index, then read only the deeper brief documents relevant to the current Candidate Experiment.",
+    ]
+    if not research_problem.brief_documents:
+        lines.extend(["", "No Research Problem Brief documents were declared by the configured provider."])
+        return "\n".join(lines)
+    lines.extend(["", "Available documents:"])
+    for document in research_problem.brief_documents:
+        mounted_path = Path("/research-problem") / document.path
+        summary = document.summary or "No summary provided."
+        required = " Required." if document.required else ""
+        lines.extend(
+            [
+                f"- **{document.name}** (`{document.role}`): {summary}{required}",
+                f"  - Path: `{mounted_path.as_posix()}`",
+                f"  - Read with: `cat {mounted_path.as_posix()}`",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: LoadedResearchProblemSpec) -> None:
+    brief_index = _render_research_problem_brief_index(research_problem)
     (workspace_dir / "AGENTS.md").write_text(
         "# Agent Control Boundary path map\n"
         "\n"
@@ -189,6 +248,12 @@ def _write_agent_workspace_instructions(workspace_dir: Path) -> None:
         "- `batches/` -> `/history/batches/` for prior Experiment Batch summaries/artifacts\n"
         "- `research-notes/` -> `/history/research-notes/` for prior notes\n"
         "- `/data/` contains approved read-only Research Problem data mounts when present\n"
+        "\n"
+        "## Active Research Problem Brief\n"
+        "\n"
+        + brief_index
+        + "\n\n"
+        "The same index is available at `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Read only the deeper `/research-problem/...` documents you need.\n"
         "\n"
         "## Writable handoff locations\n"
         "\n"
@@ -252,6 +317,7 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         (project_root / "agent-history" / "batches", "/history/batches"),
         (project_root / "agent-history" / "research-notes", "/history/research-notes"),
         (project_root / "docs", "/docs"),
+        (config.research_problem.provenance.resolved_package_root, "/research-problem"),
         (project_root / "src" / "ml_autoresearch", "/usr/local/lib/python3.12/site-packages/ml_autoresearch"),
         (project_root / "src" / "ml_autoresearch", "/usr/local/lib/python3.12/dist-packages/ml_autoresearch"),
     ]

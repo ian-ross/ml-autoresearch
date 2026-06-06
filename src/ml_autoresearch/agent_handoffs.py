@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ml_autoresearch.campaign_controls import PAUSE_CONDITIONS
+from ml_autoresearch.candidate_execution_config import load_configured_research_problem_registry
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.capability_requests import CapabilityRequestError, validate_capability_request_file
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, validate_evaluation_request_file
@@ -125,7 +126,12 @@ def ingest_candidate_submission(project_root: str | Path = Path(".")) -> dict[st
         raise AgentHandoffIngestionError(f"canonical Candidate Experiment already exists: {canonical_candidate}")
 
     try:
-        manifest = validate_candidate_directory(source_candidate, require_proposal=True, require_readme=True)
+        manifest = validate_candidate_directory(
+            source_candidate,
+            require_proposal=True,
+            require_readme=True,
+            research_problem_registry=load_configured_research_problem_registry(root),
+        )
     except CandidateValidationError as exc:
         raise AgentHandoffIngestionError(str(exc)) from exc
     if manifest.name != candidate_id:
@@ -179,7 +185,10 @@ def ingest_experiment_batch_submission(project_root: str | Path = Path(".")) -> 
         raise AgentHandoffIngestionError(f"canonical Experiment Batch submission already exists: {canonical_batch}")
 
     try:
-        candidates = validate_experiment_batch_directory(source_batch)
+        candidates = validate_experiment_batch_directory(
+            source_batch,
+            research_problem_registry=load_configured_research_problem_registry(root),
+        )
     except ExperimentBatchError as exc:
         raise AgentHandoffIngestionError(str(exc)) from exc
 
