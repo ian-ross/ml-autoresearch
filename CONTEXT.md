@@ -20,6 +20,10 @@ _Avoid_: Candidate plugin, candidate-provided dataset adapter, arbitrary task co
 Advisory, versioned documentation declared by a filesystem Research Problem package to support progressive disclosure of context such as problem overview, domain/data notes, literature, baselines, and modeling suggestions. The Research Problem Brief informs agents and humans but is not the normative machine-checkable execution contract unless a document is explicitly marked required by the interface.
 _Avoid_: Hidden contract, prompt-only spec, candidate authority
 
+**Filesystem Research Problem Package**:
+A trusted local filesystem package that exposes a checked Research Problem Spec provider for one Research Problem outside the reusable Harness package.
+_Avoid_: Built-in Harness problem package, candidate plugin, PyPI plugin marketplace
+
 **Research Problem Spec Registry**:
 The trusted Harness-owned seam where Research Problem Specs are registered so the reusable Harness can discover problem-specific capabilities without hard-coding every Research Problem into core infrastructure.
 _Avoid_: Plugin marketplace, candidate extension point, dynamic untrusted registry
@@ -303,6 +307,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Ground-Camera Contrail Detection** is used to prove the autoresearch infrastructure before applying it to future Research Problems such as **Satellite Contrail Detection**.
 - A **Research Problem Spec** is the near-term trusted registration unit for a **Research Problem** before mature definitions move into separate **Research Problem Repositories**.
 - A **Research Problem Brief** provides advisory context alongside a checked **Research Problem Spec** without replacing the normative machine-checkable contract.
+- A **Filesystem Research Problem Package** is the source-location boundary for trusted Research Problem-specific code; the semantic boundary is the checked **Research Problem Spec** it returns.
 - The **Research Problem Spec Registry** separates reusable **Harness** infrastructure from trusted problem-specific capability registration.
 - **Research Problem Specs** are Harness-side trusted registrations, not **Candidate Experiment** plugins or authority to bypass the **Candidate Experiment Contract**.
 - The **Problem Support Library** provides reusable trusted building blocks for **Research Problem Specs** without becoming an independent policy boundary or Candidate-facing plugin API.
