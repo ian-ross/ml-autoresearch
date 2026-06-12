@@ -2,8 +2,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from research_problem_helpers import write_static_candidate_execution_config
+
 
 def test_cli_and_agent_safe_commands_do_not_import_torch(tmp_path: Path) -> None:
+    write_static_candidate_execution_config(tmp_path)
     candidate = tmp_path / "candidate"
     candidate.mkdir()
     (candidate / "manifest.yaml").write_text(
@@ -48,6 +51,8 @@ sys.argv = [
     '--candidate',
     {str(candidate)!r},
     '--no-require-proposal',
+    '--project-root',
+    {str(tmp_path)!r},
 ]
 try:
     main()

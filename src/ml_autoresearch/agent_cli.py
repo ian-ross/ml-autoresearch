@@ -149,6 +149,10 @@ def get_best_runs_command(
 @app.command("validate-candidate")
 def validate_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
+    project_root: Annotated[
+        Path,
+        typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config."),
+    ] = Path("."),
     require_proposal: Annotated[
         bool,
         typer.Option(
@@ -166,9 +170,18 @@ def validate_candidate_command(
 ) -> None:
     """Statically validate a Candidate Experiment contract without importing or executing model code."""
 
+    from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError, load_configured_research_problem_registry
+    from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
+
     try:
-        manifest = validate_candidate_directory(candidate, require_proposal=require_proposal, require_readme=require_readme)
-    except (CandidateValidationError, OSError) as exc:
+        registry = load_configured_research_problem_registry(project_root)
+        manifest = validate_candidate_directory(
+            candidate,
+            require_proposal=require_proposal,
+            require_readme=require_readme,
+            research_problem_registry=registry,
+        )
+    except (CandidateExecutionConfigError, ResearchProblemProviderLoadError, CandidateValidationError, OSError) as exc:
         _echo_json({"status": "invalid", "reason": str(exc)})
         raise typer.Exit(1) from exc
     _echo_json({"status": "valid", "manifest": manifest.model_dump(mode="json")})
@@ -195,14 +208,21 @@ def prepare_experiment_batch_submission_command(
 def prepare_candidate_submission_command(
     candidate: Annotated[Path, typer.Option(help="Path to a draft Candidate Experiment directory.")],
     submissions_root: Annotated[Path, typer.Option(help="Root of the immutable Candidate Submission Queue.")],
+    project_root: Annotated[
+        Path,
+        typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config."),
+    ] = Path("."),
 ) -> None:
     """Statically validate and copy a draft Candidate Experiment into the submission queue."""
 
+    from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError, load_configured_research_problem_registry
+    from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
     from ml_autoresearch.submissions import CandidateSubmissionPreparationError, prepare_candidate_submission
 
     try:
-        result = prepare_candidate_submission(candidate, submissions_root)
-    except (CandidateSubmissionPreparationError, OSError) as exc:
+        registry = load_configured_research_problem_registry(project_root)
+        result = prepare_candidate_submission(candidate, submissions_root, research_problem_registry=registry)
+    except (CandidateExecutionConfigError, ResearchProblemProviderLoadError, CandidateSubmissionPreparationError, OSError) as exc:
         _echo_json({"status": "rejected", "rejection_reason": str(exc)})
         raise typer.Exit(1) from exc
     _echo_json(result)

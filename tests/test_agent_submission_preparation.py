@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ml_autoresearch.agent_cli import app
 from conftest import invoke_typer_cli
+from research_problem_helpers import write_static_candidate_execution_config
 
 
 def write_candidate(root: Path, *, name: str = "agent_candidate", include_proposal: bool = True, include_readme: bool = True) -> Path:
@@ -66,10 +67,19 @@ def run_agent_cli(*args: str):
 
 
 def test_prepare_candidate_submission_copies_draft_and_writes_metadata(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
     candidate = write_candidate(tmp_path)
     submissions_root = tmp_path / "submissions"
 
-    completed = run_agent_cli("prepare-candidate-submission", "--candidate", str(candidate), "--submissions-root", str(submissions_root))
+    completed = run_agent_cli(
+        "prepare-candidate-submission",
+        "--candidate",
+        str(candidate),
+        "--submissions-root",
+        str(submissions_root),
+        "--project-root",
+        str(tmp_path),
+    )
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
@@ -91,11 +101,20 @@ def test_prepare_candidate_submission_copies_draft_and_writes_metadata(tmp_path:
 
 
 def test_prepare_candidate_submission_refuses_to_overwrite_existing_submission(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
     candidate = write_candidate(tmp_path)
     existing = tmp_path / "submissions" / "agent_candidate"
     existing.mkdir(parents=True)
 
-    completed = run_agent_cli("prepare-candidate-submission", "--candidate", str(candidate), "--submissions-root", str(tmp_path / "submissions"))
+    completed = run_agent_cli(
+        "prepare-candidate-submission",
+        "--candidate",
+        str(candidate),
+        "--submissions-root",
+        str(tmp_path / "submissions"),
+        "--project-root",
+        str(tmp_path),
+    )
 
     assert completed.returncode == 1
     payload = json.loads(completed.stdout)
@@ -104,14 +123,27 @@ def test_prepare_candidate_submission_refuses_to_overwrite_existing_submission(t
 
 
 def test_prepare_candidate_submission_requires_proposal_and_readme(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
     missing_proposal = write_candidate(tmp_path / "missing-proposal", include_proposal=False)
     missing_readme = write_candidate(tmp_path / "missing-readme", include_readme=False)
 
     proposal_result = run_agent_cli(
-        "prepare-candidate-submission", "--candidate", str(missing_proposal), "--submissions-root", str(tmp_path / "submissions-a")
+        "prepare-candidate-submission",
+        "--candidate",
+        str(missing_proposal),
+        "--submissions-root",
+        str(tmp_path / "submissions-a"),
+        "--project-root",
+        str(tmp_path),
     )
     readme_result = run_agent_cli(
-        "prepare-candidate-submission", "--candidate", str(missing_readme), "--submissions-root", str(tmp_path / "submissions-b")
+        "prepare-candidate-submission",
+        "--candidate",
+        str(missing_readme),
+        "--submissions-root",
+        str(tmp_path / "submissions-b"),
+        "--project-root",
+        str(tmp_path),
     )
 
     assert proposal_result.returncode == 1
@@ -121,6 +153,7 @@ def test_prepare_candidate_submission_requires_proposal_and_readme(tmp_path: Pat
 
 
 def test_prepare_candidate_submission_rejects_invalid_candidate_and_name_mismatch(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
     invalid = write_candidate(tmp_path / "invalid")
     (invalid / "weights.pt").write_text("forbidden\n")
     mismatch = write_candidate(tmp_path / "mismatch", name="manifest_name")
@@ -128,10 +161,22 @@ def test_prepare_candidate_submission_rejects_invalid_candidate_and_name_mismatc
     mismatch.rename(queue_id_path)
 
     invalid_result = run_agent_cli(
-        "prepare-candidate-submission", "--candidate", str(invalid), "--submissions-root", str(tmp_path / "submissions-a")
+        "prepare-candidate-submission",
+        "--candidate",
+        str(invalid),
+        "--submissions-root",
+        str(tmp_path / "submissions-a"),
+        "--project-root",
+        str(tmp_path),
     )
     mismatch_result = run_agent_cli(
-        "prepare-candidate-submission", "--candidate", str(queue_id_path), "--submissions-root", str(tmp_path / "submissions-b")
+        "prepare-candidate-submission",
+        "--candidate",
+        str(queue_id_path),
+        "--submissions-root",
+        str(tmp_path / "submissions-b"),
+        "--project-root",
+        str(tmp_path),
     )
 
     assert invalid_result.returncode == 1
@@ -141,6 +186,7 @@ def test_prepare_candidate_submission_rejects_invalid_candidate_and_name_mismatc
 
 
 def test_prepare_candidate_submission_is_static_without_torch_available(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
     candidate = write_candidate(tmp_path)
 
     completed = subprocess.run(
@@ -163,6 +209,8 @@ def test_prepare_candidate_submission_is_static_without_torch_available(tmp_path
             str(candidate),
             "--submissions-root",
             str(tmp_path / "submissions"),
+            "--project-root",
+            str(tmp_path),
         ],
         check=False,
         text=True,

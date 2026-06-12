@@ -6,6 +6,7 @@ from ml_autoresearch.agent_cli import app as agent_app
 from ml_autoresearch.cli import app
 from ml_autoresearch.runs import get_best_runs, get_run_summary, list_runs
 from conftest import invoke_typer_cli
+from research_problem_helpers import write_static_candidate_execution_config
 
 
 def write_run(
@@ -221,6 +222,7 @@ def test_agent_cli_observation_commands_work_against_fixture_runs(tmp_path: Path
 
 
 def test_agent_cli_validate_candidate_can_require_submission_readme(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
     candidate = tmp_path / "candidate"
     candidate.mkdir()
     (candidate / "manifest.yaml").write_text(
@@ -239,9 +241,25 @@ training:
     )
     (candidate / "model.py").write_text("raise RuntimeError('model.py should not be imported during static validation')\n")
 
-    missing = run_agent_cli("validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--require-readme")
+    missing = run_agent_cli(
+        "validate-candidate",
+        "--candidate",
+        str(candidate),
+        "--no-require-proposal",
+        "--require-readme",
+        "--project-root",
+        str(tmp_path),
+    )
     (candidate / "README.md").write_text("# Static candidate\n")
-    valid = run_agent_cli("validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--require-readme")
+    valid = run_agent_cli(
+        "validate-candidate",
+        "--candidate",
+        str(candidate),
+        "--no-require-proposal",
+        "--require-readme",
+        "--project-root",
+        str(tmp_path),
+    )
 
     assert missing.returncode == 1
     assert "README.md" in json.loads(missing.stdout)["reason"]
@@ -250,6 +268,7 @@ training:
 
 
 def test_agent_cli_validate_candidate_accepts_boundary_auxiliary_target(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
     candidate = tmp_path / "candidate"
     candidate.mkdir()
     (candidate / "manifest.yaml").write_text(
@@ -273,7 +292,9 @@ training:
     )
     (candidate / "model.py").write_text("raise RuntimeError('model.py should not be imported during static validation')\n")
 
-    completed = run_agent_cli("validate-candidate", "--candidate", str(candidate), "--no-require-proposal")
+    completed = run_agent_cli(
+        "validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--project-root", str(tmp_path)
+    )
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
@@ -284,6 +305,7 @@ training:
 
 
 def test_agent_cli_validate_candidate_is_static_and_does_not_import_model_code(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
     candidate = tmp_path / "candidate"
     candidate.mkdir()
     (candidate / "manifest.yaml").write_text(
@@ -302,7 +324,9 @@ training:
     )
     (candidate / "model.py").write_text("raise RuntimeError('model.py should not be imported during static validation')\n")
 
-    completed = run_agent_cli("validate-candidate", "--candidate", str(candidate), "--no-require-proposal")
+    completed = run_agent_cli(
+        "validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--project-root", str(tmp_path)
+    )
 
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout)["status"] == "valid"

@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.research_problems import ResearchProblemSpecRegistry
 
 SUBMISSION_SCHEMA_VERSION = "candidate_submission.v1"
 SUBMISSION_TYPE = "candidate_experiment"
@@ -66,7 +67,12 @@ def prepare_experiment_batch_submission(batch_dir: str | Path, submissions_root:
     }
 
 
-def prepare_candidate_submission(candidate_dir: str | Path, submissions_root: str | Path) -> dict[str, object]:
+def prepare_candidate_submission(
+    candidate_dir: str | Path,
+    submissions_root: str | Path,
+    *,
+    research_problem_registry: ResearchProblemSpecRegistry | None = None,
+) -> dict[str, object]:
     """Validate and copy a draft Candidate Experiment into the submission queue.
 
     This is a static packaging operation for the Agent Control Boundary. It
@@ -84,7 +90,12 @@ def prepare_candidate_submission(candidate_dir: str | Path, submissions_root: st
         raise CandidateSubmissionPreparationError(f"submission directory already exists: {submission_dir}")
 
     try:
-        manifest = validate_candidate_directory(candidate_path, require_proposal=True, require_readme=True)
+        manifest = validate_candidate_directory(
+            candidate_path,
+            require_proposal=True,
+            require_readme=True,
+            research_problem_registry=research_problem_registry,
+        )
     except CandidateValidationError as exc:
         raise CandidateSubmissionPreparationError(str(exc)) from exc
 

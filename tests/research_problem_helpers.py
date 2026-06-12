@@ -202,6 +202,59 @@ def write_fake_research_problem_package(root: Path, *, package_name: str = "fake
     return package
 
 
+def write_static_research_problem_package(root: Path, *, package_name: str = "static_problem") -> Path:
+    """Write a provider package safe for static-validation tests.
+
+    The provider intentionally avoids importing torch so CLI lazy-import tests can
+    prove candidate validation remains static.
+    """
+
+    package = root / package_name
+    package.mkdir(exist_ok=True)
+    (package / "__init__.py").write_text("")
+    (package / "research_problem.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "\n"
+        "def build_spec(data_config=None):\n"
+        "    return ResearchProblemSpec(\n"
+        "        id=\"static_problem\",\n"
+        "        version=\"static-spec-v1\",\n"
+        "        contract_version=\"v0\",\n"
+        "        input_modes=(\"single_frame_rgb\",),\n"
+        "        input_specs={\"single_frame_rgb\": {\"mode\": \"single_frame_rgb\", \"shape\": [3, 8, 8]}},\n"
+        "        output_forms=(\"mask_logits\",),\n"
+        "        output_specs={\"mask_logits\": {\"form\": \"mask_logits\", \"shape\": [1, 8, 8]}},\n"
+        "        auxiliary_targets=(\"boundary\",),\n"
+        "        auxiliary_outputs={\"boundary\": \"boundary_logits\"},\n"
+        "        auxiliary_losses=(\"weighted_bce\",),\n"
+        "        losses=(\"bce_dice\",),\n"
+        "        optimizers=(\"adamw\",),\n"
+        "        sampling_policies=(\"sequential\",),\n"
+        "        frame_selection_policies=(\"all_target_frames\",),\n"
+        "        input_mode_frame_selection_defaults={\"single_frame_rgb\": \"all_target_frames\"},\n"
+        "        augmentation_policies=(\"none\",),\n"
+        "        primary_metric=\"val/dice\",\n"
+        "    )\n"
+    )
+    return package
+
+
+def write_static_candidate_execution_config(root: Path, *, package_name: str = "static_problem") -> Path:
+    write_static_research_problem_package(root, package_name=package_name)
+    config_path = root / "candidate-execution.toml"
+    config_path.write_text(
+        "[candidate_execution]\n"
+        "backend = \"native\"\n"
+        "\n"
+        "[research_problem]\n"
+        "id = \"static_problem\"\n"
+        f"package_root = \"{root}\"\n"
+        f"provider_target = \"{package_name}.research_problem:build_spec\"\n"
+        "expected_contract_version = \"v0\"\n"
+    )
+    return config_path
+
+
 def write_fake_candidate_execution_config(
     root: Path,
     *,
