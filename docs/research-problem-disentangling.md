@@ -42,12 +42,12 @@ Brief documents are advisory context for progressive disclosure to humans and ag
 
 ## Disentangling status
 
-The migration is partially complete for the current tracer-bullet Harness. Reusable Harness modules should not contain the GVCCS implementation package, directly import GVCCS dataset types or adapters, or expose GVCCS-named production APIs. Research Problem-specific behavior should be reached through checked Spec adapters loaded from filesystem provider paths, and regression tests should guard that reusable Harness modules do not add new direct GVCCS imports or GVCCS-specific production paths.
+The current boundary is that production code in the reusable `ml_autoresearch` package is Research Problem-generic. It must not contain a GVCCS implementation package, directly import GVCCS dataset types or adapters, hard-code GVCCS provider targets, expose GVCCS-named production APIs/commands, or mention GVCCS in production defaults or error messages. Research Problem-specific behavior is reached through checked Spec adapters loaded from configured filesystem provider paths, and regression tests scan tracked `src/ml_autoresearch/**` files to prevent GVCCS-specific production references from returning.
 
 Canonical filesystem packages:
 
 - The external fake Research Problem package is used by deletion/seam regression tests. Local development may use `/home/iross/code/test-research-problem`; CI should check out or create the package in a scratch location and pass that root to tests through configuration such as `ML_AUTORESEARCH_TEST_PROBLEM_ROOT`.
-- The GVCCS / Ground-Camera Contrail Detection package provides target `gvccs.research_problem:build_spec`. Local development may use `/home/iross/code/gvccs-research-problem`; CI should check it out in a scratch location and pass that root to tests through configuration such as `ML_AUTORESEARCH_GVCCS_PROBLEM_ROOT`.
+- The GVCCS / Ground-Camera Contrail Detection package is an example filesystem Research Problem package that provides target `gvccs.research_problem:build_spec`. Local development may use `/home/iross/code/gvccs-research-problem`; CI should check it out in a scratch location and pass that root to tests through configuration such as `ML_AUTORESEARCH_GVCCS_PROBLEM_ROOT`.
 - Tests should not depend on sibling checkout layout or user-specific absolute paths; when testing the filesystem package seam, they should assert that packages are outside the reusable `src/ml_autoresearch` package rather than at a specific absolute location.
 - External-package integration tests are required because filesystem Research Problem packages are a core system boundary. If the configured package roots are missing or invalid, those tests should fail clearly rather than skip by default.
 
@@ -67,14 +67,14 @@ CI should inject the same variables when checking out the companion package repo
 Intentional remaining exceptions:
 
 - GVCCS-specific tests, fixtures, research notes, Candidate Experiments, and campaign artifacts may keep GVCCS terminology because they describe the initial Research Problem history.
-- Production code in the reusable `ml_autoresearch` package should not expose GVCCS-named APIs, commands, compatibility wrappers, or GVCCS-specific filesystem paths; it should use generic Research Problem provider configuration and dispatch.
+- Production code in the reusable `ml_autoresearch` package must not expose GVCCS-named APIs, commands, compatibility wrappers, defaults, error messages, provider targets, or filesystem paths; it uses generic Research Problem provider configuration and dispatch.
 
 ## Target module ownership
 
 Near-term, external Research Problem package code should be placed in pre-initialised local Git repositories mounted into the development VM:
 
 - `/home/iross/code/test-research-problem` for any fake or external test Research Problem package needed to prove the Harness seam;
-- `/home/iross/code/gvccs-research-problem` for the eventual GVCCS / Ground-Camera Contrail Detection Research Problem package.
+- `/home/iross/code/gvccs-research-problem` for the GVCCS / Ground-Camera Contrail Detection example Research Problem package.
 
 These repositories should behave as separate filesystem Research Problem packages even when implementation work is coordinated with this Harness repository.
 
@@ -97,7 +97,7 @@ Suggested ownership:
 The remaining migration should complete these planned slices for the current Harness boundary:
 
 1. Filesystem Research Problem provider loading and provenance recording were added with fake-package tests.
-2. The built-in Ground-Camera Contrail Detection Spec moved behind a provider function and Candidate validation can use loaded provider registries.
+2. Candidate validation can use Research Problem Specs loaded from configured filesystem providers.
 3. Generic Research Problem training dispatch asks the Spec adapter for datasets, metrics, losses, targets, and data-policy behavior.
 4. GVCCS dataset and input-mode construction live behind the GVCCS Research Problem adapter, not reusable Harness imports.
 5. Augmentation policy and auxiliary target derivation are adapter-owned, with reusable segmentation helpers kept in the Problem Support Library.

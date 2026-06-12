@@ -6,8 +6,9 @@ allow_egress = true
 # Approved read-only Research Problem data mounts. Each mount path must exist,
 # target must be a direct child of /data, and readonly must remain true.
 #
+# Example:
 # [[data_mounts]]
-# name = "gvccs"
-# path = "/path/to/gvccs"
-# target = "/data/gvccs"
+# name = "example_research_problem_data"
+# path = "/path/to/research-problem-data"
+# target = "/data/example-research-problem-data"
 # readonly = true

@@ -1,6 +1,6 @@
 # GVCCS Dataset local layout
 
-The Harness-owned GVCCS Dataset adapter expects a local download rooted at `candidate-execution.toml` `research_problem.data_config.dataset_root`.
+The GVCCS example Research Problem package adapter expects a local download rooted at `candidate-execution.toml` `research_problem.data_config.dataset_root`.
 Do not commit real GVCCS samples to this repository.
 
 Expected layout:
@@ -34,11 +34,11 @@ ml-autoresearch run-candidate \
 
 ## Docker data mount
 
-For Docker-backed GVCCS training, the host Harness validates that configured `dataset_root` exists and is a directory before launching Docker. The Docker backend mounts that host path read-only at `/data` inside the Candidate Execution Boundary, and the in-container Harness-owned GVCCS adapter reads `/data`. Candidate Experiments cannot request mounts, choose data paths, or receive host dataset paths.
+For Docker-backed runs using the GVCCS example Research Problem package, the host Harness validates that configured `dataset_root` exists and is a directory before launching Docker. The Docker backend mounts that host path read-only at `/data` inside the Candidate Execution Boundary, and the in-container Research Problem adapter reads `/data`. Candidate Experiments cannot request mounts, choose data paths, or receive host dataset paths.
 
 Synthetic fixture training and smoke testing continue to run without any data mount.
 
-Completed GVCCS Runs record dataset metadata in `run_metadata.json`:
+Completed runs using the GVCCS example package record dataset metadata in `run_metadata.json`:
 
 ```json
 {

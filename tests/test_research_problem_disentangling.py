@@ -12,30 +12,52 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REUSABLE_HARNESS_ROOT = PROJECT_ROOT / "src" / "ml_autoresearch"
 
 
-APPROVED_GVCCS_IMPORTS: set[Path] = set()
-APPROVED_GVCCS_IMPORT_PREFIXES: tuple[Path, ...] = ()
+FORBIDDEN_PRODUCTION_REFERENCES = (
+    "gvccs",
+    "ground_camera_contrail_detection",
+    "ground-camera contrail detection",
+    "research_problem_packages.gvccs",
+    "train-gvccs",
+    "train_gvccs",
+    "with_gvccs",
+)
 
 
-def test_reusable_harness_modules_do_not_directly_import_gvccs_package() -> None:
-    """Guard the deletion seam: reusable Harness modules must not import or name GVCCS directly."""
+def test_reusable_harness_modules_do_not_contain_gvccs_specific_production_references() -> None:
+    """Guard the deletion seam: reusable Harness source must stay Research Problem-generic."""
 
     assert not (PROJECT_ROOT / "src/ml_autoresearch/research_problem_packages/gvccs").exists()
     assert not (PROJECT_ROOT / "src/ml_autoresearch/gvccs.py").exists()
 
-    gvccs_mentions = []
-    for path in sorted((PROJECT_ROOT / "src/ml_autoresearch").rglob("*.py")):
-        text = path.read_text().lower()
-        if "gvccs" in text:
-            gvccs_mentions.append(str(path.relative_to(PROJECT_ROOT)))
-    assert gvccs_mentions == []
+    violations: list[str] = []
+    tracked_source_paths = subprocess.run(
+        ["git", "ls-files", "src/ml_autoresearch"],
+        check=True,
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+    ).stdout.splitlines()
+    for tracked_path in tracked_source_paths:
+        path = PROJECT_ROOT / tracked_path
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text().lower()
+        except UnicodeDecodeError:
+            continue
+        for forbidden in FORBIDDEN_PRODUCTION_REFERENCES:
+            if forbidden in text:
+                violations.append(f"{tracked_path}: contains {forbidden!r}")
+
+    assert violations == []
+
+
+def test_reusable_harness_modules_do_not_directly_import_gvccs_package() -> None:
+    """Guard the deletion seam: reusable Harness modules must not import GVCCS directly."""
 
     violations: list[str] = []
-    for path in sorted((PROJECT_ROOT / "src/ml_autoresearch").rglob("*.py")):
+    for path in sorted(REUSABLE_HARNESS_ROOT.rglob("*.py")):
         relative = path.relative_to(PROJECT_ROOT)
-        if relative in APPROVED_GVCCS_IMPORTS:
-            continue
-        if any(relative.is_relative_to(prefix) for prefix in APPROVED_GVCCS_IMPORT_PREFIXES):
-            continue
         tree = ast.parse(path.read_text(), filename=str(relative))
         for node in ast.walk(tree):
             imported_modules: list[str] = []

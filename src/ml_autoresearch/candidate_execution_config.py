@@ -96,8 +96,8 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
 def load_configured_research_problem_registry(project_root: str | Path = Path(".")) -> ResearchProblemSpecRegistry | None:
     """Load the configured trusted Research Problem Spec Registry, when configured.
 
-    ``None`` preserves compatibility/bootstrap behavior where callers use the
-    built-in Ground-Camera Contrail Detection Spec.
+    ``None`` preserves compatibility/bootstrap behavior where callers supply
+    their own Research Problem registry elsewhere.
     """
 
     config = load_candidate_execution_config(project_root)

@@ -270,9 +270,9 @@ tables:
 
 ```toml
 [[data_mounts]]
-name = "gvccs"
-path = "/path/to/gvccs"
-target = "/data/gvccs"
+name = "example_research_problem_data"
+path = "/path/to/research-problem-data"
+target = "/data/example-research-problem-data"
 readonly = true
 ```
 
@@ -283,8 +283,9 @@ Each `[[data_mounts]]` entry accepts:
 - `path` — required non-empty string naming an existing host path. Relative
   paths are resolved relative to the project root.
 - `target` — optional non-empty string; defaults to `/data/{name}`. The target
-  must be a non-overlapping direct child of `/data`, for example `/data/gvccs`;
-  nested targets such as `/data/gvccs/train` are rejected.
+  must be a non-overlapping direct child of `/data`, for example
+  `/data/example-research-problem-data`; nested targets such as
+  `/data/example-research-problem-data/train` are rejected.
 - `readonly` — optional boolean, but if present it must be `true`. Writable data
   mounts are rejected.
 
@@ -309,7 +310,7 @@ mounts = [
   {path="../agent-history/research-notes", target="/history/research-notes", readonly=true},
   {path="../docs", target="/docs", readonly=true},
   {path="/path/to/research-problem-package", target="/research-problem", readonly=true},
-  {path="/path/to/gvccs", target="/data/gvccs", readonly=true},
+  {path="/path/to/research-problem-data", target="/data/example-research-problem-data", readonly=true},
 ]
 ```
 

@@ -142,13 +142,13 @@ There are currently two Harness-owned evaluation surfaces:
 
 ## Candidate Execution Boundary hardening
 
-Docker-backed smoke tests, synthetic training, and GVCCS training launch containers with the following Harness-owned policy:
+Docker-backed smoke tests, synthetic training, and configured Research Problem training launch containers with the following Harness-owned policy:
 
 - Docker user selection is automatic by default: rootless Docker uses container `0:0`, which maps back to the invoking unprivileged host user so output artifacts remain user-owned; rootful Docker uses `--userns=host` with the host Harness uid/gid;
 - no network (`--network none`);
 - read-only root filesystem;
 - only `/outputs` and `/scratch` are writable container paths (`/outputs` is a run-scoped bind mount; `/scratch` is bounded tmpfs);
-- Harness-owned inputs are read-only mounts (`/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and `/data` for GVCCS);
+- Harness-owned inputs are read-only mounts (`/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and `/data` for configured Research Problem data);
 - bounded resources: memory, CPU, process count, and tmpfs scratch policy are set by the Harness defaults;
 - Linux capabilities are dropped and `no-new-privileges` is set;
 - GPU access is disabled by default and can only be enabled by Harness-owned configuration;

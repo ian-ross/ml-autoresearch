@@ -2,9 +2,9 @@
 
 This document describes user-level expectations for the ML Autoresearch Harness. The Harness owns training, data loading, validation, execution policy, and artifact persistence. Candidate Experiments express research variation through the allowlisted Candidate Experiment Contract, not through arbitrary filesystem, network, Docker, dataset, MLflow, training-loop, or data-loading authority.
 
-## Ground-Camera Contrail Detection
+## Example Research Problem: Ground-Camera Contrail Detection
 
-The initial Research Problem is binary semantic segmentation for the GVCCS Dataset: given ground-camera imagery, predict a Contrail Mask marking contrail pixels vs non-contrail pixels.
+The initial example Research Problem package is binary semantic segmentation for the GVCCS Dataset: given ground-camera imagery, predict a Contrail Mask marking contrail pixels vs non-contrail pixels. This section documents the current example package behavior, not Harness defaults.
 
 The primary prediction target is always the Contrail Mask for a Target Frame.
 
@@ -134,21 +134,21 @@ Allowed v1 sampling policies:
 
 Manifests that omit `data.sampling_policy` resolve to `sequential`. `deterministic_shuffle` changes training example order reproducibly while validation order remains stable for reproducible metrics and qualitative diagnostics.
 
-Implemented Ground-Camera Contrail Detection / GVCCS frame selection policies:
+Implemented frame selection policies in the GVCCS example Research Problem package:
 
 - `all_target_frames` — use every discovered Target Frame after the current split/max-sample policy; this is the default for `single_frame_rgb`.
 - `temporal_eligible_center` — use only Target Frames with complete previous/next stride-1 neighbors inside one inferred Frame Sequence; this is the default and required policy for `centered_temporal_rgb_clip`, and can be selected by `single_frame_rgb` for matched controls.
 
-Run metadata records the effective frame selection policy and the resulting train/validation sample counts for GVCCS Runs.
+Run metadata records the effective frame selection policy and the resulting train/validation sample counts for runs whose configured Research Problem adapter reports them.
 
-Implemented Ground-Camera Contrail Detection / GVCCS augmentation presets:
+Implemented augmentation presets in the GVCCS example Research Problem package:
 
 - `none` — no augmentation, and the default for omitted `data.augmentation_policy`.
 - `light_geometric` — conservative image/mask-aligned horizontal mirroring for training examples.
 - `light_photometric` — conservative brightness/contrast/noise perturbations to training images only.
 - `light_combined` — combines `light_geometric` and `light_photometric`.
 
-These presets are trusted Harness / Research Problem code, not Candidate Experiment code. They are intentionally named presets specific to the initial GVCCS Research Problem while remaining future-extractable to a Research Problem Repository. Validation examples are not augmented. Resolved Manifests record both selected `augmentation_policy` and `augmentation_policy_effective`.
+These presets are trusted Research Problem package code reached through the checked Spec adapter, not Candidate Experiment code and not reusable Harness defaults. Validation examples are not augmented. Resolved Manifests record both selected `augmentation_policy` and `augmentation_policy_effective` when the adapter supplies that metadata.
 
 Deferred policies include composable augmentation policies, arbitrary transform DSLs, positive/negative balancing, vertical flips, hard-negative mining from prior Results, and cloud-heavy negative sampling until the relevant metadata, subsets, Capability Requests, or artifact loop exist.
 
@@ -189,10 +189,10 @@ Required completed-Run artifacts:
 - `model_summary.json` — parameter count, input/output contract, and useful model summary information.
 - `resolved_manifest.yaml` — fully resolved Candidate Experiment configuration after Harness defaults and validation.
 - `run_metadata.json` — dataset/split identifiers, Harness version, code/image digests, timestamps, resource limits, and Run status.
-- `prediction_samples/` — visual examples including input image or clip reference, ground truth mask, predicted mask, and overlay; include informative failures when possible. Run-level Prediction Sample Policy may be `first_n` (default compatibility behavior) or `adjacent_and_scattered` for GVCCS validation diagnostics. `adjacent_and_scattered` infers Frame Sequences from timestamp-like filenames split on gaps greater than 30 seconds, selects stride-1 adjacent windows from positive validation sequences spaced across eligible sequences, and adds positive-biased scattered singleton samples while retaining a small negative slice.
+- `prediction_samples/` — visual examples including input image or clip reference, ground truth mask, predicted mask, and overlay; include informative failures when possible. Run-level Prediction Sample Policy may be `first_n` or a configured Research Problem adapter policy such as the GVCCS example package's `adjacent_and_scattered` validation diagnostic policy.
 - `logs/` — validation, smoke-test, training, timeout, and future persistence logs.
 
-The current implementation writes operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root. GVCCS Runs record dataset id `gvccs`, the real host data path, the container path `/data`, effective Data Policy metadata, and train/validation sample counts in `run_metadata.json`.
+The current implementation writes operation-produced artifacts under `outputs/` while keeping `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` Harness-owned at the Run root. Dataset identifiers, data-root provenance, effective Data Policy metadata, and train/validation sample counts come from the configured Research Problem adapter.
 
 Best-checkpoint persistence is optional Harness policy, not required for every Run, because checkpoint storage can become large.
 
@@ -253,7 +253,7 @@ Candidate Experiments may reference only Approved Weight Artifacts by stable ide
 
 ## Docker Candidate Execution Boundary hardening status
 
-The current Docker backend runs Candidate Experiment smoke tests and training with no network, a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, bounded memory/CPU/process limits, and Harness-owned explicit environment variables. By default the backend detects rootless Docker before launch: rootless Docker uses container `0:0`, which maps back to the invoking unprivileged host user so output artifacts remain user-owned; rootful Docker uses `--userns=host` with the host Harness uid/gid. `/outputs` and `/scratch` are the only writable container paths: `/outputs` is the run-scoped writable artifact mount, and `/scratch` is bounded tmpfs. `/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and GVCCS `/data` are read-only. GPU access is disabled by default and is only enabled by Harness configuration.
+The current Docker backend runs Candidate Experiment smoke tests and training with no network, a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, bounded memory/CPU/process limits, and Harness-owned explicit environment variables. By default the backend detects rootless Docker before launch: rootless Docker uses container `0:0`, which maps back to the invoking unprivileged host user so output artifacts remain user-owned; rootful Docker uses `--userns=host` with the host Harness uid/gid. `/outputs` and `/scratch` are the only writable container paths: `/outputs` is the run-scoped writable artifact mount, and `/scratch` is bounded tmpfs. `/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and the configured Research Problem data mount at `/data` are read-only. GPU access is disabled by default and is only enabled by Harness configuration.
 
 Docker training wall-clock exhaustion uses a graceful timeout protocol. The Harness records timeout events, writes a sentinel in `/scratch`, waits a bounded grace period for the in-container Harness-owned training loop to stop at an end-of-batch checkpoint and write usable Results, and force-kills only after grace expires. Run metadata distinguishes normal completion, graceful timeout completion, and forced timeout failure.
 

@@ -72,6 +72,30 @@ expected_contract_version = "v0"
     assert registry.get("tiny_problem").losses == ("tiny_loss",)
 
 
+def test_candidate_execution_config_allows_research_problem_values_from_config(tmp_path: Path) -> None:
+    package_root = tmp_path / "configured-problem"
+    dataset_root = tmp_path / "configured-data"
+    package_root.mkdir()
+    dataset_root.mkdir()
+    (tmp_path / "candidate-execution.toml").write_text(
+        f'''
+[research_problem]
+id = "ground_camera_contrail_detection"
+package_root = "{package_root}"
+provider_target = "gvccs.research_problem:build_spec"
+expected_contract_version = "v0"
+data_config = {{ dataset_root = "{dataset_root}" }}
+'''.lstrip()
+    )
+
+    config = load_candidate_execution_config(tmp_path)
+
+    assert config.research_problem_provider is not None
+    assert config.research_problem_provider.id == "ground_camera_contrail_detection"
+    assert config.research_problem_provider.provider_target == "gvccs.research_problem:build_spec"
+    assert config.research_problem_provider.data_config == {"dataset_root": str(dataset_root)}
+
+
 def test_candidate_execution_config_defaults_to_native_when_absent(tmp_path: Path) -> None:
     config = load_candidate_execution_config(tmp_path)
 

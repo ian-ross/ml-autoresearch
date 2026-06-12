@@ -98,7 +98,7 @@ Implement Harness-owned training:
 
 ### 6. Execution Boundary
 
-Add the Candidate Execution Boundary. Docker smoke testing, synthetic training, GVCCS training, and the initial hardening pass are now implemented for the local tracer-bullet Harness; remaining work in this area focuses on follow-on capabilities such as image build workflow, async scheduling, and production isolation beyond Docker hardening.
+Add the Candidate Execution Boundary. Docker smoke testing, synthetic training, training through the GVCCS example Research Problem package, and the initial hardening pass are now implemented for the local tracer-bullet Harness; remaining work in this area focuses on follow-on capabilities such as image build workflow, async scheduling, and production isolation beyond Docker hardening.
 
 Policy decisions for the branch:
 
@@ -178,7 +178,7 @@ The first tracer bullet does not need:
 - asynchronous queueing.
 - pretrained weight workflow.
 - production security claims.
-- full-scale GVCCS training beyond local GVCCS-compatible roots.
+- full-scale training for the GVCCS example Research Problem package beyond local GVCCS-compatible roots.
 
 ## Notes and constraints
 
