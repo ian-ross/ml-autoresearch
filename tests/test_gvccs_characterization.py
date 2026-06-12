@@ -5,6 +5,12 @@ import pytest
 import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.research_problems import (
+    ResearchProblemProviderConfig,
+    ResearchProblemProviderProvenance,
+    ResearchProblemSpec,
+    ResearchProblemSpecRegistry,
+)
 from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture, submit_candidate
 from ml_autoresearch.smoke import smoke_specs_from_resolved_manifest
 
@@ -44,8 +50,49 @@ EXPECTED_GVCCS_CANDIDATE_CONTRACTS = {
 }
 
 
+def _fake_gvccs_research_problem_spec() -> ResearchProblemSpec:
+    return ResearchProblemSpec(
+        id="ground_camera_contrail_detection",
+        version="v0",
+        input_modes=("single_frame_rgb", "centered_temporal_rgb_clip"),
+        input_specs={
+            "single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]},
+            "centered_temporal_rgb_clip": {"mode": "single_frame_rgb", "shape": [3, 64, 64]},
+        },
+        output_forms=("mask_logits",),
+        output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
+        auxiliary_targets=("line", "boundary"),
+        auxiliary_outputs={"line": "line_logits", "boundary": "boundary_logits"},
+        losses=("bce_dice",),
+        auxiliary_losses=("weighted_bce",),
+        optimizers=("adamw",),
+        sampling_policies=("sequential", "deterministic_shuffle"),
+        frame_selection_policies=("all_target_frames", "temporal_eligible_center"),
+        input_mode_frame_selection_defaults={"centered_temporal_rgb_clip": "temporal_eligible_center", "single_frame_rgb": "all_target_frames"},
+        augmentation_policies=("none", "light_combined", "light_geometric", "light_photometric"),
+        primary_metric="val/dice",
+    )
+
+
+def fake_research_problem_spec_provider(config: ResearchProblemProviderConfig | None = None) -> ResearchProblemSpec:
+    return _fake_gvccs_research_problem_spec()
+
+
+def _gvccs_fake_registry() -> ResearchProblemSpecRegistry:
+    spec = _fake_gvccs_research_problem_spec()
+    registry = ResearchProblemSpecRegistry(active_id=spec.id)
+    registry.register(
+        spec,
+        provenance=ResearchProblemProviderProvenance(
+            resolved_package_root=Path(__file__).resolve().parent.parent,
+            provider_target="tests.test_gvccs_characterization:fake_research_problem_spec_provider",
+        ),
+    )
+    return registry
+
+
 def _contract_snapshot(candidate_dir: Path):
-    manifest = validate_candidate_directory(candidate_dir)
+    manifest = validate_candidate_directory(candidate_dir, research_problem_registry=_gvccs_fake_registry())
     return (
         manifest.input_mode,
         manifest.output_form,
@@ -64,33 +111,37 @@ def test_existing_gvccs_candidate_manifests_validate_with_same_contract_choices(
 
 
 def test_resolved_gvccs_manifest_and_smoke_specs_stay_single_frame_mask_only(tmp_path: Path) -> None:
-    run = submit_candidate(CANDIDATES_ROOT / "single_frame_small_unet", tmp_path / "runs")
+    run = submit_candidate(
+        CANDIDATES_ROOT / "single_frame_small_unet",
+        tmp_path / "runs",
+        research_problem_registry=_gvccs_fake_registry(),
+    )
 
     assert run.status == RunStatus.ACCEPTED
     resolved = yaml.safe_load((run.run_dir / "resolved_manifest.yaml").read_text())
-    assert resolved == {
-        "name": "single_frame_small_unet",
-        "description": "Small standard U-Net-style single-frame mask-only segmentation baseline.",
-        "research_problem": {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"},
-        "input_mode": "single_frame_rgb",
-        "output_form": "mask_logits",
-        "auxiliary_targets": [],
-        "data": {
-            "sampling_policy": "sequential",
-            "frame_selection_policy": "all_target_frames",
-            "frame_selection_policy_effective": "all_target_frames",
-            "augmentation_policy": "none",
-            "augmentation_policy_effective": "none",
-        },
-        "training": {
-            "loss": "bce_dice",
-            "optimizer": "adamw",
-            "learning_rate": 0.001,
-            "batch_size": 2,
-            "max_epochs": 1,
-        },
-        "repair": None,
+    assert resolved["name"] == "single_frame_small_unet"
+    assert resolved["description"] == "Small standard U-Net-style single-frame mask-only segmentation baseline."
+    assert resolved["research_problem"]["id"] == "ground_camera_contrail_detection"
+    assert resolved["research_problem"]["version"] == "v0"
+    assert resolved["research_problem"]["contract_version"] == "v0"
+    assert resolved["input_mode"] == "single_frame_rgb"
+    assert resolved["output_form"] == "mask_logits"
+    assert resolved["auxiliary_targets"] == []
+    assert resolved["data"] == {
+        "sampling_policy": "sequential",
+        "frame_selection_policy": "all_target_frames",
+        "frame_selection_policy_effective": "all_target_frames",
+        "augmentation_policy": "none",
+        "augmentation_policy_effective": "none",
     }
+    assert resolved["training"] == {
+        "loss": "bce_dice",
+        "optimizer": "adamw",
+        "learning_rate": 0.001,
+        "batch_size": 2,
+        "max_epochs": 1,
+    }
+    assert resolved["repair"] is None
     input_spec, output_spec = smoke_specs_from_resolved_manifest(run.run_dir / "resolved_manifest.yaml")
     assert input_spec == {"mode": "single_frame_rgb", "shape": [3, 128, 128]}
     assert output_spec == {"form": "mask_logits", "shape": [1, 128, 128]}
@@ -101,7 +152,9 @@ def test_gvccs_training_artifact_names_and_key_metrics_stay_stable(tmp_path: Pat
 
     assert run.status == RunStatus.COMPLETED
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
-    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
+    assert metadata["research_problem"]["id"] == "ground_camera_contrail_detection"
+    assert metadata["research_problem"]["version"] == "v0"
+    assert metadata["research_problem"]["contract_version"] == "v0"
     assert metadata["artifacts"] == {
         "prediction_samples": "outputs/prediction_samples/samples.json",
         "best_metrics": "outputs/best_metrics.json",
@@ -151,7 +204,7 @@ def test_invalid_gvccs_manifest_values_still_fail_clearly(tmp_path: Path, patch:
     (candidate / "model.py").write_text((CANDIDATES_ROOT / "single_frame_small_unet" / "model.py").read_text())
 
     with pytest.raises(CandidateValidationError) as excinfo:
-        validate_candidate_directory(candidate)
+        validate_candidate_directory(candidate, research_problem_registry=_gvccs_fake_registry())
 
     message = str(excinfo.value)
     for term in expected_terms:

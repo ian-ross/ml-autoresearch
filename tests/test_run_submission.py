@@ -6,8 +6,54 @@ import pytest
 import yaml
 
 from ml_autoresearch.research_ledger import ResearchLedgerError
-from ml_autoresearch.runs import RunFailureClassification, RunStatus, submit_candidate, validate_run_failure_classification
+from ml_autoresearch.research_problems import (
+    ResearchProblemProviderConfig,
+    ResearchProblemProviderProvenance,
+    ResearchProblemSpec,
+    ResearchProblemSpecRegistry,
+)
+from ml_autoresearch.runs import RunFailureClassification, RunStatus, submit_candidate as _submit_candidate, validate_run_failure_classification
 
+
+
+def _fake_research_problem_registry() -> ResearchProblemSpecRegistry:
+    spec = _fake_research_problem_spec()
+    registry = ResearchProblemSpecRegistry(active_id=spec.id)
+    registry.register(
+        spec,
+        provenance=ResearchProblemProviderProvenance(
+            resolved_package_root=Path(__file__).resolve().parent.parent,
+            provider_target="tests.test_run_submission:fake_research_problem_spec_provider",
+        ),
+    )
+    return registry
+
+
+def submit_candidate(candidate_dir, runs_root, **kwargs):
+    kwargs.setdefault("research_problem_registry", _fake_research_problem_registry())
+    return _submit_candidate(candidate_dir, runs_root, **kwargs)
+
+
+def fake_research_problem_spec_provider(config: ResearchProblemProviderConfig | None = None) -> ResearchProblemSpec:
+    return _fake_research_problem_spec()
+
+
+def _fake_research_problem_spec() -> ResearchProblemSpec:
+    return ResearchProblemSpec(
+        id="fake_problem",
+        version="v1",
+        input_modes=("single_frame_rgb",),
+        input_specs={"single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]}},
+        output_forms=("mask_logits",),
+        output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
+        losses=("bce_dice",),
+        auxiliary_losses=(),
+        optimizers=("adamw",),
+        sampling_policies=("sequential",),
+        frame_selection_policies=("all_target_frames",),
+        augmentation_policies=("none",),
+        primary_metric="val/dice",
+    )
 
 
 def write_valid_candidate(root: Path) -> Path:
@@ -61,7 +107,10 @@ def test_submit_candidate_creates_accepted_run_directory(tmp_path: Path):
     resolved = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
     assert resolved["name"] == "single_frame_unet_baseline"
     assert resolved["description"] == "Tiny single-frame mask-only baseline for harness validation."
-    assert resolved["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
+    assert resolved["research_problem"]["id"] == "fake_problem"
+    assert resolved["research_problem"]["version"] == "v1"
+    assert resolved["research_problem"]["contract_version"] == "v0"
+    assert resolved["research_problem"]["provider"]["target"] == "tests.test_run_submission:fake_research_problem_spec_provider"
     assert resolved["input_mode"] == "single_frame_rgb"
     assert resolved["output_form"] == "mask_logits"
     assert resolved["auxiliary_targets"] == []
@@ -74,7 +123,10 @@ def test_submit_candidate_creates_accepted_run_directory(tmp_path: Path):
     assert metadata["run_id"] == run.run_id
     assert metadata["status"] == "accepted"
     assert metadata["candidate_source"]["path"] == str(candidate.resolve())
-    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
+    assert metadata["research_problem"]["id"] == "fake_problem"
+    assert metadata["research_problem"]["version"] == "v1"
+    assert metadata["research_problem"]["contract_version"] == "v0"
+    assert metadata["research_problem"]["provider"]["target"] == "tests.test_run_submission:fake_research_problem_spec_provider"
     assert metadata["rejection_reason"] is None
     assert metadata["created_at"]
     assert metadata["updated_at"]

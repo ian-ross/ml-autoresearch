@@ -79,7 +79,7 @@ class CandidateManifest(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
-    research_problem: str = Field(min_length=1)
+    research_problem: str | None = None
     input_mode: str = Field(min_length=1)
     output_form: str = Field(min_length=1)
     auxiliary_targets: list[AuxiliaryTargetManifest] = Field(default_factory=list)
@@ -272,7 +272,12 @@ def _load_manifest(
         details = _validation_error_details(exc)
         raise CandidateValidationError("invalid manifest.yaml: " + "; ".join(details)) from exc
 
-    spec = _resolve_research_problem_spec(manifest.research_problem, research_problem_registry)
+    spec, resolved_research_problem = _resolve_research_problem_spec(
+        manifest.research_problem,
+        research_problem_registry,
+    )
+    if manifest.research_problem is None:
+        manifest.research_problem = resolved_research_problem
     _apply_data_policy_defaults(manifest, spec)
     details = _manifest_allowlist_errors(manifest, spec)
     if details:
@@ -296,16 +301,30 @@ def _validation_error_details(exc: ValidationError) -> list[str]:
 
 
 def _resolve_research_problem_spec(
-    spec_id: str,
+    spec_id: str | None,
     registry: ResearchProblemSpecRegistry | None,
-) -> ResearchProblemSpec:
+) -> tuple[ResearchProblemSpec, str]:
     if registry is None:
         raise CandidateValidationError(
-            "invalid manifest.yaml: research_problem provider registry is required; "
-            "configure [research_problem] or use an explicit synthetic fixture path"
+            "invalid manifest.yaml: research_problem is required unless a research_problem_registry is provided; "
+            "configure [research_problem] in the manifest or run validation with an explicit registry"
+        )
+    if spec_id is None:
+        configured_ids = registry.ids()
+        if len(configured_ids) == 1:
+            resolved_id = configured_ids[0]
+            return registry.get(resolved_id), resolved_id
+        if len(configured_ids) == 0:
+            raise CandidateValidationError(
+                "invalid manifest.yaml: missing research_problem and no Research Problem specs are configured"
+            )
+        available = ", ".join(repr(spec_id) for spec_id in configured_ids)
+        raise CandidateValidationError(
+            f"invalid manifest.yaml: missing research_problem; registry contains {len(configured_ids)} specs ({available}); "
+            "specify research_problem explicitly"
         )
     try:
-        return registry.get(spec_id)
+        return registry.get(spec_id), spec_id
     except UnknownResearchProblemSpecError as exc:
         raise CandidateValidationError(f"invalid manifest.yaml: research_problem: {exc}") from exc
 

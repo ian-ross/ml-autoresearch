@@ -12,6 +12,27 @@ from ml_autoresearch.research_problems import (
 DEFAULT_RESEARCH_PROBLEM_ID = "ground_camera_contrail_detection"
 
 
+def _single_fake_registry() -> ResearchProblemSpecRegistry:
+    spec = ResearchProblemSpec(
+        id="tiny_problem",
+        version="v1",
+        input_modes=("single_frame_rgb",),
+        input_specs={"single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]}},
+        output_forms=("mask_logits",),
+        output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
+        auxiliary_targets=("line", "boundary"),
+        auxiliary_outputs={"line": "line_logits", "boundary": "boundary_logits"},
+        losses=("bce_dice",),
+        auxiliary_losses=("weighted_bce",),
+        optimizers=("adamw",),
+        sampling_policies=("sequential", "deterministic_shuffle"),
+        augmentation_policies=("none", "light_combined", "light_geometric", "light_photometric"),
+        primary_metric="val/dice",
+    )
+    return ResearchProblemSpecRegistry((spec,), active_id=spec.id)
+
+
+
 def validate_candidate_directory(candidate_dir, **kwargs):
     from research_problem_helpers import gvccs_registry
 
@@ -20,24 +41,28 @@ def validate_candidate_directory(candidate_dir, **kwargs):
 
 
 def write_valid_candidate(root: Path) -> Path:
+    return write_valid_candidate_without_research_problem(root, include_research_problem=True)
+
+
+def write_valid_candidate_without_research_problem(root: Path, *, include_research_problem: bool = False) -> Path:
     candidate = root / "candidate"
     candidate.mkdir()
-    (candidate / "manifest.yaml").write_text(
-        """
-name: single_frame_unet_baseline
-description: Tiny single-frame mask-only baseline for harness validation.
-research_problem: ground_camera_contrail_detection
-input_mode: single_frame_rgb
-output_form: mask_logits
-training:
-  loss: bce_dice
-  optimizer: adamw
-  learning_rate: 0.001
-  batch_size: 2
-  max_epochs: 1
-""".strip()
-        + "\n"
-    )
+    manifest = {
+        "name": "single_frame_unet_baseline",
+        "description": "Tiny single-frame mask-only baseline for harness validation.",
+        "input_mode": "single_frame_rgb",
+        "output_form": "mask_logits",
+        "training": {
+            "loss": "bce_dice",
+            "optimizer": "adamw",
+            "learning_rate": 0.001,
+            "batch_size": 2,
+            "max_epochs": 1,
+        },
+    }
+    if include_research_problem:
+        manifest["research_problem"] = DEFAULT_RESEARCH_PROBLEM_ID
+    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False).strip() + "\n")
     (candidate / "model.py").write_text(
         "def build_model(input_spec, output_spec):\n"
         "    raise NotImplementedError('Issue 1 does not import this file')\n"
@@ -227,12 +252,56 @@ training:
 def test_candidate_manifest_accepts_explicit_default_research_problem(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     manifest = yaml.safe_load((candidate / "manifest.yaml").read_text())
-    manifest["research_problem"] = DEFAULT_RESEARCH_PROBLEM_ID
-    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    manifest["research_problem"] = "tiny_problem"
+    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False) + "\n")
 
-    loaded = validate_candidate_directory(candidate)
+    loaded = _validate_candidate_directory(candidate, research_problem_registry=_single_fake_registry())
 
-    assert loaded.research_problem == DEFAULT_RESEARCH_PROBLEM_ID
+    assert loaded.research_problem == "tiny_problem"
+
+
+def test_candidate_manifest_resolves_missing_research_problem_from_singleton_registry(tmp_path: Path):
+    candidate = write_valid_candidate_without_research_problem(tmp_path)
+    registry = _single_fake_registry()
+
+    loaded = _validate_candidate_directory(candidate, research_problem_registry=registry)
+
+    assert loaded.research_problem == "tiny_problem"
+
+
+def test_candidate_manifest_rejects_missing_research_problem_without_registry(tmp_path: Path):
+    candidate = write_valid_candidate_without_research_problem(tmp_path)
+
+    with pytest.raises(CandidateValidationError, match="research_problem is required"):
+        _validate_candidate_directory(candidate, research_problem_registry=None)
+
+
+def test_candidate_manifest_rejects_missing_research_problem_with_multiple_registered_specs(tmp_path: Path):
+    single = _single_fake_registry().active()
+    second = ResearchProblemSpec(
+        id="second_problem",
+        version="v1",
+        input_modes=("single_frame_rgb",),
+        input_specs={"single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]}},
+        output_forms=("mask_logits",),
+        output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
+        auxiliary_targets=("line",),
+        auxiliary_outputs={"line": "line_logits"},
+        losses=("bce_dice",),
+        auxiliary_losses=("weighted_bce",),
+        optimizers=("adamw",),
+        sampling_policies=("sequential",),
+        augmentation_policies=("none",),
+        primary_metric="val/dice",
+    )
+    registry = ResearchProblemSpecRegistry(active_id=single.id)
+    registry.register(single)
+    registry.register(second)
+
+    candidate = write_valid_candidate_without_research_problem(tmp_path)
+
+    with pytest.raises(CandidateValidationError, match="2 specs"):
+        _validate_candidate_directory(candidate, research_problem_registry=registry)
 
 
 def test_invalid_augmentation_policy_is_rejected(tmp_path: Path):
