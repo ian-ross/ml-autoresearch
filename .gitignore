@@ -15,4 +15,5 @@ runs/
 .pi/fort.toml
 .pi/fort.d
 .pi/settings.json
+.envrc
 
