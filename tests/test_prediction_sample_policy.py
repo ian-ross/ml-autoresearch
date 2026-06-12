@@ -10,7 +10,7 @@ from research_problem_helpers import gvccs_module
 _gvccs = gvccs_module()
 GVCCSSample = _gvccs.GVCCSSample
 infer_frame_sequences = _gvccs.infer_frame_sequences
-GVCCSTrainingAdapter = _gvccs.adapters.GVCCSTrainingAdapter
+GVCCSTrainingAdapter = _gvccs.GVCCSTrainingAdapter
 
 
 def sample(name: str, *, image_id: int, positive: bool = False) -> GVCCSSample:
