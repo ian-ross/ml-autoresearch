@@ -17,7 +17,51 @@ def read_jsonl(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
+def write_ground_camera_problem_provider(root: Path) -> None:
+    package = root / "ground_camera_problem"
+    package.mkdir(exist_ok=True)
+    (package / "__init__.py").write_text("")
+    (package / "research_problem.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "def build_spec(data_config=None):\n"
+        "    return ResearchProblemSpec(\n"
+        "        id='ground_camera_contrail_detection', version='v1', contract_version='v0',\n"
+        "        input_modes=('single_frame_rgb',), input_specs={'single_frame_rgb': {'mode': 'single_frame_rgb', 'shape': [3, 64, 64]}},\n"
+        "        output_forms=('mask_logits',), output_specs={'mask_logits': {'form': 'mask_logits', 'shape': [1, 64, 64]}},\n"
+        "        losses=('bce_dice',), optimizers=('adamw',), sampling_policies=('sequential',),\n"
+        "        augmentation_policies=('none',), primary_metric='val/dice',\n"
+        "    )\n"
+    )
+
+
 def write_run(runs_root: Path, run_id: str = "run_123") -> Path:
+    package_root = runs_root.parent / "research-problem-package"
+    package_root.mkdir(exist_ok=True)
+    write_ground_camera_problem_provider(package_root)
+    run_dir = runs_root / run_id
+    (run_dir / "outputs").mkdir(parents=True)
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "status": "completed",
+                "research_problem": {
+                    "id": "ground_camera_contrail_detection",
+                    "version": "v1",
+                    "contract_version": "v0",
+                    "provider": {
+                        "target": "ground_camera_problem.research_problem:build_spec",
+                        "resolved_package_root": str(package_root),
+                    },
+                },
+            }
+        )
+    )
+    (run_dir / "outputs" / "final_metrics.json").write_text(json.dumps({"val/dice": 0.42}))
+    return run_dir
+
+
+def write_legacy_run_without_research_problem(runs_root: Path, run_id: str = "run_123") -> Path:
     run_dir = runs_root / run_id
     (run_dir / "outputs").mkdir(parents=True)
     (run_dir / "run_metadata.json").write_text(json.dumps({"run_id": run_id, "status": "completed"}))
@@ -119,6 +163,17 @@ def test_failed_evaluation_request_validation_does_not_create_artifacts_or_succe
 
     assert not (runs_root / "run_123" / "outputs" / "evaluations").exists()
     assert not ledger.exists()
+
+
+def test_post_run_evaluation_rejects_legacy_run_without_research_problem_provider_metadata(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    write_legacy_run_without_research_problem(runs_root)
+    request_path = write_request(tmp_path / "request.yaml")
+
+    with pytest.raises(EvaluationRequestError, match="research_problem provider metadata is required"):
+        run_post_run_evaluation(request_path, runs_root=runs_root, ledger_path=tmp_path / "ledger.jsonl")
+
+    assert not (runs_root / "run_123" / "outputs" / "evaluations").exists()
 
 
 def write_fake_problem_provider_without_evaluation_adapter(root: Path) -> None:
