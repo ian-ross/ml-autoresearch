@@ -257,6 +257,7 @@ def test_autonomy_step_default_pi_command_records_sessions_beside_agent_workspac
 
 class FakeNativeBackend:
     name = "fake-native"
+    provider_ids: list[str] = []
 
     def smoke_test(self, run_dir: str | Path) -> OperationResult:
         Path(run_dir, "outputs", "model_summary.json").write_text('{"ok": true}\n')
@@ -275,8 +276,14 @@ class FakeNativeBackend:
         )
 
     def train_research_problem(self, run_dir: str | Path, provider_config, *, max_samples: int | None = None, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n") -> OperationResult:
+        self.provider_ids.append(provider_config.id)
         outputs = Path(run_dir, "outputs")
-        outputs.mkdir(exist_ok=True)
+        (outputs / "logs").mkdir(parents=True, exist_ok=True)
+        (outputs / "logs" / "training.log").write_text("trained\n")
+        (outputs / "metrics.jsonl").write_text('{"val/dice": 0.5}\n')
+        (outputs / "best_metrics.json").write_text(
+            json.dumps({"selection_metric": "val/dice", "selection_value": 0.5, "metrics": {"val/dice": 0.5}}) + "\n"
+        )
         (outputs / "final_metrics.json").write_text('{"val/dice": 0.5}\n')
         return OperationResult(backend=self.name, operation="train_research_problem")
 
@@ -305,6 +312,7 @@ def test_autonomy_step_execute_candidate_submission_runs_one_run_after_ingestion
     data_root = tmp_path / "gvccs"
     data_root.mkdir()
     _write_completed_run(tmp_path, "run_prior", data_root=data_root)
+    FakeNativeBackend.provider_ids = []
     monkeypatch.setattr(execution, "NativeBackend", FakeNativeBackend)
     fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
 
@@ -316,6 +324,7 @@ def test_autonomy_step_execute_candidate_submission_runs_one_run_after_ingestion
     execution_result = result.ingestion["next_action_result"]
     assert execution_result["action"] == "run_candidate"
     assert execution_result["run_status"] == "completed"
+    assert FakeNativeBackend.provider_ids == ["tiny_problem"]
     runs = sorted((tmp_path / "runs").glob("run_*"))
     assert len(runs) == 2
     events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]

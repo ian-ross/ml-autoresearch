@@ -44,7 +44,7 @@ def run_experiment_batch_with_research_problem(
     """Validate and synchronously execute a bounded Experiment Batch through a Research Problem provider."""
 
     registry = ResearchProblemSpecRegistry(active_id=provider_config.id)
-    load_research_problem_provider(provider_config, registry=registry)
+    loaded = load_research_problem_provider(provider_config, registry=registry)
     return _run_experiment_batch(
         batch_dir,
         batches_root=batches_root,
@@ -55,6 +55,7 @@ def run_experiment_batch_with_research_problem(
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=ledger_path,
         research_problem_registry=registry,
+        research_problem=loaded.run_metadata(),
         train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_research_problem(
             run_dir,
             provider_config,
@@ -79,6 +80,7 @@ def _run_experiment_batch(
     ledger_path: str | Path | None,
     train_accepted,
     research_problem_registry=None,
+    research_problem: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Shared synchronous Experiment Batch executor.
 
@@ -112,6 +114,7 @@ def _run_experiment_batch(
         max_parallel_runs=worker_count,
         candidates=candidate_records,
         runs=[],
+        research_problem=research_problem,
     )
     record_research_event(
         "experiment_batch_created",
@@ -192,6 +195,7 @@ def _run_experiment_batch(
         max_parallel_runs=worker_count,
         candidates=candidate_records,
         runs=run_records,
+        research_problem=research_problem,
     )
     record_research_event(
         "experiment_batch_completed",
@@ -348,6 +352,7 @@ def _write_batch_metadata(
     max_parallel_runs: int,
     candidates: list[dict[str, object]],
     runs: list[dict[str, object]],
+    research_problem: dict[str, object] | None = None,
 ) -> None:
     payload = {
         "schema_version": "experiment_batch.v1",
@@ -362,6 +367,8 @@ def _write_batch_metadata(
         "candidates": candidates,
         "runs": runs,
     }
+    if research_problem is not None:
+        payload["research_problem"] = research_problem
     (batch_dir / "batch_metadata.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 

@@ -248,3 +248,11 @@ def test_experiment_batch_uses_generic_research_problem_training_dispatch(tmp_pa
 
     assert result["status"] == "completed"
     assert backend.provider_ids == ["other_problem"]
+    assert result["research_problem"]["id"] == "other_problem"
+    assert result["research_problem"]["version"] == "v0"
+    assert result["research_problem"]["contract_version"] == "v0"
+    assert result["research_problem"]["provider"]["target"] == "problem_pkg.provider:build_spec"
+    assert result["research_problem"]["provider"]["resolved_package_root"] == str(provider_root.resolve())
+    run_id = result["runs"][0]["run_id"]
+    run_metadata = json.loads((tmp_path / "runs" / run_id / "run_metadata.json").read_text())
+    assert run_metadata["research_problem"] == result["research_problem"]

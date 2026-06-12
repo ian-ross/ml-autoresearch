@@ -317,7 +317,7 @@ def legacy_smoke_research_problem_spec() -> ResearchProblemSpec:
 
     Production training/evaluation still requires an explicit filesystem Research
     Problem provider; this spec exists only to keep direct smoke-test APIs and
-    old fixtures decoupled from any GVCCS-specific default.
+    old fixtures decoupled from any Research Problem-specific default.
     """
 
     return ResearchProblemSpec(
