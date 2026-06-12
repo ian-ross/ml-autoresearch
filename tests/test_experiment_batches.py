@@ -8,8 +8,8 @@ from ml_autoresearch.batches import (
     ExperimentBatchError,
     get_batch_summary,
     list_batches,
-    run_experiment_batch_with_synthetic_fixture,
 )
+from research_problem_helpers import run_experiment_batch_with_synthetic_fixture
 from ml_autoresearch.errors import TrainingError
 from ml_autoresearch.execution import OperationResult
 
@@ -24,7 +24,15 @@ class FastBackend:
     def smoke_test(self, run_dir):
         return OperationResult(backend=self.name, operation="smoke_test")
 
-    def train_synthetic(self, run_dir, *, max_prediction_samples=2, prediction_sample_policy="first_n"):
+    def train_research_problem(
+        self,
+        run_dir,
+        provider_config,
+        *,
+        max_samples: int | None = None,
+        max_prediction_samples: int = 2,
+        prediction_sample_policy: str = "first_n",
+    ) -> OperationResult:
         path = Path(run_dir)
         candidate_name = json.loads((path / "run_metadata.json").read_text())["candidate_source"]["path"].split("/")[-1]
         if self.sleep_seconds:
@@ -39,10 +47,8 @@ class FastBackend:
             json.dumps({"selection_metric": "val/dice", "selection_value": 0.5, "metrics": {"val/dice": 0.5}}) + "\n"
         )
         (outputs / "final_metrics.json").write_text(json.dumps({"val/dice": 0.5}) + "\n")
-        return OperationResult(backend=self.name, operation="train_synthetic")
+        return OperationResult(backend=self.name, operation="train_research_problem")
 
-    def train_gvccs(self, *args, **kwargs):
-        raise NotImplementedError
 
     def evaluate_run(self, *args, **kwargs):
         raise NotImplementedError
@@ -196,7 +202,13 @@ def test_experiment_batch_uses_generic_research_problem_training_dispatch(tmp_pa
 
         def train_research_problem(self, run_dir, provider_config, *, max_samples=None, max_prediction_samples=2, prediction_sample_policy="first_n"):
             self.provider_ids.append(provider_config.id)
-            return self.train_synthetic(run_dir, max_prediction_samples=max_prediction_samples, prediction_sample_policy=prediction_sample_policy)
+            return super().train_research_problem(
+                run_dir,
+                provider_config,
+                max_samples=max_samples,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+            )
 
     batch_dir = write_batch(tmp_path, ["variant_a"])
     provider_root = tmp_path / "provider"

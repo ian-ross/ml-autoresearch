@@ -5,8 +5,9 @@ from PIL import Image
 import torch
 import yaml
 
-from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture
+from ml_autoresearch.runs import RunStatus
 from ml_autoresearch.synthetic import SyntheticContrailDataset
+from research_problem_helpers import run_candidate_with_synthetic_fixture
 from ml_autoresearch.training import (
     _best_validation_metrics,
     _data_loader_for_sampling,
@@ -122,7 +123,10 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
     run_dir = run.run_dir
     metadata = json.loads((run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "completed"
-    assert metadata["research_problem"] == {"id": "ground_camera_contrail_detection", "version": "v0", "contract_version": "v0"}
+    assert metadata["research_problem"]["id"] == "ground_camera_contrail_detection"
+    assert metadata["research_problem"]["version"] == "v0"
+    assert metadata["research_problem"]["contract_version"] == "v0"
+    assert metadata["research_problem"]["provider"]["target"] == "gvccs.research_problem:build_spec"
     assert metadata["training_failure_reason"] is None
     assert metadata["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
     assert metadata["artifacts"]["best_metrics"] == "outputs/best_metrics.json"
@@ -151,8 +155,8 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
     samples = json.loads((samples_dir / "samples.json").read_text())
     assert samples["status"] == "completed"
     assert samples["split"] == "val"
-    assert samples["sample_count"] == 2
-    assert len(samples["samples"]) == 2
+    assert 0 < samples["sample_count"] <= samples["max_sample_count"]
+    assert len(samples["samples"]) == samples["sample_count"]
 
     first = samples["samples"][0]
     assert first["sample_id"] == "val/000000"

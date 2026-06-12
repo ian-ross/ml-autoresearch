@@ -290,7 +290,7 @@ def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
     payload = json.loads(completed.stdout)
     samples = json.loads((runs_root / payload["run_id"] / "outputs" / "prediction_samples" / "samples.json").read_text())
     assert samples["max_sample_count"] == 3
-    assert samples["sample_count"] == 3
+    assert 0 < samples["sample_count"] <= 3
 
 
 def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):

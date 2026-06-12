@@ -254,10 +254,13 @@ class ResearchProblemSpecRegistry:
         specs: Iterable[ResearchProblemSpec] = (),
         *,
         active_id: str | None = None,
+        default_id: str | None = None,
     ) -> None:
+        if active_id is not None and default_id is not None and active_id != default_id:
+            raise ValueError("active_id and default_id must match when both are provided")
         self._specs: dict[str, ResearchProblemSpec] = {}
         self._provenance: dict[str, ResearchProblemProviderProvenance] = {}
-        self._active_id = active_id
+        self._active_id = active_id if active_id is not None else default_id
         for spec in specs:
             self.register(spec)
 
@@ -304,6 +307,43 @@ class ResearchProblemSpecRegistry:
 
         self.get(spec_id)
         return self._provenance.get(spec_id)
+
+
+_BUILTIN_REGISTRY = ResearchProblemSpecRegistry()
+
+
+def legacy_smoke_research_problem_spec() -> ResearchProblemSpec:
+    """Compatibility-only smoke-test spec for legacy direct submissions.
+
+    Production training/evaluation still requires an explicit filesystem Research
+    Problem provider; this spec exists only to keep direct smoke-test APIs and
+    old fixtures decoupled from any GVCCS-specific default.
+    """
+
+    return ResearchProblemSpec(
+        id="legacy_smoke_problem",
+        version="compat-v0",
+        contract_version="v0",
+        input_modes=("single_frame_rgb",),
+        input_specs={"single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 128, 128]}},
+        output_forms=("mask_logits",),
+        output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 128, 128]}},
+        auxiliary_targets=("line", "boundary"),
+        auxiliary_outputs={"line": "line_logits", "boundary": "boundary_logits"},
+        auxiliary_output_shapes={"line": [1, 128, 128], "boundary": [1, 128, 128]},
+        losses=("bce_dice",),
+        auxiliary_losses=("weighted_bce",),
+        optimizers=("adamw",),
+        sampling_policies=("sequential",),
+        frame_selection_policies=("all_target_frames",),
+        augmentation_policies=("none",),
+        primary_metric="val/dice",
+    )
+
+
+def legacy_smoke_research_problem_registry() -> ResearchProblemSpecRegistry:
+    spec = legacy_smoke_research_problem_spec()
+    return ResearchProblemSpecRegistry((spec,), active_id=spec.id)
 
 
 def load_research_problem_provider(

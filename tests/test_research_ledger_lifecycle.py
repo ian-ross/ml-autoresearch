@@ -14,9 +14,9 @@ from ml_autoresearch.execution import DockerOperationTimeoutError, OperationResu
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER
 from ml_autoresearch.runs import (
     RunStatus,
-    run_candidate_with_synthetic_fixture,
     submit_candidate,
 )
+from research_problem_helpers import run_candidate_with_synthetic_fixture
 from conftest import invoke_typer_cli
 
 
@@ -273,10 +273,10 @@ def test_run_candidate_with_synthetic_fixture_records_run_failed_on_training_err
     from ml_autoresearch import execution
     from ml_autoresearch.training import TrainingError
 
-    def boom(self, run_dir, *, max_prediction_samples=2, prediction_sample_policy="first_n"):
+    def boom(self, run_dir, provider_config, *, max_samples=None, max_prediction_samples=2, prediction_sample_policy="first_n"):
         raise TrainingError("synthetic training exploded")
 
-    monkeypatch.setattr(execution.NativeBackend, "train_synthetic", boom)
+    monkeypatch.setattr(execution.NativeBackend, "train_research_problem", boom)
 
     run = run_candidate_with_synthetic_fixture(candidate, runs_root, ledger_path=ledger)
 
@@ -329,14 +329,13 @@ class TimeoutBackend:
     def smoke_test(self, run_dir):
         return OperationResult(backend=self.name, operation="smoke_test")
 
-    def train_synthetic(self, run_dir, *, max_prediction_samples=2, prediction_sample_policy="first_n"):
+    def train_research_problem(
+        self, run_dir, provider_config, *, max_samples=None, max_prediction_samples=2, prediction_sample_policy="first_n"
+    ):
         raise DockerOperationTimeoutError(
             "wall-clock budget exhausted",
             timeout_metadata={"requested": True, "forced_termination": True},
         )
-
-    def train_gvccs(self, run_dir, data_root, *, max_samples=None, max_prediction_samples=2, prediction_sample_policy="first_n"):
-        raise NotImplementedError
 
 
 def test_run_candidate_with_synthetic_fixture_classifies_forced_timeout_as_resource_failure(tmp_path: Path) -> None:

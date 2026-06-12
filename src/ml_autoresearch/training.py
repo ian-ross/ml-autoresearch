@@ -388,7 +388,29 @@ def _dataset_with_augmentation_policy(dataset, augmentation_policy: str, trainin
         return training_adapter.apply_augmentation_policy(dataset, augmentation_policy)
     if augmentation_policy == "none":
         return dataset
+    if augmentation_policy in {"light_geometric", "light_photometric", "light_combined"}:
+        return _LegacyLightAugmentedDataset(dataset, augmentation_policy)
     raise TrainingError(f"unsupported augmentation policy: {augmentation_policy}")
+
+
+class _LegacyLightAugmentedDataset:
+    """Compatibility wrapper for old synthetic fixture augmentation tests."""
+
+    def __init__(self, dataset, augmentation_policy: str) -> None:
+        self.dataset = dataset
+        self.augmentation_policy = augmentation_policy
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        image, mask = self.dataset[index]
+        if self.augmentation_policy in {"light_geometric", "light_combined"}:
+            image = torch.flip(image, dims=[2])
+            mask = torch.flip(mask, dims=[2])
+        if self.augmentation_policy in {"light_photometric", "light_combined"}:
+            image = torch.clamp(image * 0.97 + 0.015, 0.0, 1.0)
+        return image, mask
 
 
 def _primary_output_name(output_spec: dict[str, object], training_adapter: ResearchProblemTrainingAdapter | object | None = None) -> str:

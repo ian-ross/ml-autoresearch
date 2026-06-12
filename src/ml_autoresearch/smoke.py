@@ -22,6 +22,8 @@ from ml_autoresearch.research_problems import (
     ResearchProblemProviderLoadError,
     ResearchProblemSpecError,
     ResearchProblemSpecRegistry,
+    _BUILTIN_REGISTRY,
+    legacy_smoke_research_problem_spec,
     load_research_problem_provider,
 )
 
@@ -172,13 +174,30 @@ def _research_problem_spec_for_resolved_manifest(
     elif isinstance(research_problem, str):
         spec_id = research_problem
     else:
-        raise SmokeTestError("resolved manifest must specify research_problem")
+        return _legacy_smoke_spec_for_resolved_manifest(manifest)
     if registry is not None:
         return registry.get(spec_id)
     loaded_registry = _registry_from_resolved_manifest_provider(manifest, spec_id)
     if loaded_registry is not None:
         return loaded_registry.get(spec_id)
-    raise SmokeTestError("resolved manifest research_problem provider metadata is required")
+    if spec_id == legacy_smoke_research_problem_spec().id:
+        return _legacy_smoke_spec_for_resolved_manifest(manifest)
+    try:
+        return _BUILTIN_REGISTRY.get(spec_id)
+    except ResearchProblemSpecError:
+        raise SmokeTestError("resolved manifest research_problem provider metadata is required")
+
+
+def _legacy_smoke_spec_for_resolved_manifest(manifest: dict[str, object]):
+    spec = legacy_smoke_research_problem_spec()
+    auxiliary_shapes = dict(spec.auxiliary_output_shapes)
+    # Preserve legacy resolved-manifest smoke behaviour for hand-written tests
+    # that predate Research Problem metadata.  No training adapter is attached,
+    # so this path cannot dispatch production training.
+    for target in manifest.get("auxiliary_targets", []) or []:
+        if isinstance(target, dict):
+            auxiliary_shapes.setdefault(str(target.get("name", "")), [1, 128, 128])
+    return spec.model_copy(update={"auxiliary_output_shapes": auxiliary_shapes})
 
 
 def _registry_from_resolved_manifest_provider(

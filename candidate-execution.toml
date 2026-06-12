@@ -16,7 +16,7 @@ prediction_sample_policy = "first_n"
 
 [research_problem]
 id = "ground_camera_contrail_detection"
-package_root = "."
-provider_target = "ml_autoresearch.research_problems:build_ground_camera_contrail_detection_spec"
+package_root = "/home/iross/code/gvccs-research-problem"
+provider_target = "gvccs.research_problem:build_spec"
 expected_contract_version = "v0"
 data_config = { dataset_root = "/net/d16/data/iross/GVCCS" }

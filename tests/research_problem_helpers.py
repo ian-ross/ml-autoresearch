@@ -44,6 +44,12 @@ def require_test_research_problem_root() -> Path:
 
 
 def gvccs_research_problem_root() -> Path:
+    configured = os.environ.get(GVCCS_PROBLEM_ROOT_ENV)
+    if configured:
+        return _ensure_external_package_root(GVCCS_PROBLEM_ROOT_ENV, "GVCCS")
+    local_checkout = Path("/home/iross/code/gvccs-research-problem")
+    if local_checkout.is_dir():
+        return local_checkout.resolve()
     return _ensure_external_package_root(GVCCS_PROBLEM_ROOT_ENV, "GVCCS")
 
 
@@ -80,3 +86,48 @@ def gvccs_registry(data_root: str | Path | None = None, *, package_root: Path | 
 
 def run_candidate_with_gvccs_data(candidate_dir, runs_root, data_root, *, package_root: Path | str | None = None, **kwargs):
     return run_candidate_with_research_problem(candidate_dir, runs_root, gvccs_provider_config(data_root, package_root=package_root), **kwargs)
+
+
+def run_candidate_with_synthetic_fixture(
+    candidate_dir,
+    runs_root,
+    *,
+    data_root: str | Path | None = None,
+    package_root: Path | str | None = None,
+    **kwargs,
+):
+    resolved_root = Path(data_root) if data_root is not None else REPO_ROOT / "tests" / "fixtures" / "gvccs_like"
+    return run_candidate_with_research_problem(candidate_dir, runs_root, gvccs_provider_config(resolved_root, package_root=package_root), **kwargs)
+
+
+def run_experiment_batch_with_synthetic_fixture(
+    batch_dir,
+    *,
+    batches_root,
+    runs_root,
+    backend=None,
+    max_parallel_runs: int = 4,
+    max_samples: int | None = None,
+    max_prediction_samples: int = 2,
+    prediction_sample_policy: str = "first_n",
+    ledger_path: Path | str | None = None,
+    data_root: str | Path | None = None,
+    package_root: Path | str | None = None,
+    **kwargs,
+):
+    from ml_autoresearch.batches import run_experiment_batch_with_research_problem
+
+    resolved_root = Path(data_root) if data_root is not None else REPO_ROOT / "tests" / "fixtures" / "gvccs_like"
+    return run_experiment_batch_with_research_problem(
+        batch_dir,
+        batches_root=batches_root,
+        runs_root=runs_root,
+        provider_config=gvccs_provider_config(resolved_root, package_root=package_root),
+        backend=backend,
+        max_parallel_runs=max_parallel_runs,
+        max_samples=max_samples,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+        ledger_path=ledger_path,
+        **kwargs,
+    )

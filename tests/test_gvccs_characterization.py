@@ -11,7 +11,8 @@ from ml_autoresearch.research_problems import (
     ResearchProblemSpec,
     ResearchProblemSpecRegistry,
 )
-from ml_autoresearch.runs import RunStatus, run_candidate_with_synthetic_fixture, submit_candidate
+from ml_autoresearch.runs import RunStatus, submit_candidate
+from research_problem_helpers import run_candidate_with_synthetic_fixture
 from ml_autoresearch.smoke import smoke_specs_from_resolved_manifest
 
 

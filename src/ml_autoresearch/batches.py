@@ -12,13 +12,12 @@ from typing import Any
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import ExecutionBackend
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
-from ml_autoresearch.research_problems import ResearchProblemProviderConfig
+from ml_autoresearch.research_problems import ResearchProblemProviderConfig, ResearchProblemSpecRegistry, load_research_problem_provider
 from ml_autoresearch.runs import (
     RunStatus,
     get_run_summary,
     submit_candidate,
     train_accepted_run_with_research_problem,
-    train_accepted_run_with_synthetic_fixture,
 )
 
 MAX_BATCH_SIZE = 4
@@ -27,38 +26,6 @@ MAX_PARALLEL_RUNS = 4
 
 class ExperimentBatchError(ValueError):
     """Raised when an Experiment Batch cannot be validated or executed."""
-
-
-def run_experiment_batch_with_synthetic_fixture(
-    batch_dir: str | Path,
-    *,
-    batches_root: str | Path,
-    runs_root: str | Path,
-    backend: ExecutionBackend | None = None,
-    max_parallel_runs: int = MAX_PARALLEL_RUNS,
-    max_prediction_samples: int = 2,
-    prediction_sample_policy: str = "first_n",
-    ledger_path: str | Path | None = None,
-) -> dict[str, object]:
-    """Validate and synchronously execute a bounded synthetic-fixture Experiment Batch."""
-
-    return _run_experiment_batch(
-        batch_dir,
-        batches_root=batches_root,
-        runs_root=runs_root,
-        backend=backend,
-        max_parallel_runs=max_parallel_runs,
-        max_prediction_samples=max_prediction_samples,
-        prediction_sample_policy=prediction_sample_policy,
-        ledger_path=ledger_path,
-        train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_synthetic_fixture(
-            run_dir,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-            backend=selected_backend,
-            ledger_path=resolved_ledger_path,
-        ),
-    )
 
 
 def run_experiment_batch_with_research_problem(
@@ -76,6 +43,8 @@ def run_experiment_batch_with_research_problem(
 ) -> dict[str, object]:
     """Validate and synchronously execute a bounded Experiment Batch through a Research Problem provider."""
 
+    registry = ResearchProblemSpecRegistry(active_id=provider_config.id)
+    load_research_problem_provider(provider_config, registry=registry)
     return _run_experiment_batch(
         batch_dir,
         batches_root=batches_root,
@@ -85,6 +54,7 @@ def run_experiment_batch_with_research_problem(
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=ledger_path,
+        research_problem_registry=registry,
         train_accepted=lambda run_dir, selected_backend, resolved_ledger_path: train_accepted_run_with_research_problem(
             run_dir,
             provider_config,
@@ -108,6 +78,7 @@ def _run_experiment_batch(
     prediction_sample_policy: str,
     ledger_path: str | Path | None,
     train_accepted,
+    research_problem_registry=None,
 ) -> dict[str, object]:
     """Shared synchronous Experiment Batch executor.
 
@@ -117,7 +88,7 @@ def _run_experiment_batch(
     """
 
     batch_path = Path(batch_dir)
-    candidates = _validate_batch_directory(batch_path)
+    candidates = _validate_batch_directory(batch_path, research_problem_registry=research_problem_registry)
     runs_root_path = Path(runs_root)
     batches_root_path = Path(batches_root)
     resolved_ledger_path = Path(ledger_path) if ledger_path is not None else batches_root_path.parent / CANONICAL_RESEARCH_LEDGER
@@ -175,6 +146,7 @@ def _run_experiment_batch(
                 backend,
                 resolved_ledger_path,
                 train_accepted,
+                research_problem_registry,
             ): (candidate_path, manifest.name)
             for candidate_path, manifest in candidates
         }
@@ -325,8 +297,16 @@ def _submit_and_train_batch_candidate(
     backend: ExecutionBackend | None,
     ledger_path: Path,
     train_accepted,
+    research_problem_registry=None,
 ):
-    run = submit_candidate(candidate_path, runs_root, backend=backend, ledger_path=ledger_path, require_proposal=False)
+    run = submit_candidate(
+        candidate_path,
+        runs_root,
+        backend=backend,
+        ledger_path=ledger_path,
+        require_proposal=False,
+        research_problem_registry=research_problem_registry,
+    )
     _tag_run_with_batch(run.run_dir, batch_id=batch_id, candidate_id=candidate_id)
     if run.status == RunStatus.ACCEPTED:
         record_research_event(

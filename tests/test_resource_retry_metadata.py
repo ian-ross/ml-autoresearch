@@ -4,7 +4,8 @@ from pathlib import Path
 import yaml
 
 from ml_autoresearch.execution import OperationResult
-from ml_autoresearch.runs import RunStatus, is_resource_failure, run_candidate_with_synthetic_fixture
+from ml_autoresearch.runs import RunStatus, is_resource_failure
+from research_problem_helpers import run_candidate_with_synthetic_fixture
 
 
 VALID_MODEL = """
@@ -54,8 +55,14 @@ class SimulatedResourceBackend:
         (path / "outputs" / "logs" / "smoke_test.log").write_text("ok\n")
         return OperationResult(backend=self.name, operation="smoke_test")
 
-    def train_synthetic(
-        self, run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n"
+    def train_research_problem(
+        self,
+        run_dir: str | Path,
+        provider_config,
+        *,
+        max_samples: int | None = None,
+        max_prediction_samples: int = 2,
+        prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
         path = Path(run_dir)
         manifest = yaml.safe_load((path / "resolved_manifest.yaml").read_text())
@@ -69,7 +76,7 @@ class SimulatedResourceBackend:
         final = {"val/dice": 0.5, "artifacts": {"best_metrics": "outputs/best_metrics.json"}}
         (outputs / "final_metrics.json").write_text(json.dumps(final) + "\n")
         (outputs / "best_metrics.json").write_text(json.dumps({"selection_metric": "val/dice", "selection_value": 0.5}) + "\n")
-        return OperationResult(backend=self.name, operation="train_synthetic")
+        return OperationResult(backend=self.name, operation="train_research_problem")
 
 
 def test_resource_failure_classifier_recognizes_gpu_oom():

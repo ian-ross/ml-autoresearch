@@ -21,6 +21,7 @@ from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchL
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
     ResearchProblemSpecRegistry,
+    legacy_smoke_research_problem_registry,
     load_research_problem_provider,
 )
 
@@ -102,17 +103,19 @@ def run_candidate_with_synthetic_fixture(
     require_proposal: bool = False,
     provider_config: ResearchProblemProviderConfig | None = None,
 ) -> RunSubmission:
-    """Validate, smoke-test, and synchronously train a Candidate Experiment Run."""
+    """Compatibility wrapper that dispatches through a Research Problem provider."""
 
-    return _run_candidate_synthetic_training(
+    if provider_config is None:
+        raise CandidateValidationError("research_problem provider config is required for fixture Runs")
+    return run_candidate_with_research_problem(
         candidate_dir,
         runs_root,
+        provider_config,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
         ledger_path=ledger_path,
         require_proposal=require_proposal,
-        provider_config=provider_config,
     )
 
 
@@ -419,6 +422,7 @@ def _train_accepted_run(
     resource_lifecycle = None
     try:
         training_result, resource_lifecycle = _run_with_resource_retries(run.run_dir, lambda: trainer(run.run_dir))
+        artifacts = _validate_training_outputs(run.run_dir, training_result)
     except DockerOperationTimeoutError as exc:
         reason = str(exc)
         _write_training_failure_log(run.run_dir, reason)
@@ -480,7 +484,7 @@ def _train_accepted_run(
         rejection_reason=None,
         smoke_failure_reason=None,
         training_failure_reason=None,
-        artifacts=_artifacts_from_training_result(training_result),
+        artifacts=artifacts,
         execution_backend=execution_backend,
         dataset=dataset,
         research_problem=research_problem,
@@ -741,6 +745,9 @@ def submit_candidate(
     validation_log = logs_dir / "validation.log"
 
     created_at = _now_iso()
+
+    if research_problem_registry is None:
+        research_problem_registry = legacy_smoke_research_problem_registry()
 
     try:
         manifest = validate_candidate_directory(
@@ -1195,6 +1202,31 @@ def _validate_synthetic_training_outputs(run_dir: Path) -> dict[str, object] | N
         if isinstance(best_epoch_model, str) and not (run_dir / best_epoch_model).exists():
             raise TrainingError(f"required synthetic training artifact is missing: {best_epoch_model}")
         return artifacts
+    return None
+
+
+def _validate_training_outputs(run_dir: Path, training_result: object) -> dict[str, object] | None:
+    outputs_dir = _outputs_dir(run_dir)
+    required = [
+        outputs_dir / "metrics.jsonl",
+        outputs_dir / "final_metrics.json",
+        outputs_dir / "best_metrics.json",
+        outputs_dir / "logs" / "training.log",
+    ]
+    for path in required:
+        if not path.exists():
+            raise TrainingError(
+                f"required training artifact is missing: {path.relative_to(run_dir)}; "
+                "required synthetic training artifact is missing"
+            )
+    try:
+        final_metrics = json.loads((outputs_dir / "final_metrics.json").read_text())
+    except Exception as exc:  # noqa: BLE001
+        raise TrainingError(f"required training artifact is invalid: outputs/final_metrics.json: {exc}") from exc
+    if isinstance(training_result, dict) and isinstance(training_result.get("artifacts"), dict):
+        return training_result["artifacts"]
+    if isinstance(final_metrics, dict) and isinstance(final_metrics.get("artifacts"), dict):
+        return final_metrics["artifacts"]
     return None
 
 

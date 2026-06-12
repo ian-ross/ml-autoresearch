@@ -579,7 +579,6 @@ def run_experiment_batch_command(
     from ml_autoresearch.batches import (
         ExperimentBatchError,
         run_experiment_batch_with_research_problem,
-        run_experiment_batch_with_synthetic_fixture,
     )
     from ml_autoresearch.candidate_execution_config import (
         CandidateExecutionConfigError,
@@ -590,34 +589,25 @@ def run_experiment_batch_command(
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
-        if synthetic_fixture:
-            result = run_experiment_batch_with_synthetic_fixture(
-                batch,
-                batches_root=batches_root,
-                runs_root=runs_root,
-                backend=selected_backend,
-                max_parallel_runs=max_parallel_runs,
-                max_prediction_samples=max_prediction_samples,
-                prediction_sample_policy=prediction_sample_policy,
-                ledger_path=ledger_path,
-            )
-        else:
-            config = load_candidate_execution_config(project_root)
-            provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root)
-            if provider_config is None:
-                raise typer.BadParameter("configure [research_problem] in candidate-execution.toml")
-            result = run_experiment_batch_with_research_problem(
-                batch,
-                batches_root=batches_root,
-                runs_root=runs_root,
-                provider_config=provider_config,
-                backend=selected_backend,
-                max_parallel_runs=max_parallel_runs,
-                max_samples=max_samples,
-                max_prediction_samples=max_prediction_samples,
-                prediction_sample_policy=prediction_sample_policy,
-                ledger_path=ledger_path,
-            )
+        config = load_candidate_execution_config(project_root)
+        if synthetic_fixture and data_root is not None:
+            raise typer.BadParameter("choose either --synthetic-fixture or --data-root, not both")
+        data_root_override = (Path(project_root).resolve() / "tests" / "fixtures" / "gvccs_like") if synthetic_fixture else data_root
+        provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root_override)
+        if provider_config is None:
+            raise typer.BadParameter("configure [research_problem] in candidate-execution.toml")
+        result = run_experiment_batch_with_research_problem(
+            batch,
+            batches_root=batches_root,
+            runs_root=runs_root,
+            provider_config=provider_config,
+            backend=selected_backend,
+            max_parallel_runs=max_parallel_runs,
+            max_samples=max_samples if not synthetic_fixture else None,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            ledger_path=ledger_path,
+        )
     except (CandidateExecutionConfigError, ExperimentBatchError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -690,37 +680,26 @@ def run_candidate_command(
         resolve_configured_research_problem_provider,
     )
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
-    from ml_autoresearch.runs import run_candidate_with_research_problem, run_candidate_with_synthetic_fixture
+    from ml_autoresearch.runs import run_candidate_with_research_problem
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
         config = load_candidate_execution_config(project_root)
-        provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root)
+        data_root_override = (Path(project_root).resolve() / "tests" / "fixtures" / "gvccs_like") if synthetic_fixture else data_root
+        provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root_override)
         if provider_config is None:
             raise typer.BadParameter("configure [research_problem] in candidate-execution.toml")
-        if synthetic_fixture:
-            run = run_candidate_with_synthetic_fixture(
-                candidate,
-                runs_root,
-                max_prediction_samples=max_prediction_samples,
-                prediction_sample_policy=prediction_sample_policy,
-                backend=selected_backend,
-                ledger_path=ledger_path,
-                require_proposal=require_proposal,
-                provider_config=provider_config,
-            )
-        else:
-            run = run_candidate_with_research_problem(
-                candidate,
-                runs_root,
-                provider_config,
-                max_samples=max_samples,
-                max_prediction_samples=max_prediction_samples,
-                prediction_sample_policy=prediction_sample_policy,
-                backend=selected_backend,
-                ledger_path=ledger_path,
-                require_proposal=require_proposal,
-            )
+        run = run_candidate_with_research_problem(
+            candidate,
+            runs_root,
+            provider_config,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            backend=selected_backend,
+            ledger_path=ledger_path,
+            require_proposal=require_proposal,
+        )
     except (CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
     _echo_run(run)
