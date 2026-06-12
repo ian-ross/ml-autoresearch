@@ -33,7 +33,7 @@ Agents can package a batch as one primary handoff with `prepare-experiment-batch
 
 ## Execution
 
-Use `run-experiment-batch --synthetic-fixture` for synthetic fixture execution, or provide `--data-root` for GVCCS execution. Batch execution remains synchronous from the caller's perspective: the command returns only after all sibling Runs have completed or failed. The Harness records `experiment_batch_created`, `batch_candidate_created`, `batch_run_started`, and `experiment_batch_completed` Research Ledger events while preserving existing per-Run audit events.
+`run-experiment-batch` executes each candidate through the configured Research Problem in the project-local `candidate-execution.toml`. Batch execution remains synchronous from the caller's perspective: the command returns only after all sibling Runs have completed or failed. The Harness records `experiment_batch_created`, `batch_candidate_created`, `batch_run_started`, and `experiment_batch_completed` Research Ledger events while preserving existing per-Run audit events.
 
 ## Artifacts
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from ml_autoresearch.cli import app
 from conftest import invoke_typer_cli
-
+from research_problem_helpers import write_fake_candidate_execution_config, write_fake_research_problem_package
 
 
 def write_valid_candidate(root: Path) -> Path:
@@ -150,9 +150,11 @@ def test_docker_gpu_enablement_is_rejected_for_native_backend(tmp_path: Path):
     assert "--docker-enable-gpu requires --backend docker" in completed.stderr
 
 
-def test_run_candidate_cli_rejects_missing_data_root_before_creating_run(tmp_path: Path):
+def test_run_candidate_cli_rejects_missing_dataset_root_before_training(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
+    write_fake_research_problem_package(tmp_path)
+    write_fake_candidate_execution_config(tmp_path, data_root=tmp_path / "missing")
 
     completed = run_cli(
         "run-candidate",
@@ -160,13 +162,13 @@ def test_run_candidate_cli_rejects_missing_data_root_before_creating_run(tmp_pat
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--data-root",
-        str(tmp_path / "missing"),
+        "--project-root",
+        str(tmp_path),
         "--backend",
         "native",
         "--no-require-proposal",
     )
 
     assert completed.returncode != 0
-    assert "GVCCS data root does not exist" in completed.stderr
+    assert "Research Problem data root does not exist" in completed.stderr
     assert not runs_root.exists()

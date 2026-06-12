@@ -122,13 +122,13 @@ tests/fixtures/candidates/single_frame_unet_baseline
 
 ## Running a Candidate Experiment
 
-Run against deterministic synthetic fixture data. `run-candidate` defaults to autonomous-mode proposal validation; the committed test fixture has no `PROPOSAL.md`, so these fixture examples use `--no-require-proposal`.
+Run against the configured Research Problem provider. `run-candidate` defaults to autonomous-mode proposal validation; the committed test fixture has no `PROPOSAL.md`, so these fixture examples use `--no-require-proposal`.
 
 ```bash
 uv run ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root runs \
-  --synthetic-fixture \
+  --project-root . \
   --no-require-proposal
 ```
 
@@ -144,13 +144,13 @@ The manual Docker command remains a valid fallback and builds the same default i
 docker build -t ml-autoresearch-runner:local .
 ```
 
-Run against the configured Research Problem data root using the default Docker backend. The current committed example is the initial Ground-Camera Contrail Detection Research Problem with a local GVCCS-like or real GVCCS data root:
+Run with custom execution policy overrides while reusing the same configured Research Problem provider (for example, with a custom data-root configured in `candidate-execution.toml`):
 
 ```bash
 uv run ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root runs \
-  --data-root /path/to/GVCCS \
+  --project-root . \
   --max-samples 8 \
   --prediction-sample-policy adjacent_and_scattered \
   --no-require-proposal
@@ -177,13 +177,11 @@ Opt in explicitly for Docker runs when running on a GPU-capable host or cluster 
 uv run ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root runs \
-  --data-root /path/to/GVCCS \
+  --project-root . \
   --max-samples 8 \
   --docker-enable-gpu \
   --no-require-proposal
 ```
-
-Real GVCCS data is not committed to this repository. The Docker backend validates the configured Research Problem data path, mounts it read-only at `/data`, and mounts the trusted provider package read-only; Candidate Experiments cannot choose data paths, provider packages, or mounts. See [`docs/gvccs-data.md`](docs/gvccs-data.md) for the GVCCS example layout.
 
 ## Inspecting local Runs
 

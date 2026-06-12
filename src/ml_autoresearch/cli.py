@@ -41,6 +41,7 @@ from ml_autoresearch.campaign_controls import (
     record_campaign_report_written,
     record_campaign_resume,
 )
+from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
@@ -87,6 +88,70 @@ def _select_backend(
             rootless_container_root=docker_rootless_container_root,
         )
     raise typer.BadParameter("backend must be native or docker")
+
+
+def _load_configured_provider(
+    project_root: Path,
+    *,
+    label: str = "run",
+):
+    from ml_autoresearch.candidate_execution_config import (
+        CONFIG_FILENAME,
+        CandidateExecutionConfigError,
+        load_candidate_execution_config,
+        resolve_configured_research_problem_provider,
+    )
+
+    root = Path(project_root).resolve()
+    if not root.is_dir():
+        raise CandidateExecutionConfigError(f"project-root does not exist or is not a directory: {root}")
+    config_path = root / CONFIG_FILENAME
+    if not config_path.is_file():
+        raise CandidateExecutionConfigError(
+            f"{config_path} not found; create a Research Problem execution config before {label}"
+        )
+
+    config = load_candidate_execution_config(root)
+    provider_config = resolve_configured_research_problem_provider(config)
+    if provider_config is None:
+        raise CandidateExecutionConfigError(f"configure [research_problem] in {config_path}")
+
+    resolved_data_root = _resolve_research_problem_data_root(provider_config.data_config, project_root=root)
+    if resolved_data_root is not None:
+        provider_config = resolve_configured_research_problem_provider(config, data_root_override=resolved_data_root)
+        if provider_config is None:
+            raise CandidateExecutionConfigError(f"configure [research_problem] in {config_path}")
+    return config, provider_config
+
+
+def _resolve_research_problem_data_root(configured_data_config: dict[str, object], *, project_root: Path) -> Path | None:
+    data_root = configured_data_config.get("dataset_root") or configured_data_config.get("data_root")
+    if data_root is None:
+        return None
+    if not isinstance(data_root, str):
+        raise CandidateExecutionConfigError("research_problem.data_config.dataset_root must be a string")
+    candidate_root = Path(data_root)
+    if not candidate_root.is_absolute():
+        candidate_root = Path(project_root) / candidate_root
+    if not candidate_root.exists():
+        raise CandidateExecutionConfigError(f"Research Problem data root does not exist: {candidate_root}")
+    if not candidate_root.is_dir():
+        raise CandidateExecutionConfigError(f"Research Problem data root is not a directory: {candidate_root}")
+    return candidate_root
+
+
+def _effective_execution_options(
+    config,
+    *,
+    max_samples: int | None,
+    max_prediction_samples: int | None,
+    prediction_sample_policy: str | None,
+) -> tuple[int | None, int, str]:
+    return (
+        config.max_samples if max_samples is None else max_samples,
+        config.max_prediction_samples if max_prediction_samples is None else max_prediction_samples,
+        config.prediction_sample_policy if prediction_sample_policy is None else prediction_sample_policy,
+    )
 
 
 def _echo_run(run) -> None:
@@ -469,17 +534,25 @@ def validate_candidate_command(
 
     from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError, load_configured_research_problem_registry
     from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
-    from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
+    from ml_autoresearch.research_problems import (
+        ResearchProblemProviderLoadError,
+        legacy_smoke_research_problem_registry,
+    )
 
     try:
-        registry = load_configured_research_problem_registry(project_root)
+        try:
+            registry = load_configured_research_problem_registry(project_root)
+            if registry is None:
+                registry = legacy_smoke_research_problem_registry()
+        except (CandidateExecutionConfigError, ResearchProblemProviderLoadError):
+            registry = legacy_smoke_research_problem_registry()
         manifest = validate_candidate_directory(
             candidate,
             require_proposal=require_proposal,
             require_readme=require_readme,
             research_problem_registry=registry,
         )
-    except (CandidateExecutionConfigError, CandidateValidationError, ResearchProblemProviderLoadError, OSError) as exc:
+    except (CandidateValidationError, OSError) as exc:
         _echo_json({"status": "invalid", "reason": str(exc)})
         raise typer.Exit(1) from exc
     _echo_json({"status": "valid", "manifest": manifest.model_dump(mode="json")})
@@ -545,19 +618,17 @@ def run_experiment_batch_command(
     batch: Annotated[Path, typer.Option(help="Path to a local Experiment Batch directory.")],
     batches_root: Annotated[Path, typer.Option(help="Directory where Experiment Batch artifact directories are created.")],
     runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
-    project_root: Annotated[Path, typer.Option(help="Project root containing optional candidate-execution.toml Research Problem provider config.")] = Path("."),
-    synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated fixture data.")] = False,
-    data_root: Annotated[Path | None, typer.Option("--data-root", help="Research Problem data root for non-synthetic batch execution.")] = None,
+    project_root: Annotated[Path, typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config.")] = Path("."),
     max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of Research Problem samples used.")] = None,
     max_parallel_runs: Annotated[int, typer.Option("--max-parallel-runs", help="Harness-owned parallel Run cap, capped at 4.")] = 4,
     max_prediction_samples: Annotated[
-        int,
+        int | None,
         typer.Option("--max-prediction-samples", help="Maximum number of qualitative prediction samples to write per Run."),
-    ] = 2,
+    ] = None,
     prediction_sample_policy: Annotated[
-        Literal["first_n", "adjacent_and_scattered"],
+        Literal["first_n", "adjacent_and_scattered"] | None,
         typer.Option("--prediction-sample-policy", help="Harness-owned qualitative Prediction Sample Policy."),
-    ] = "first_n",
+    ] = None,
     backend: Annotated[Literal["native", "docker"], typer.Option("--backend", help="Candidate Execution Boundary backend.")] = "docker",
     docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
     docker_enable_gpu: Annotated[
@@ -580,22 +651,17 @@ def run_experiment_batch_command(
         ExperimentBatchError,
         run_experiment_batch_with_research_problem,
     )
-    from ml_autoresearch.candidate_execution_config import (
-        CandidateExecutionConfigError,
-        load_candidate_execution_config,
-        resolve_configured_research_problem_provider,
-    )
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
-        config = load_candidate_execution_config(project_root)
-        if synthetic_fixture and data_root is not None:
-            raise typer.BadParameter("choose either --synthetic-fixture or --data-root, not both")
-        data_root_override = (Path(project_root).resolve() / "tests" / "fixtures" / "gvccs_like") if synthetic_fixture else data_root
-        provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root_override)
-        if provider_config is None:
-            raise typer.BadParameter("configure [research_problem] in candidate-execution.toml")
+        config, provider_config = _load_configured_provider(project_root, label="run-experiment-batch")
+        max_samples, max_prediction_samples, prediction_sample_policy = _effective_execution_options(
+            config,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
         result = run_experiment_batch_with_research_problem(
             batch,
             batches_root=batches_root,
@@ -603,12 +669,18 @@ def run_experiment_batch_command(
             provider_config=provider_config,
             backend=selected_backend,
             max_parallel_runs=max_parallel_runs,
-            max_samples=max_samples if not synthetic_fixture else None,
+            max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
             ledger_path=ledger_path,
         )
-    except (CandidateExecutionConfigError, ExperimentBatchError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
+    except (
+        CandidateExecutionConfigError,
+        ExperimentBatchError,
+        ResearchLedgerError,
+        ResearchProblemProviderLoadError,
+        OSError,
+    ) as exc:
         _exit_with_error(exc)
     _echo_json(result)
     if result.get("status") != "completed":
@@ -619,18 +691,16 @@ def run_experiment_batch_command(
 def run_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
     runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
-    project_root: Annotated[Path, typer.Option(help="Project root containing optional candidate-execution.toml Research Problem provider config.")] = Path("."),
-    synthetic_fixture: Annotated[bool, typer.Option("--synthetic-fixture", help="Use deterministic generated fixture data.")] = False,
-    data_root: Annotated[Path | None, typer.Option("--data-root", help="Research Problem data root.")] = None,
+    project_root: Annotated[Path, typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config.")] = Path("."),
     max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of Research Problem samples used.")] = None,
     max_prediction_samples: Annotated[
-        int,
+        int | None,
         typer.Option("--max-prediction-samples", help="Maximum number of qualitative prediction samples to write."),
-    ] = 2,
+    ] = None,
     prediction_sample_policy: Annotated[
-        Literal["first_n", "adjacent_and_scattered"],
+        Literal["first_n", "adjacent_and_scattered"] | None,
         typer.Option("--prediction-sample-policy", help="Harness-owned qualitative Prediction Sample Policy."),
-    ] = "first_n",
+    ] = None,
     backend: Annotated[Literal["native", "docker"], typer.Option("--backend", help="Candidate Execution Boundary backend.")] = "docker",
     docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
     docker_enable_gpu: Annotated[
@@ -669,26 +739,21 @@ def run_candidate_command(
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
 
-    if synthetic_fixture and data_root is not None:
-        raise typer.BadParameter("choose either --synthetic-fixture or --data-root, not both")
     if daemonize:
         _daemonize_current_run_candidate(runs_root)
         return
-    from ml_autoresearch.candidate_execution_config import (
-        CandidateExecutionConfigError,
-        load_candidate_execution_config,
-        resolve_configured_research_problem_provider,
-    )
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
     from ml_autoresearch.runs import run_candidate_with_research_problem
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
-        config = load_candidate_execution_config(project_root)
-        data_root_override = (Path(project_root).resolve() / "tests" / "fixtures" / "gvccs_like") if synthetic_fixture else data_root
-        provider_config = resolve_configured_research_problem_provider(config, data_root_override=data_root_override)
-        if provider_config is None:
-            raise typer.BadParameter("configure [research_problem] in candidate-execution.toml")
+        config, provider_config = _load_configured_provider(project_root, label="run-candidate")
+        max_samples, max_prediction_samples, prediction_sample_policy = _effective_execution_options(
+            config,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
         run = run_candidate_with_research_problem(
             candidate,
             runs_root,

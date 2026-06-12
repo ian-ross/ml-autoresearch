@@ -6,6 +6,7 @@ from pathlib import Path
 from ml_autoresearch.cli import app
 from ml_autoresearch.execution import OperationResult
 from conftest import invoke_typer_cli
+from research_problem_helpers import write_fake_candidate_execution_config, write_fake_research_problem_package
 
 
 def write_valid_candidate(root: Path) -> Path:
@@ -69,6 +70,12 @@ Keep baseline if no gain.
 """
     )
     return candidate
+
+
+
+def write_fake_execution_config(root: Path) -> None:
+    write_fake_research_problem_package(root)
+    write_fake_candidate_execution_config(root)
 
 
 def run_cli(*args: str):
@@ -218,9 +225,10 @@ def test_submit_candidate_cli_exits_nonzero_for_rejected_candidate(tmp_path: Pat
 def test_run_candidate_cli_rejects_missing_proposal_in_autonomous_mode(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
+    write_fake_execution_config(tmp_path)
 
     completed = run_cli(
-        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--synthetic-fixture", "--backend", "native"
+        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--project-root", str(tmp_path), "--backend", "native"
     )
 
     assert completed.returncode == 1, completed.stderr
@@ -232,6 +240,7 @@ def test_run_candidate_cli_rejects_missing_proposal_in_autonomous_mode(tmp_path:
 def test_run_candidate_cli_reports_ledger_failure_without_traceback(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
+    write_fake_execution_config(tmp_path)
 
     completed = run_cli(
         "run-candidate",
@@ -239,7 +248,8 @@ def test_run_candidate_cli_reports_ledger_failure_without_traceback(tmp_path: Pa
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--synthetic-fixture",
+        "--project-root",
+        str(tmp_path),
         "--backend",
         "native",
         "--ledger-path",
@@ -253,12 +263,13 @@ def test_run_candidate_cli_reports_ledger_failure_without_traceback(tmp_path: Pa
     assert str(tmp_path) in completed.stderr
 
 
-def test_run_candidate_cli_synthetic_fixture_trains_with_proposal_when_autonomous_and_accepts_by_default(tmp_path: Path):
+def test_run_candidate_cli_accepts_by_default_when_proposal_present(tmp_path: Path):
     candidate = write_valid_candidate_with_proposal(tmp_path)
     runs_root = tmp_path / "runs"
+    write_fake_execution_config(tmp_path)
 
     completed = run_cli(
-        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--synthetic-fixture", "--backend", "native"
+        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--project-root", str(tmp_path), "--backend", "native"
     )
 
     assert completed.returncode == 0
@@ -271,6 +282,7 @@ def test_run_candidate_cli_synthetic_fixture_trains_with_proposal_when_autonomou
 def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
+    write_fake_execution_config(tmp_path)
 
     completed = run_cli(
         "run-candidate",
@@ -278,7 +290,8 @@ def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--synthetic-fixture",
+        "--project-root",
+        str(tmp_path),
         "--max-prediction-samples",
         "3",
         "--backend",
@@ -296,6 +309,7 @@ def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
 def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
+    write_fake_execution_config(tmp_path)
 
     completed = run_cli_subprocess(
         "run-candidate",
@@ -303,7 +317,8 @@ def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--synthetic-fixture",
+        "--project-root",
+        str(tmp_path),
         "--backend",
         "native",
         "--daemonize",
@@ -323,7 +338,7 @@ def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
     assert "--daemonize" not in payload["command"]
 
 
-def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_path: Path):
+def test_run_candidate_cli_requires_provider_config(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
 
@@ -333,14 +348,43 @@ def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_pa
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--data-root",
-        "tests/fixtures/gvccs_like",
-        "--max-samples",
-        "4",
-        "--prediction-sample-policy",
-        "adjacent_and_scattered",
+        "--project-root",
+        str(tmp_path),
         "--backend",
         "native",
+        "--no-require-proposal",
+    )
+
+    assert completed.returncode == 1
+    assert "candidate-execution.toml" in completed.stderr
+
+
+def test_run_candidate_cli_uses_fallback_dataset_config_from_file(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    write_fake_research_problem_package(tmp_path)
+    write_fake_candidate_execution_config(
+        tmp_path,
+        data_root=tmp_path / "datasets" / "synthetic",
+        data_config={"fixture": "tiny", "sample_count": 4},
+        sample_count=4,
+    )
+    (tmp_path / "datasets" / "synthetic").mkdir(parents=True, exist_ok=True)
+
+    completed = run_cli(
+        "run-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--project-root",
+        str(tmp_path),
+        "--max-samples",
+        "4",
+        "--backend",
+        "native",
+        "--max-prediction-samples",
+        "2",
         "--no-require-proposal",
     )
 
@@ -349,5 +393,5 @@ def test_run_candidate_cli_gvccs_fixture_data_root_trains_and_prints_json(tmp_pa
     assert payload["status"] == "completed"
     assert (runs_root / payload["run_id"] / "outputs" / "final_metrics.json").exists()
     samples = json.loads((runs_root / payload["run_id"] / "outputs" / "prediction_samples" / "samples.json").read_text())
-    assert samples["prediction_sample_policy"] == "adjacent_and_scattered"
-    assert "GVCCS" in (runs_root / payload["run_id"] / "outputs" / "logs" / "training.log").read_text()
+    assert samples["prediction_sample_policy"] == "first_n"
+    assert "Starting fake Research Problem training." in (runs_root / payload["run_id"] / "outputs" / "logs" / "training.log").read_text()

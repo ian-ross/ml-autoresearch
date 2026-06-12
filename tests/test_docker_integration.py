@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from research_problem_helpers import write_fake_candidate_execution_config, write_fake_research_problem_package
+
 
 RUN_DOCKER_INTEGRATION = os.environ.get("ML_AUTORESEARCH_DOCKER_INTEGRATION") == "1"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +52,8 @@ def test_docker_synthetic_research_loop_runs_in_real_container(tmp_path: Path):
 
     candidate = PROJECT_ROOT / "tests" / "fixtures" / "candidates" / "single_frame_unet_baseline"
     runs_root = tmp_path / "runs"
+    write_fake_research_problem_package(tmp_path)
+    write_fake_candidate_execution_config(tmp_path)
     completed = _run(
         [
             sys.executable,
@@ -60,7 +64,10 @@ def test_docker_synthetic_research_loop_runs_in_real_container(tmp_path: Path):
             str(candidate),
             "--runs-root",
             str(runs_root),
-            "--synthetic-fixture",
+            "--project-root",
+            str(tmp_path),
+            "--backend",
+            "docker",
             "--docker-image",
             INTEGRATION_IMAGE,
             "--no-require-proposal",
@@ -114,6 +121,8 @@ def test_docker_gvccs_like_fixture_training_runs_in_real_container(tmp_path: Pat
     candidate = PROJECT_ROOT / "tests" / "fixtures" / "candidates" / "single_frame_unet_baseline"
     data_root = PROJECT_ROOT / "tests" / "fixtures" / "gvccs_like"
     runs_root = tmp_path / "runs"
+    write_fake_research_problem_package(tmp_path)
+    write_fake_candidate_execution_config(tmp_path, data_root=data_root)
     completed = _run(
         [
             sys.executable,
@@ -124,10 +133,12 @@ def test_docker_gvccs_like_fixture_training_runs_in_real_container(tmp_path: Pat
             str(candidate),
             "--runs-root",
             str(runs_root),
-            "--data-root",
-            str(data_root),
+            "--project-root",
+            str(tmp_path),
             "--max-samples",
             "4",
+            "--backend",
+            "docker",
             "--docker-image",
             INTEGRATION_IMAGE,
             "--no-require-proposal",
@@ -144,9 +155,8 @@ def test_docker_gvccs_like_fixture_training_runs_in_real_container(tmp_path: Pat
     run_dir = Path(payload["run_dir"])
     metadata = json.loads((run_dir / "run_metadata.json").read_text())
     assert metadata["dataset"] == {
-        "id": "gvccs",
-        "host_data_path": str(data_root.resolve()),
-        "container_data_path": "/data",
+        "id": "fake_dataset",
+        "fixture": "tiny",
     }
-    assert "Starting GVCCS training from /data" in (run_dir / "outputs" / "logs" / "training.log").read_text()
+    assert "Starting fake Research Problem training." in (run_dir / "outputs" / "logs" / "training.log").read_text()
     assert (run_dir / "outputs" / "final_metrics.json").is_file()

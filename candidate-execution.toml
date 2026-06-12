@@ -1,22 +1,16 @@
 [candidate_execution]
-# Candidate Execution Boundary policy used by Harness-owned autonomous next actions.
-# Manual CLI flags on `run-candidate` can still override behavior for ad hoc runs.
+# Candidate Execution Boundary policy for local runs.
 backend = "docker"
 docker_image = "ml-autoresearch-runner:local"
-docker_enable_gpu = true
-docker_rootless_container_root = true
 
-# Compatibility data-root override for local GVCCS examples; [research_problem]
-# below is the canonical Harness Research Problem configuration.
-data_root = "/net/d16/data/iross/GVCCS"
-
-# Bounded run defaults for autonomous candidate execution.
+# Bounded run defaults for Harness-owned autonomous candidate execution.
 max_prediction_samples = 2
 prediction_sample_policy = "first_n"
 
+# Replace with your project's production Research Problem package configuration.
 [research_problem]
-id = "ground_camera_contrail_detection"
-package_root = "/home/iross/code/gvccs-research-problem"
-provider_target = "gvccs.research_problem:build_spec"
+id = "example_research_problem"
+package_root = "/path/to/research-problem"
+provider_target = "research_problem_package.research_problem:build_spec"
 expected_contract_version = "v0"
-data_config = { dataset_root = "/net/d16/data/iross/GVCCS" }
+data_config = { sample_count = 8 }

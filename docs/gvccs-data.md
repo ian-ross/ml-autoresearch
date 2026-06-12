@@ -1,6 +1,6 @@
 # GVCCS Dataset local layout
 
-The Harness-owned GVCCS Dataset adapter expects a local download rooted at `--data-root`.
+The Harness-owned GVCCS Dataset adapter expects a local download rooted at `candidate-execution.toml` `research_problem.data_config.dataset_root`.
 Do not commit real GVCCS samples to this repository.
 
 Expected layout:
@@ -21,10 +21,12 @@ The adapter currently uses only Single-Frame RGB Input from `train/images` and b
 Local real-data example, using the default Docker backend:
 
 ```bash
+# Ensure candidate-execution.toml sets research_problem.data_config.dataset_root to your local GVCCS dataset path.
+
 ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root /tmp/ml-autoresearch-runs \
-  --data-root /data2/GVCCS \
+  --project-root . \
   --max-samples 8
 ```
 
@@ -32,7 +34,7 @@ ml-autoresearch run-candidate \
 
 ## Docker data mount
 
-For Docker-backed GVCCS training, the host Harness validates that `--data-root` exists and is a directory before launching Docker. The Docker backend mounts that host path read-only at `/data` inside the Candidate Execution Boundary, and the in-container Harness-owned GVCCS adapter reads `/data`. Candidate Experiments cannot request mounts, choose data paths, or receive host dataset paths.
+For Docker-backed GVCCS training, the host Harness validates that configured `dataset_root` exists and is a directory before launching Docker. The Docker backend mounts that host path read-only at `/data` inside the Candidate Execution Boundary, and the in-container Harness-owned GVCCS adapter reads `/data`. Candidate Experiments cannot request mounts, choose data paths, or receive host dataset paths.
 
 Synthetic fixture training and smoke testing continue to run without any data mount.
 
@@ -48,4 +50,4 @@ Completed GVCCS Runs record dataset metadata in `run_metadata.json`:
 }
 ```
 
-Malformed GVCCS roots fail the Run with a clear `training_failure_reason` and `outputs/logs/training.log`. Missing or non-directory host data roots fail before a Run is created.
+Malformed GVCCS roots fail the Run with a clear `training_failure_reason` and `outputs/logs/training.log`. Missing or non-directory configured data roots fail before a Run is created.
