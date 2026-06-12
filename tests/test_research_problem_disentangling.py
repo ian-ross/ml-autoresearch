@@ -5,8 +5,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from research_problem_helpers import require_test_research_problem_root
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REUSABLE_HARNESS_ROOT = PROJECT_ROOT / "src" / "ml_autoresearch"
 
 
 APPROVED_GVCCS_IMPORTS: set[Path] = set()
@@ -48,7 +51,9 @@ def test_reusable_harness_modules_do_not_directly_import_gvccs_package() -> None
 
 
 def test_harness_imports_and_fake_research_problem_flow_work_when_gvccs_package_is_unavailable(tmp_path: Path) -> None:
-    package_root = Path("/home/iross/code/test-research-problem")
+    package_root = require_test_research_problem_root()
+
+    assert not package_root.is_relative_to(REUSABLE_HARNESS_ROOT)
     candidate = tmp_path / "candidate"
     _write_fake_candidate(candidate)
     runs_root = tmp_path / "runs"

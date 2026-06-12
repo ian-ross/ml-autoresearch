@@ -5,8 +5,11 @@ from pathlib import Path
 
 from PIL import Image
 
-from gvccs import discover_gvccs_samples, select_gvccs_frames
-from research_problem_helpers import gvccs_registry
+from research_problem_helpers import gvccs_module, gvccs_registry
+
+_gvccs = gvccs_module()
+discover_gvccs_samples = _gvccs.discover_gvccs_samples
+select_gvccs_frames = _gvccs.select_gvccs_frames
 
 
 FIXTURE_ROOT = Path("tests/fixtures/gvccs_like")

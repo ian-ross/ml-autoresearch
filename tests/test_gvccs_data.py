@@ -5,16 +5,16 @@ from PIL import Image
 import pytest
 import torch
 
-from gvccs import (
-    GVCCSDataError,
-    GVCCSDataset,
-    GVCCSTemporalClipDataset,
-    discover_gvccs_samples,
-    deterministic_train_val_split,
-    select_gvccs_frames,
-)
 from ml_autoresearch.runs import RunStatus
-from research_problem_helpers import run_candidate_with_gvccs_data
+from research_problem_helpers import gvccs_module, gvccs_research_problem_root, run_candidate_with_gvccs_data
+
+_gvccs = gvccs_module()
+GVCCSDataError = _gvccs.GVCCSDataError
+GVCCSDataset = _gvccs.GVCCSDataset
+GVCCSTemporalClipDataset = _gvccs.GVCCSTemporalClipDataset
+discover_gvccs_samples = _gvccs.discover_gvccs_samples
+deterministic_train_val_split = _gvccs.deterministic_train_val_split
+select_gvccs_frames = _gvccs.select_gvccs_frames
 
 
 FIXTURE_ROOT = Path("tests/fixtures/gvccs_like")
@@ -227,7 +227,7 @@ def test_run_candidate_with_gvccs_fixture_trains_one_epoch(tmp_path: Path):
     assert metadata["research_problem"]["id"] == "ground_camera_contrail_detection"
     assert metadata["research_problem"]["version"] == "v0"
     assert metadata["research_problem"]["contract_version"] == "v0"
-    assert metadata["research_problem"]["provider"]["resolved_package_root"] == "/home/iross/code/gvccs-research-problem"
+    assert metadata["research_problem"]["provider"]["resolved_package_root"] == str(gvccs_research_problem_root())
     assert metadata["dataset"] == {
         "id": "gvccs",
         "host_data_path": str(FIXTURE_ROOT.resolve()),

@@ -11,6 +11,11 @@ from ml_autoresearch.research_problems import (
     ResearchProblemSpecRegistry,
     load_research_problem_provider,
 )
+from research_problem_helpers import gvccs_research_problem_root, require_test_research_problem_root
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REUSABLE_HARNESS_ROOT = PROJECT_ROOT / "src" / "ml_autoresearch"
 
 
 def _write_fake_package(root):
@@ -127,7 +132,9 @@ def test_provider_can_return_mapping_that_is_checked_before_registration(tmp_pat
 
 
 def test_external_fake_provider_package_ships_brief_documents_used_by_harness_tests() -> None:
-    package_root = Path("/home/iross/code/test-research-problem")
+    package_root = require_test_research_problem_root()
+
+    assert not package_root.is_relative_to(REUSABLE_HARNESS_ROOT)
 
     loaded = load_research_problem_provider(_config(package_root))
 
@@ -146,7 +153,9 @@ def test_external_fake_provider_package_ships_brief_documents_used_by_harness_te
 
 
 def test_external_gvccs_provider_package_ships_ground_camera_contrail_detection_brief() -> None:
-    package_root = Path("/home/iross/code/gvccs-research-problem")
+    package_root = gvccs_research_problem_root()
+
+    assert not package_root.is_relative_to(REUSABLE_HARNESS_ROOT)
     loaded = load_research_problem_provider(
         ResearchProblemProviderConfig(
             id="ground_camera_contrail_detection",

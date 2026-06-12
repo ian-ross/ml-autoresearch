@@ -51,6 +51,19 @@ Canonical filesystem packages:
 - Tests should not depend on sibling checkout layout or user-specific absolute paths; when testing the filesystem package seam, they should assert that packages are outside the reusable `src/ml_autoresearch` package rather than at a specific absolute location.
 - External-package integration tests are required because filesystem Research Problem packages are a core system boundary. If the configured package roots are missing or invalid, those tests should fail clearly rather than skip by default.
 
+### Test runner configuration
+
+Set the external package roots explicitly before running integration-focused tests:
+
+```bash
+export ML_AUTORESEARCH_TEST_PROBLEM_ROOT=/path/to/test-research-problem
+export ML_AUTORESEARCH_GVCCS_PROBLEM_ROOT=/path/to/gvccs-research-problem
+
+uv run pytest tests/test_research_problem_provider_loader.py tests/test_research_problem_disentangling.py tests/test_gvccs_data.py
+```
+
+CI should inject the same variables when checking out the companion package repositories.
+
 Intentional remaining exceptions:
 
 - GVCCS-specific tests, fixtures, research notes, Candidate Experiments, and campaign artifacts may keep GVCCS terminology because they describe the initial Research Problem history.
