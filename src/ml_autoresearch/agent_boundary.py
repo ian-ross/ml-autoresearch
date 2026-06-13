@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ml_autoresearch.candidate_execution_config import load_candidate_execution_config
+from ml_autoresearch.candidate_execution_config import CandidateExecutionConfig, load_candidate_execution_config
 from ml_autoresearch.research_problems import (
     LoadedResearchProblemSpec,
     ResearchProblemProviderLoadError,
@@ -37,6 +37,7 @@ class AgentBoundaryConfig:
     image: str
     allow_egress: bool
     data_mounts: tuple[DataMount, ...]
+    runs_root: Path
     research_problem: LoadedResearchProblemSpec
 
 
@@ -69,19 +70,20 @@ def load_agent_boundary_config(project_root: Path) -> AgentBoundaryConfig:
     allow_egress = settings.get("allow_egress", True)
     if not isinstance(allow_egress, bool):
         raise AgentBoundaryError("agent_control_boundary.allow_egress must be a boolean")
+    candidate_config = load_candidate_execution_config(project_root)
     return AgentBoundaryConfig(
         distro=distro,
         image=image,
         allow_egress=allow_egress,
         data_mounts=_load_data_mounts(data.get("data_mounts", []), project_root),
-        research_problem=_load_agent_boundary_research_problem(project_root),
+        runs_root=candidate_config.runs_root,
+        research_problem=_load_agent_boundary_research_problem(candidate_config),
     )
 
 
-def _load_agent_boundary_research_problem(project_root: Path) -> LoadedResearchProblemSpec:
+def _load_agent_boundary_research_problem(candidate_config: CandidateExecutionConfig) -> LoadedResearchProblemSpec:
     """Load the explicit Research Problem provider for agent-facing handoff context."""
 
-    candidate_config = load_candidate_execution_config(project_root)
     provider_config = candidate_config.research_problem_provider
     if provider_config is None:
         raise AgentBoundaryError(
@@ -150,7 +152,7 @@ def prepare_agent_boundary(project_root: Path = Path(".")) -> dict[str, str]:
     workspace_dir = project_root / "agent-work"
 
     _refresh_reference_snapshot(project_root, reference_dir)
-    _refresh_history_snapshot(project_root, history_dir)
+    _refresh_history_snapshot(project_root, history_dir, config.runs_root)
     _ensure_workspace(workspace_dir)
     _write_research_problem_brief_index(workspace_dir, config.research_problem)
     _write_agent_workspace_instructions(workspace_dir, config.research_problem)
@@ -174,16 +176,20 @@ def _refresh_reference_snapshot(project_root: Path, reference_dir: Path) -> None
         shutil.copy2(source, reference_dir / filename)
 
 
-def _refresh_history_snapshot(project_root: Path, history_dir: Path) -> None:
+def _refresh_history_snapshot(project_root: Path, history_dir: Path, runs_root: Path) -> None:
     _clear_snapshot_contents(history_dir)
     ledger = project_root / "research-ledger.jsonl"
     if not ledger.is_file():
         raise AgentBoundaryError(f"missing Research Ledger: {ledger}")
     shutil.copy2(ledger, history_dir / "research-ledger.jsonl")
+    default_runs_root = project_root / "runs"
     for dirname in HISTORY_DIRS:
-        source = project_root / dirname
+        source = runs_root if dirname == "runs" else project_root / dirname
         destination = history_dir / dirname
-        if source.exists():
+        if dirname == "runs" and source != default_runs_root:
+            source.mkdir(parents=True, exist_ok=True)
+            destination.mkdir(parents=True)
+        elif source.exists():
             if not source.is_dir():
                 raise AgentBoundaryError(f"history source path is not a directory: {source}")
             shutil.copytree(source, destination)
@@ -313,7 +319,7 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         (project_root / "agent-reference", "/reference"),
         (project_root / "agent-history", "/history"),
         (project_root / "agent-history" / "candidates", "/history/candidates"),
-        (project_root / "agent-history" / "runs", "/history/runs"),
+        (_runs_history_mount_source(project_root, config.runs_root), "/history/runs"),
         (project_root / "agent-history" / "batches", "/history/batches"),
         (project_root / "agent-history" / "research-notes", "/history/research-notes"),
         (project_root / "docs", "/docs"),
@@ -333,6 +339,13 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         + "\n".join(f"  {entry}," for entry in mount_entries)
         + "\n]\n"
     )
+
+
+def _runs_history_mount_source(project_root: Path, runs_root: Path) -> Path:
+    default_runs_root = project_root / "runs"
+    if runs_root != default_runs_root:
+        return runs_root
+    return project_root / "agent-history" / "runs"
 
 
 def _format_mount(path: Path, target: str) -> str:

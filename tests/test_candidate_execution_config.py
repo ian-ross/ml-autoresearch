@@ -100,7 +100,22 @@ def test_candidate_execution_config_defaults_to_native_when_absent(tmp_path: Pat
     config = load_candidate_execution_config(tmp_path)
 
     assert config.backend == "native"
+    assert config.runs_root == tmp_path / "runs"
     assert isinstance(execution_backend_from_config(config), NativeBackend)
+
+
+def test_candidate_execution_config_resolves_configured_runs_root(tmp_path: Path) -> None:
+    external_runs = tmp_path / "scratch" / "runs"
+    (tmp_path / "candidate-execution.toml").write_text(
+        f'''
+[candidate_execution]
+runs_root = "{external_runs}"
+'''.lstrip()
+    )
+
+    config = load_candidate_execution_config(tmp_path)
+
+    assert config.runs_root == external_runs
 
 
 @pytest.mark.parametrize(

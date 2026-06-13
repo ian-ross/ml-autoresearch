@@ -338,6 +338,30 @@ def test_autonomy_step_execute_candidate_submission_runs_one_run_after_ingestion
     ]
 
 
+def test_autonomy_step_execute_candidate_submission_writes_run_to_configured_external_runs_root(
+    tmp_path: Path, monkeypatch
+):
+    import ml_autoresearch.execution as execution
+
+    write_project(tmp_path)
+    external_runs = tmp_path / "external-runs"
+    (tmp_path / "candidate-execution.toml").write_text(
+        (tmp_path / "candidate-execution.toml").read_text()
+        + f'\n[candidate_execution]\nruns_root = "{external_runs}"\n'
+    )
+    FakeNativeBackend.provider_ids = []
+    monkeypatch.setattr(execution, "NativeBackend", FakeNativeBackend)
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
+
+    result = run_autonomy_step(tmp_path, agent_command=fake_command, execute_next_action=True)
+
+    assert result.status == "ingested"
+    assert result.ingestion is not None
+    assert result.ingestion["next_action_result"]["run_status"] == "completed"
+    assert list(external_runs.glob("run_*/run_metadata.json"))
+    assert not (tmp_path / "runs").exists()
+
+
 def test_autonomy_step_dry_run_evaluation_request_does_not_record_evaluation_requested(tmp_path: Path):
     write_project(tmp_path)
     _write_completed_run(tmp_path, "run_123")

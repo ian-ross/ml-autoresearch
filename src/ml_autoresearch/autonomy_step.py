@@ -345,7 +345,16 @@ def _executed_next_action_artifact_exists(root: Path, ingestion: dict[str, objec
 
         request = validate_evaluation_request_file(request_path)
         assert request.request_id is not None
-        return (root / "runs" / request.target_run_id / "outputs" / "evaluations" / _evaluation_id(request.request_id) / "evaluation_metadata.json").is_file()
+        runs_root = _configured_runs_root(root)
+        metadata_path = (
+            runs_root
+            / request.target_run_id
+            / "outputs"
+            / "evaluations"
+            / _evaluation_id(request.request_id)
+            / "evaluation_metadata.json"
+        )
+        return metadata_path.is_file()
     return True
 
 
@@ -404,7 +413,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
         if run is None:
             run = submit_candidate(
                 candidate_path,
-                root / "runs",
+                config.runs_root,
                 backend=backend,
                 ledger_path=root / "research-ledger.jsonl",
                 require_proposal=True,
@@ -446,7 +455,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
         result = run_experiment_batch_with_research_problem(
             batch_path,
             batches_root=root / "batches",
-            runs_root=root / "runs",
+            runs_root=config.runs_root,
             provider_config=provider_config,
             backend=execution_backend_from_config(config),
             max_parallel_runs=4,
@@ -470,7 +479,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
 
         evaluation = run_post_run_evaluation(
             request_path,
-            runs_root=root / "runs",
+            runs_root=_configured_runs_root(root),
             ledger_path=root / "research-ledger.jsonl",
         )
         return {
@@ -486,7 +495,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
 
 def _infer_research_problem_data_root(root: Path) -> Path:
     candidates: list[Path] = []
-    runs_root = root / "runs"
+    runs_root = _configured_runs_root(root)
     if runs_root.is_dir():
         for metadata_path in sorted(runs_root.glob("run_*/run_metadata.json"), reverse=True):
             try:
@@ -505,6 +514,12 @@ def _infer_research_problem_data_root(root: Path) -> Path:
     raise AutonomyStepError(
         "cannot execute Research Problem next action: no configured data root and no prior completed Run with an accessible dataset host_data_path"
     )
+
+
+def _configured_runs_root(root: Path) -> Path:
+    from ml_autoresearch.candidate_execution_config import load_candidate_execution_config
+
+    return load_candidate_execution_config(root).runs_root
 
 
 def _required_relative_path(root: Path, payload: dict[str, object], field: str) -> Path:

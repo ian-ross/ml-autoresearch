@@ -31,6 +31,7 @@ class CandidateExecutionConfig:
     docker_user: str | None = None
     docker_rootless_container_root: bool = False
     data_root: Path | None = None
+    runs_root: Path = Path("runs")
     max_samples: int | None = None
     max_prediction_samples: int = 2
     prediction_sample_policy: Literal["first_n", "adjacent_and_scattered"] = "first_n"
@@ -43,7 +44,7 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
     root = Path(project_root).resolve()
     path = root / CONFIG_FILENAME
     if not path.is_file():
-        return CandidateExecutionConfig()
+        return CandidateExecutionConfig(runs_root=root / "runs")
     data = tomllib.loads(path.read_text())
     settings = data.get("candidate_execution", {})
     if not isinstance(settings, dict):
@@ -55,6 +56,10 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
     docker_user = _optional_string(settings, "docker_user")
     docker_rootless_container_root = _bool(settings, "docker_rootless_container_root", False)
     data_root = _optional_path(settings, "data_root", root)
+    if "runs_root" in settings:
+        runs_root = _path(settings, "runs_root", root, prefix="candidate_execution")
+    else:
+        runs_root = root / "runs"
     research_problem_provider = _research_problem_provider_config(data, root)
     max_samples = _optional_int(settings, "max_samples", minimum=1)
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
@@ -86,6 +91,7 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
         data_root=data_root,
+        runs_root=runs_root,
         max_samples=max_samples,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,  # type: ignore[arg-type]
