@@ -350,12 +350,15 @@ def _runs_history_mount_source(project_root: Path, runs_root: Path) -> Path:
 
 
 def _external_runs_compatibility_mounts(project_root: Path, runs_root: Path) -> list[tuple[Path, str]]:
-    """Expose external Runs at the canonical project path for legacy provenance paths."""
+    """Expose external Runs at compatibility paths agents may infer from history."""
 
     default_runs_root = project_root / "runs"
     if runs_root == default_runs_root:
         return []
-    return [(runs_root, str(default_runs_root))]
+    return [
+        (runs_root, str(default_runs_root)),
+        (runs_root, str(project_root / "agent-history" / "runs")),
+    ]
 
 
 def _format_mount(path: Path, target: str) -> str:
