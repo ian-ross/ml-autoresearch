@@ -346,6 +346,7 @@ def _run_candidate_synthetic_training(
         repair_lineage=repair_lineage,
         data_policy=_data_policy_from_training_result(training_result, run.run_dir),
         sample_counts=_sample_counts_from_training_result(training_result, run.run_dir),
+        training_policy=_training_policy_from_training_result(training_result, run.run_dir),
     )
     _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
@@ -492,6 +493,7 @@ def _train_accepted_run(
         repair_lineage=repair_lineage,
         data_policy=_data_policy_from_training_result(training_result, run.run_dir),
         sample_counts=_sample_counts_from_training_result(training_result, run.run_dir),
+        training_policy=_training_policy_from_training_result(training_result, run.run_dir),
     )
     _record_run_completed(ledger_path, run.run_id, run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
@@ -575,6 +577,8 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
         summary["research_problem"] = metadata["research_problem"]
     if "artifacts" in metadata:
         summary["artifacts"] = metadata["artifacts"]
+    if isinstance(metadata.get("training_policy"), dict):
+        summary["training_policy"] = metadata["training_policy"]
 
     outputs_dir = _outputs_dir(run_dir)
     best_metrics_path = outputs_dir / "best_metrics.json"
@@ -1068,6 +1072,15 @@ def _sample_counts_from_training_result(training_result: object, run_dir: Path) 
     return None
 
 
+def _training_policy_from_training_result(training_result: object, run_dir: Path) -> dict[str, object] | None:
+    if isinstance(training_result, dict) and isinstance(training_result.get("training_policy"), dict):
+        return training_result["training_policy"]
+    final_metrics = _read_final_metrics_if_available(run_dir)
+    if isinstance(final_metrics.get("training_policy"), dict):
+        return final_metrics["training_policy"]
+    return None
+
+
 def _read_final_metrics_if_available(run_dir: Path) -> dict[str, object]:
     final_metrics_path = run_dir / "outputs" / "final_metrics.json"
     if not final_metrics_path.is_file():
@@ -1109,6 +1122,7 @@ def _write_metadata(
     research_problem: dict[str, object] | None = None,
     data_policy: dict[str, object] | None = None,
     sample_counts: dict[str, object] | None = None,
+    training_policy: dict[str, object] | None = None,
 ) -> None:
     existing_metadata = None
     metadata_path = run_dir / "run_metadata.json"
@@ -1153,6 +1167,10 @@ def _write_metadata(
         metadata["sample_counts"] = sample_counts
     elif isinstance(existing_metadata, dict) and isinstance(existing_metadata.get("sample_counts"), dict):
         metadata["sample_counts"] = existing_metadata["sample_counts"]
+    if training_policy is not None:
+        metadata["training_policy"] = training_policy
+    elif isinstance(existing_metadata, dict) and isinstance(existing_metadata.get("training_policy"), dict):
+        metadata["training_policy"] = existing_metadata["training_policy"]
     if training_lifecycle is not None:
         metadata["training_lifecycle"] = training_lifecycle
     if repair_lineage is not None:

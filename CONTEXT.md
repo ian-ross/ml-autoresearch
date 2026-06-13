@@ -387,14 +387,14 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - For **Ground-Camera Contrail Detection**, the initial best-validation metric is Dice over the **Contrail Mask** on the **Working Validation Split**.
 - Autonomous exploration uses the **Working Validation Split** for iteration, while **Locked Evaluation Split** access is reserved for human-gated milestone checks.
 - **Locked Evaluation Split** Results may be summarized to the agent in Campaign Reports after human-triggered milestone checks, but access frequency remains limited to reduce overfitting risk.
-- Initial best-validation reporting does not imply checkpoint restoration, but best-epoch model artifact persistence is expected soon for evaluation beyond the original Run.
+- Initial best-validation reporting persists a best-epoch model artifact; when an allowlisted early-stopping policy requests best-checkpoint restoration, the Harness restores that checkpoint for the final in-memory model state used by post-training artifacts and records the restoration status.
 - The **Initial Flexibility Envelope** is part of the **Candidate Experiment Contract** from the beginning.
 - The **Initial Flexibility Envelope** includes model architecture, input mode, output form, loss selection, bounded training knobs, candidate-selectable **Data Policy**, and pretrained weight requests.
 - **Wall-Clock Budget Policy** is intentionally adjustable and may start small to encourage many cheap architecture-search Runs.
 - The **Harness** owns training loops, data loading, validation, execution policy, artifact persistence, and approved parameterized variations.
 - The **Candidate Experiment Contract** can expose Harness-owned parameters for model architecture, input modes, output forms, losses, optimizer choices, training budgets, augmentation/data policy, and pretrained weight availability.
 - The **Candidate Experiment Contract** should expand through **Capability Slices** that unlock meaningful experiment families while preserving Harness ownership.
-- Expected near-term **Capability Slice** priority is Augmentation Policy first, then additional losses plus scheduler or early stopping support, then Boundary Target, Temporal Input, and Approved Pretrained Encoders.
+- Expected near-term **Capability Slice** priority is Augmentation Policy first, then additional losses, Temporal Input, and Approved Pretrained Encoders; the initial scheduler/early-stopping slice is now implemented as Harness-owned allowlisted training policy.
 - The **Candidate Experiment Contract** never grants arbitrary filesystem access, network access, Docker access, dataset-path control, MLflow write access, custom training-loop authority, or custom data-loading authority.
 - Candidate Experiments may reference **Approved Weight Artifacts** by stable identifier only.
 - A **Pretrained Weight Request** may produce an **Approved Weight Artifact** after manual audit.

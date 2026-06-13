@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ml_autoresearch.research_problems import (
     ResearchProblemSpec,
@@ -20,6 +20,24 @@ class CandidateValidationError(ValueError):
     """Raised when a Candidate Experiment does not satisfy the v1 contract."""
 
 
+class SchedulerManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy: Literal["constant_lr", "cosine_decay", "reduce_on_plateau"] = "constant_lr"
+    factor: float = Field(default=0.5, ge=0.1, le=0.9)
+    patience: int = Field(default=3, ge=1, le=20)
+    min_lr: float = Field(default=1e-6, ge=1e-7, le=3e-3)
+
+
+class EarlyStoppingManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    patience: int = Field(default=10, ge=1, le=50)
+    min_delta: float = Field(default=0.0, ge=0.0, le=0.1)
+    restore_best_checkpoint: bool = True
+
+
 class TrainingManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -28,6 +46,16 @@ class TrainingManifest(BaseModel):
     learning_rate: float = Field(ge=1e-5, le=3e-3)
     batch_size: int = Field(ge=1, le=32)
     max_epochs: int = Field(ge=1, le=100)
+    scheduler: SchedulerManifest = Field(default_factory=SchedulerManifest)
+    early_stopping: EarlyStoppingManifest = Field(default_factory=EarlyStoppingManifest)
+
+    @model_validator(mode="after")
+    def _validate_training_policy(self) -> "TrainingManifest":
+        if self.scheduler.min_lr > self.learning_rate:
+            raise ValueError("scheduler.min_lr must be less than or equal to learning_rate")
+        if self.early_stopping.enabled and self.early_stopping.patience >= self.max_epochs:
+            raise ValueError("early_stopping.patience must be less than max_epochs")
+        return self
 
 
 class DataManifest(BaseModel):

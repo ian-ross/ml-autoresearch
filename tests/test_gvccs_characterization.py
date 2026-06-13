@@ -141,6 +141,8 @@ def test_resolved_gvccs_manifest_and_smoke_specs_stay_single_frame_mask_only(tmp
         "learning_rate": 0.001,
         "batch_size": 2,
         "max_epochs": 1,
+        "scheduler": {"policy": "constant_lr", "factor": 0.5, "patience": 3, "min_lr": 1e-06},
+        "early_stopping": {"enabled": False, "patience": 10, "min_delta": 0.0, "restore_best_checkpoint": True},
     }
     assert resolved["repair"] is None
     input_spec, output_spec = smoke_specs_from_resolved_manifest(run.run_dir / "resolved_manifest.yaml")

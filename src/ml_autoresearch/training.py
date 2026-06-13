@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import math
 import traceback
 from pathlib import Path
 
@@ -216,6 +217,8 @@ def _train_manifest_epochs_run(
         model = model.to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=float(training["learning_rate"]))
+        scheduler_policy = _resolved_scheduler_policy(training)
+        early_stopping_policy = _resolved_early_stopping_policy(training)
         batch_size = int(training["batch_size"])
         train_loader = train_loader_factory(batch_size, sampling_policy, augmentation_policy)
         primary_output_name = _primary_output_name(output_spec, training_adapter)
@@ -228,7 +231,12 @@ def _train_manifest_epochs_run(
         final: dict[str, object] = {}
         validation_records: list[dict[str, object]] = []
         best_validation_value: float | None = None
+        best_early_stopping_value: float | None = None
+        epochs_without_early_stopping_improvement = 0
+        early_stopped = False
+        stop_reason = "max_epochs_reached"
         for epoch in range(1, max_epochs + 1):
+            _step_epoch_scheduler_before_training(optimizer, scheduler_policy, epoch=epoch, max_epochs=max_epochs)
             model.train()
             train_loss_total = 0.0
             train_mask_loss_total = 0.0
@@ -275,6 +283,7 @@ def _train_manifest_epochs_run(
             )
             final["epoch"] = epoch
             final["hardware/device"] = device.type
+            final["training/learning_rate"] = _current_learning_rate(optimizer)
             final["train/loss"] = train_loss_total / max(trained_samples, 1)
             final["train/mask_loss"] = train_mask_loss_total / max(trained_samples, 1)
             for name, total in train_aux_loss_totals.items():
@@ -294,11 +303,57 @@ def _train_manifest_epochs_run(
                     selection_metric=selection_metric,
                     selection_value=validation_value,
                 )
+            _step_plateau_scheduler(optimizer, scheduler_policy, validation_value, selection_mode=selection_mode)
             _append_jsonl(metrics_path, validation_record)
             if timeout_requested:
+                stop_reason = "timeout_requested"
+                break
+            early_improved = _is_early_stopping_improvement(
+                validation_value,
+                best_early_stopping_value,
+                selection_mode=selection_mode,
+                min_delta=float(early_stopping_policy["min_delta"]),
+            )
+            if early_improved:
+                best_early_stopping_value = validation_value
+                epochs_without_early_stopping_improvement = 0
+            else:
+                epochs_without_early_stopping_improvement += 1
+            if early_stopping_policy["enabled"] and epochs_without_early_stopping_improvement >= int(early_stopping_policy["patience"]):
+                early_stopped = True
+                stop_reason = "early_stopping"
+                lines.append(
+                    "Early stopping requested by Harness policy after "
+                    f"{epochs_without_early_stopping_improvement} epochs without selection-metric improvement."
+                )
                 break
 
+        if early_stopping_policy["enabled"] and early_stopping_policy["restore_best_checkpoint"] and best_epoch_model_path.is_file():
+            checkpoint = torch.load(best_epoch_model_path, map_location=device, weights_only=True)
+            state_dict = checkpoint.get("model_state_dict") if isinstance(checkpoint, dict) else None
+            if not isinstance(state_dict, dict):
+                raise TrainingError("best checkpoint restoration failed: missing model_state_dict")
+            model.load_state_dict(state_dict)
+            lines.append("Restored best-validation checkpoint for final model state.")
+
         final["sample_counts"] = {"train": train_sample_count, "validation": val_sample_count}
+        resolved_scheduler_policy = {key: value for key, value in scheduler_policy.items() if not key.startswith("_")}
+        final["training_policy"] = {
+            "scheduler": resolved_scheduler_policy,
+            "early_stopping": {
+                **early_stopping_policy,
+                "selection_metric": selection_metric,
+                "selection_mode": selection_mode,
+                "stopped_early": early_stopped,
+                "stop_reason": stop_reason,
+                "epochs_completed": int(final.get("epoch", 0)),
+                "restored_best_checkpoint": bool(
+                    early_stopping_policy["enabled"]
+                    and early_stopping_policy["restore_best_checkpoint"]
+                    and best_epoch_model_path.is_file()
+                ),
+            },
+        }
         if data_policy_metadata:
             final["data_policy"] = data_policy_metadata
         best_metrics = _best_validation_metrics(
@@ -561,6 +616,98 @@ def _write_best_epoch_model_artifact(
 
 def _cpu_state_dict(model: torch.nn.Module) -> dict[str, torch.Tensor]:
     return {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
+
+
+def _resolved_scheduler_policy(training: dict[str, object]) -> dict[str, object]:
+    raw = training.get("scheduler")
+    policy = raw if isinstance(raw, dict) else {"policy": "constant_lr"}
+    return {
+        "policy": str(policy.get("policy", "constant_lr")),
+        "factor": float(policy.get("factor", 0.5)),
+        "patience": int(policy.get("patience", 3)),
+        "min_lr": float(policy.get("min_lr", 1e-6)),
+    }
+
+
+def _resolved_early_stopping_policy(training: dict[str, object]) -> dict[str, object]:
+    raw = training.get("early_stopping")
+    policy = raw if isinstance(raw, dict) else {"enabled": False}
+    return {
+        "enabled": bool(policy.get("enabled", False)),
+        "patience": int(policy.get("patience", 10)),
+        "min_delta": float(policy.get("min_delta", 0.0)),
+        "restore_best_checkpoint": bool(policy.get("restore_best_checkpoint", True)),
+    }
+
+
+def _step_epoch_scheduler_before_training(
+    optimizer: torch.optim.Optimizer,
+    scheduler_policy: dict[str, object],
+    *,
+    epoch: int,
+    max_epochs: int,
+) -> None:
+    if scheduler_policy["policy"] != "cosine_decay":
+        return
+    base_lr = float(optimizer.param_groups[0].setdefault("initial_lr", optimizer.param_groups[0]["lr"]))
+    min_lr = float(scheduler_policy["min_lr"])
+    if max_epochs <= 1:
+        lr = min_lr
+    else:
+        progress = (epoch - 1) / (max_epochs - 1)
+        lr = min_lr + 0.5 * (base_lr - min_lr) * (1.0 + math.cos(math.pi * progress))
+    _set_learning_rate(optimizer, lr)
+
+
+def _step_plateau_scheduler(
+    optimizer: torch.optim.Optimizer,
+    scheduler_policy: dict[str, object],
+    validation_value: float,
+    *,
+    selection_mode: str,
+) -> None:
+    if scheduler_policy["policy"] != "reduce_on_plateau":
+        return
+    best = scheduler_policy.get("_best")
+    bad_epochs = int(scheduler_policy.get("_bad_epochs", 0))
+    if _is_early_stopping_improvement(
+        validation_value,
+        None if best is None else float(best),
+        selection_mode=selection_mode,
+        min_delta=0.0,
+    ):
+        scheduler_policy["_best"] = validation_value
+        scheduler_policy["_bad_epochs"] = 0
+        return
+    bad_epochs += 1
+    scheduler_policy["_bad_epochs"] = bad_epochs
+    if bad_epochs >= int(scheduler_policy["patience"]):
+        next_lr = max(float(scheduler_policy["min_lr"]), _current_learning_rate(optimizer) * float(scheduler_policy["factor"]))
+        _set_learning_rate(optimizer, next_lr)
+        scheduler_policy["_bad_epochs"] = 0
+
+
+def _is_early_stopping_improvement(
+    value: float,
+    best: float | None,
+    *,
+    selection_mode: str,
+    min_delta: float,
+) -> bool:
+    if best is None:
+        return True
+    if selection_mode == "max":
+        return value > best + min_delta
+    return value < best - min_delta
+
+
+def _current_learning_rate(optimizer: torch.optim.Optimizer) -> float:
+    return float(optimizer.param_groups[0]["lr"])
+
+
+def _set_learning_rate(optimizer: torch.optim.Optimizer, lr: float) -> None:
+    for group in optimizer.param_groups:
+        group["lr"] = lr
 
 
 def _select_training_device() -> torch.device:

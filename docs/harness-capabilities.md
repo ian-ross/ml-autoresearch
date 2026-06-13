@@ -163,13 +163,23 @@ Allowed v1 optimizers:
 
 The current tracer-bullet implementation supports only `adamw`; the broader v1 allowlist is planned contract surface.
 
+Allowed implemented scheduler policies:
+
+- `constant_lr` — current/default behavior.
+- `cosine_decay` — Harness-owned cosine decay from `learning_rate` to bounded `min_lr` over `max_epochs`.
+- `reduce_on_plateau` — Harness-owned validation-selection-metric plateau reduction with bounded `factor`, `patience`, and `min_lr`.
+
 Allowed v1 bounds:
 
 - learning rate: `1e-5` to `3e-3`
+- scheduler factor: `0.1` to `0.9` for `reduce_on_plateau`
+- scheduler patience: `1` to `20` for `reduce_on_plateau`
+- scheduler min LR: `1e-7` to `3e-3`, and no greater than `learning_rate`
 - weight decay: `0` to `0.1`
 - batch size: `1` to `32`, with the Harness allowed to lower it for GPU memory
 - max epochs: `1` to `100`
-- early stopping patience: `5` to `20`, if early stopping is enabled
+- early stopping patience: `1` to `50`, less than `max_epochs` when early stopping is enabled
+- early stopping min delta: `0.0` to `0.1`
 - mixed precision: `on` or `off`, default `on`
 - gradient clipping max norm: `0.1` to `10`, if enabled
 - parameter budget: the current tracer-bullet smoke test enforces `10M` parameters; broader Harness policy may raise or override this per Research Problem later
@@ -179,6 +189,8 @@ Wall-clock budget policy is intentionally adjustable. A smaller early budget may
 ## Run artifacts
 
 Every completed Run should produce enough artifacts for the Research Loop to compare, diagnose, and propose follow-up Candidate Experiments.
+
+Resolved training policy is persisted in `resolved_manifest.yaml` and final metrics include the resolved scheduler, early-stopping settings, working-validation selection metric/mode, stop reason, completed epoch count, and best-checkpoint restoration status.
 
 Required completed-Run artifacts:
 

@@ -16,7 +16,13 @@ from ml_autoresearch.training import (
 )
 
 
-def write_trainable_candidate(root: Path, *, max_epochs: int = 1, augmentation_policy: str | None = None) -> Path:
+def write_trainable_candidate(
+    root: Path,
+    *,
+    max_epochs: int = 1,
+    augmentation_policy: str | None = None,
+    training_policy: str = "",
+) -> Path:
     candidate = root / "candidate"
     candidate.mkdir()
     data_block = "" if augmentation_policy is None else f"data:\n  augmentation_policy: {augmentation_policy}\n"
@@ -31,7 +37,7 @@ output_form: mask_logits
   learning_rate: 0.001
   batch_size: 2
   max_epochs: {max_epochs}
-""".strip()
+{training_policy}""".strip()
         + "\n"
     )
     (candidate / "model.py").write_text(
@@ -212,6 +218,71 @@ def test_synthetic_fixture_training_honors_manifest_max_epochs(tmp_path: Path):
     assert checkpoint["epoch"] == best["epoch"]
     assert checkpoint["selection_metric"] == best["selection_metric"] == "val/dice"
     assert checkpoint["selection_value"] == best["selection_value"]
+
+
+def test_synthetic_fixture_training_records_scheduler_and_early_stops(tmp_path: Path, monkeypatch):
+    candidate = write_trainable_candidate(
+        tmp_path,
+        max_epochs=5,
+        training_policy="""
+  scheduler:
+    policy: reduce_on_plateau
+    factor: 0.5
+    patience: 1
+    min_lr: 0.00001
+  early_stopping:
+    enabled: true
+    patience: 2
+    min_delta: 0.001
+    restore_best_checkpoint: true
+""",
+    )
+    validation_values = iter([0.6, 0.59, 0.58, 0.57, 0.56])
+
+    def fake_evaluate(*args, **kwargs):
+        value = next(validation_values)
+        return {"val/dice": value, "val/iou": value / 2, "val/precision": value, "val/recall": value, "val/loss": 1.0 - value}
+
+    monkeypatch.setattr("ml_autoresearch.training._evaluate", fake_evaluate)
+
+    run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs", max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    records = [json.loads(line) for line in (run.run_dir / "outputs" / "metrics.jsonl").read_text().splitlines()]
+    val_records = [record for record in records if record["split"] == "val"]
+    assert [record["epoch"] for record in val_records] == [1, 2, 3]
+    assert val_records[0]["training/learning_rate"] == 0.001
+    assert val_records[2]["training/learning_rate"] == 0.0005
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
+    policy = final["training_policy"]
+    assert metadata["training_policy"] == policy
+    assert policy["scheduler"]["policy"] == "reduce_on_plateau"
+    assert policy["early_stopping"]["stopped_early"] is True
+    assert policy["early_stopping"]["stop_reason"] == "early_stopping"
+    assert policy["early_stopping"]["epochs_completed"] == 3
+    assert policy["early_stopping"]["restored_best_checkpoint"] is True
+    best = json.loads((run.run_dir / "outputs" / "best_metrics.json").read_text())
+    assert best["epoch"] == 1
+
+
+def test_synthetic_fixture_training_applies_cosine_decay_policy(tmp_path: Path):
+    candidate = write_trainable_candidate(
+        tmp_path,
+        max_epochs=3,
+        training_policy="""
+  scheduler:
+    policy: cosine_decay
+    min_lr: 0.0001
+""",
+    )
+
+    run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs", max_prediction_samples=1)
+
+    assert run.status == RunStatus.COMPLETED
+    records = [json.loads(line) for line in (run.run_dir / "outputs" / "metrics.jsonl").read_text().splitlines()]
+    lrs = [record["training/learning_rate"] for record in records if record["split"] == "val"]
+    assert lrs == [0.001, 0.00055, 0.0001]
 
 
 def test_best_validation_metrics_selects_highest_dice_not_final_epoch():

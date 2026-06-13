@@ -34,6 +34,8 @@ training:
   max_epochs: 1
 ```
 
+Optional Harness-owned training policy controls may also be declared under `training.scheduler` and `training.early_stopping`; omitted values resolve to constant learning rate and disabled early stopping.
+
 ## Allowed files
 
 Required:
@@ -84,6 +86,35 @@ Rules for the implemented surface:
 - Auxiliary-output models must return exactly `mask_logits` and requested auxiliary output keys; tensor shorthand remains valid only for mask-only candidates.
 - The Harness derives Line Target and Boundary Target tensors from the primary Contrail Mask; Candidate Experiment code must not derive targets or implement auxiliary losses.
 - Primary validation comparison remains based on Contrail Mask metrics, especially `val/dice`.
+
+## Training policy
+
+Candidate manifests may select a narrow Harness-owned learning-rate scheduler preset:
+
+```yaml
+training:
+  scheduler:
+    policy: reduce_on_plateau
+    factor: 0.5
+    patience: 3
+    min_lr: 0.00001
+```
+
+Allowed scheduler policies are `constant_lr` (default), `cosine_decay`, and `reduce_on_plateau`. Scheduler scalar parameters are bounded by manifest validation; Candidate Experiment code must not implement schedulers or custom training-loop logic.
+
+Candidate manifests may enable Harness-owned early stopping on the Research Problem's working-validation selection metric (for GVCCS, `val/dice`, maximized):
+
+```yaml
+training:
+  max_epochs: 60
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.001
+    restore_best_checkpoint: true
+```
+
+When enabled, `patience` must be less than `max_epochs`; `min_delta` is the minimum selection-metric improvement needed to reset patience. The Harness records the resolved scheduler and early-stopping policy, stop reason, completed epochs, and whether the best-validation checkpoint was restored for the final in-memory model state used by post-training artifacts.
 
 ## Experiment Proposal contract
 

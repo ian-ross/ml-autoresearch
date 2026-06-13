@@ -600,6 +600,35 @@ def test_fake_research_problem_spec_rejects_values_not_in_its_allowlists(tmp_pat
     assert "training.optimizer" in message
 
 
+def test_candidate_manifest_accepts_scheduler_and_early_stopping_policy(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    manifest = yaml.safe_load((candidate / "manifest.yaml").read_text())
+    manifest["training"]["max_epochs"] = 8
+    manifest["training"]["scheduler"] = {"policy": "reduce_on_plateau", "factor": 0.5, "patience": 2, "min_lr": 0.00001}
+    manifest["training"]["early_stopping"] = {"enabled": True, "patience": 3, "min_delta": 0.001, "restore_best_checkpoint": True}
+    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+
+    loaded = validate_candidate_directory(candidate)
+
+    assert loaded.training.scheduler.policy == "reduce_on_plateau"
+    assert loaded.training.early_stopping.enabled is True
+    assert loaded.training.early_stopping.patience == 3
+
+
+def test_candidate_manifest_rejects_unapproved_scheduler_policy(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    manifest = yaml.safe_load((candidate / "manifest.yaml").read_text())
+    manifest["training"]["scheduler"] = {"policy": "candidate_custom_scheduler"}
+    (candidate / "manifest.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+
+    with pytest.raises(CandidateValidationError) as excinfo:
+        validate_candidate_directory(candidate)
+
+    message = str(excinfo.value)
+    assert "scheduler.policy" in message
+    assert "candidate_custom_scheduler" in message
+
+
 def test_training_scalar_ranges_are_checked(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     (candidate / "manifest.yaml").write_text(
