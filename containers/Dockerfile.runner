@@ -36,14 +36,9 @@ RUN python -m pip install --no-cache-dir \
 RUN python -m pip install --no-cache-dir --no-deps .
 RUN mkdir -p /candidate /outputs /scratch \
     && cat > /candidate/manifest.yaml <<'EOF'
-name: boundary_aux_trainable_candidate
+name: mask_only_trainable_candidate
 input_mode: single_frame_rgb
 output_form: mask_logits
-auxiliary_targets:
-  - name: boundary
-    output: boundary_logits
-    loss: weighted_bce
-    weight: 0.10
 training:
   loss: bce_dice
   optimizer: adamw
@@ -59,10 +54,9 @@ class Tiny(nn.Module):
         super().__init__()
         self.encoder = nn.Sequential(nn.Conv2d(3, 4, 3, padding=1), nn.ReLU())
         self.mask = nn.Conv2d(4, 1, 1)
-        self.boundary = nn.Conv2d(4, 1, 1)
     def forward(self, x):
         features = self.encoder(x)
-        return {'mask_logits': self.mask(features), 'boundary_logits': self.boundary(features)}
+        return {'mask_logits': self.mask(features)}
 def build_model(input_spec, output_spec):
     return Tiny()
 EOF
@@ -71,7 +65,7 @@ RUN TMPDIR=/scratch python -m ml_autoresearch.container_runner train-synthetic -
 import json
 from pathlib import Path
 metrics = json.loads(Path('/outputs/final_metrics.json').read_text())
-assert 'val/aux/boundary_loss' in metrics, metrics
+assert 'val/dice' in metrics, metrics
 PY
 RUN rm -rf /candidate /outputs /scratch /resolved_manifest.yaml
 

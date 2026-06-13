@@ -38,13 +38,13 @@ def test_runner_dockerfile_installs_runtime_dependencies_before_package_install(
     assert "typer>=0.12,<1" in dockerfile
 
 
-def test_runner_dockerfile_smoke_checks_boundary_auxiliary_training_contract() -> None:
+def test_runner_dockerfile_smoke_checks_mask_only_synthetic_training_contract() -> None:
     dockerfile = RUNNER_DOCKERFILE.read_text()
 
-    assert "name: boundary" in dockerfile
-    assert "output: boundary_logits" in dockerfile
+    assert "name: mask_only_trainable_candidate" in dockerfile
+    assert "auxiliary_targets" not in dockerfile
     assert "python -m ml_autoresearch.container_runner train-synthetic" in dockerfile
-    assert "val/aux/boundary_loss" in dockerfile
+    assert "val/dice" in dockerfile
 
 
 def test_agent_dockerfile_installs_lightweight_agent_cli_without_torch() -> None:

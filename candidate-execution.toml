@@ -2,6 +2,7 @@
 # Candidate Execution Boundary policy for local runs.
 backend = "docker"
 docker_image = "ml-autoresearch-runner:local"
+runs_root = "/data/iross/ml-autoresearch/runs"
 
 # Bounded run defaults for Harness-owned autonomous candidate execution.
 max_prediction_samples = 2
@@ -9,8 +10,9 @@ prediction_sample_policy = "first_n"
 
 # Replace with your project's production Research Problem package configuration.
 [research_problem]
-id = "example_research_problem"
-package_root = "/path/to/research-problem"
-provider_target = "research_problem_package.research_problem:build_spec"
+id = "ground_camera_contrail_detection"
+package_root = "/home/iross/code/gvccs-research-problem"
+provider_target = "gvccs.research_problem:build_spec"
 expected_contract_version = "v0"
-data_config = { sample_count = 8 }
+data_config = { dataset_root = "/home/iross/data/GVCCS" }
+
