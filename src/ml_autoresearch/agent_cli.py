@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -11,6 +12,11 @@ import typer
 from ml_autoresearch.batches import get_batch_summary, list_batches
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.runs import get_best_runs, get_run_summary, list_runs
+
+DEFAULT_AGENT_RUNS_ROOT = Path("/history/runs")
+DEFAULT_AGENT_BATCHES_ROOT = Path("/history/batches")
+_AGENT_RUNS_ROOT_ENV = "ML_AUTORESEARCH_AGENT_RUNS_ROOT"
+_AGENT_BATCHES_ROOT_ENV = "ML_AUTORESEARCH_AGENT_BATCHES_ROOT"
 
 app = typer.Typer(
     help=(
@@ -23,6 +29,18 @@ app = typer.Typer(
 @app.callback()
 def root() -> None:
     """Agent-safe commands only; cannot run Candidate Experiments."""
+
+
+def _resolve_runs_root(runs_root: Path | None) -> Path:
+    if runs_root is not None:
+        return runs_root
+    return Path(os.environ.get(_AGENT_RUNS_ROOT_ENV, str(DEFAULT_AGENT_RUNS_ROOT)))
+
+
+def _resolve_batches_root(batches_root: Path | None) -> Path:
+    if batches_root is not None:
+        return batches_root
+    return Path(os.environ.get(_AGENT_BATCHES_ROOT_ENV, str(DEFAULT_AGENT_BATCHES_ROOT)))
 
 
 def _echo_json(payload: object) -> None:
@@ -55,12 +73,17 @@ def _echo_batch_table(rows: list[dict[str, object]]) -> None:
 
 @app.command("list-batches")
 def list_batches_command(
-    batches_root: Annotated[Path, typer.Option(help="Directory containing local Experiment Batch artifact directories.")],
+    batches_root: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory containing local Experiment Batch artifact directories. Defaults to /history/batches inside the Agent Control Boundary."
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
 ) -> None:
-    """List prior local Experiment Batches from a read-only batches/ artifact tree."""
+    """List prior local Experiment Batches from the read-only Research History."""
 
-    rows = list_batches(batches_root)
+    rows = list_batches(_resolve_batches_root(batches_root))
     if json_output:
         _echo_json(rows)
     else:
@@ -69,13 +92,18 @@ def list_batches_command(
 
 @app.command("batch-summary")
 def batch_summary_command(
-    batches_root: Annotated[Path, typer.Option(help="Directory containing local Experiment Batch artifact directories.")],
     batch_id: Annotated[str, typer.Option(help="Experiment Batch identifier to inspect.")],
+    batches_root: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory containing local Experiment Batch artifact directories. Defaults to /history/batches inside the Agent Control Boundary."
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
 ) -> None:
-    """Inspect one prior local Experiment Batch summary."""
+    """Inspect one prior local Experiment Batch summary from the read-only Research History."""
 
-    summary = get_batch_summary(batches_root, batch_id)
+    summary = get_batch_summary(_resolve_batches_root(batches_root), batch_id)
     if json_output:
         _echo_json(summary)
     else:
@@ -86,12 +114,17 @@ def batch_summary_command(
 
 @app.command("list-runs")
 def list_runs_command(
-    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
+    runs_root: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory containing local Harness Run directories. Defaults to /history/runs inside the Agent Control Boundary."
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
 ) -> None:
-    """List prior local Runs from a read-only runs/ artifact tree."""
+    """List prior Runs from the read-only Research History."""
 
-    rows = list_runs(runs_root)
+    rows = list_runs(_resolve_runs_root(runs_root))
     if json_output:
         _echo_json(rows)
     else:
@@ -110,36 +143,51 @@ def _run_summary_command(runs_root: Path, run_id: str, json_output: bool) -> Non
 
 @app.command("run-summary")
 def run_summary_command(
-    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
     run_id: Annotated[str, typer.Option(help="Run identifier to inspect.")],
+    runs_root: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory containing local Harness Run directories. Defaults to /history/runs inside the Agent Control Boundary."
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
 ) -> None:
-    """Inspect one prior local Run summary without MLflow or model imports."""
+    """Inspect one prior Run summary from the read-only Research History."""
 
-    _run_summary_command(runs_root, run_id, json_output)
+    _run_summary_command(_resolve_runs_root(runs_root), run_id, json_output)
 
 
 @app.command("get-run-summary")
 def get_run_summary_command(
-    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
     run_id: Annotated[str, typer.Option(help="Run identifier to inspect.")],
+    runs_root: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory containing local Harness Run directories. Defaults to /history/runs inside the Agent Control Boundary."
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
 ) -> None:
     """Alias for run-summary."""
 
-    _run_summary_command(runs_root, run_id, json_output)
+    _run_summary_command(_resolve_runs_root(runs_root), run_id, json_output)
 
 
 @app.command("get-best-runs")
 def get_best_runs_command(
-    runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
+    runs_root: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory containing local Harness Run directories. Defaults to /history/runs inside the Agent Control Boundary."
+        ),
+    ] = None,
     metric: Annotated[str, typer.Option(help="Metric key used for ranking local Runs.")] = "val/dice",
     limit: Annotated[int | None, typer.Option(help="Maximum number of ranked Runs to print.")] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
 ) -> None:
-    """Identify best completed prior local Runs by val/dice by default."""
+    """Identify best completed prior Runs in the read-only Research History."""
 
-    rows = get_best_runs(runs_root, metric=metric, limit=limit)
+    rows = get_best_runs(_resolve_runs_root(runs_root), metric=metric, limit=limit)
     if json_output:
         _echo_json(rows)
     else:

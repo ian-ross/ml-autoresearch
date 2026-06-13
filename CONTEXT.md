@@ -419,6 +419,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - Once placed in the **Candidate Submission Queue**, a **Candidate Experiment** is immutable by convention; changes require a new **Candidate Experiment** or a **Repair Candidate**.
 - **Candidate Submission Preparation** happens in a minimal Agent Control Boundary Python environment without PyTorch or NVIDIA libraries and must not import Candidate Experiment model code.
 - The Agent Control Boundary exposes an agent-safe CLI wrapper for observation and static Candidate Experiment submission preparation instead of exposing Run execution commands to the agent.
+- Agent-safe observation commands default to the configured **Research History** rather than requiring the agent to choose a **Runs root** during autonomous operation.
 - The **Candidate Experiment Runner** bridges the **Agent Control Boundary** and the **Candidate Execution Boundary**.
 
 ## Example dialogue

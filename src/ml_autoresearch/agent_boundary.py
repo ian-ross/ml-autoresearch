@@ -188,7 +188,7 @@ def _refresh_history_snapshot(project_root: Path, history_dir: Path, runs_root: 
         destination = history_dir / dirname
         if dirname == "runs" and source != default_runs_root:
             source.mkdir(parents=True, exist_ok=True)
-            destination.symlink_to(source, target_is_directory=True)
+            destination.mkdir(parents=True)
         elif source.exists():
             if not source.is_dir():
                 raise AgentBoundaryError(f"history source path is not a directory: {source}")
@@ -277,7 +277,9 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "Capability Request, Evaluation Request, or Campaign Report in the same step.\n"
         "\n"
         "Use `ml-autoresearch-agent`, not `ml-autoresearch`, for allowed observation\n"
-        "and static Candidate preparation commands. Do not edit mounted read-only\n"
+        "and static Candidate preparation commands. Observation commands default to\n"
+        "the `/history/runs` and `/history/batches` Research History roots; do not\n"
+        "invent host-relative Runs root paths. Do not edit mounted read-only\n"
         "reference, history, docs, or data paths.\n"
     )
 
@@ -320,7 +322,6 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         (project_root / "agent-history", "/history"),
         (project_root / "agent-history" / "candidates", "/history/candidates"),
         (_runs_history_mount_source(project_root, config.runs_root), "/history/runs"),
-        *_external_runs_compatibility_mounts(project_root, config.runs_root),
         (project_root / "agent-history" / "batches", "/history/batches"),
         (project_root / "agent-history" / "research-notes", "/history/research-notes"),
         (project_root / "docs", "/docs"),
@@ -347,18 +348,6 @@ def _runs_history_mount_source(project_root: Path, runs_root: Path) -> Path:
     if runs_root != default_runs_root:
         return runs_root
     return project_root / "agent-history" / "runs"
-
-
-def _external_runs_compatibility_mounts(project_root: Path, runs_root: Path) -> list[tuple[Path, str]]:
-    """Expose external Runs at compatibility paths agents may infer from history."""
-
-    default_runs_root = project_root / "runs"
-    if runs_root == default_runs_root:
-        return []
-    return [
-        (runs_root, str(default_runs_root)),
-        (runs_root, str(project_root / "agent-history" / "runs")),
-    ]
 
 
 def _format_mount(path: Path, target: str) -> str:

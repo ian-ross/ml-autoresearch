@@ -17,7 +17,7 @@ Use after submission or execution to inspect a Run and summarize its Result with
 
 ## Instructions
 
-Use `list-runs`, `run-summary` / `get-run-summary`, and `get-best-runs` to inspect status, metrics, best-validation Result, prediction samples, and logs. Preserve the distinction between final metrics and best-validation metrics. If status is failed, rejected, smoke_failed, or scientifically poor, send observations to failure classification.
+Use `ml-autoresearch-agent list-runs`, `ml-autoresearch-agent run-summary` / `ml-autoresearch-agent get-run-summary`, and `ml-autoresearch-agent get-best-runs` to inspect status, metrics, best-validation Result, prediction samples, and logs. Omit `--runs-root` during normal autonomous operation; agent-safe observation defaults to `/history/runs`. Use `ml-autoresearch-agent list-batches` and `ml-autoresearch-agent batch-summary` for Experiment Batch history; these default to `/history/batches`. Preserve the distinction between final metrics and best-validation metrics. If status is failed, rejected, smoke_failed, or scientifically poor, send observations to failure classification.
 
 ## Guardrails
 

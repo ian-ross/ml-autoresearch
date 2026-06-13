@@ -255,15 +255,14 @@ def test_prepare_agent_boundary_exposes_configured_external_runs_root_without_co
     completed = run_cli(tmp_path, "prepare-agent-boundary")
 
     assert completed.returncode == 0, completed.stderr
-    assert (tmp_path / "agent-history" / "runs").is_symlink()
-    assert (tmp_path / "agent-history" / "runs").resolve() == external_runs
-    assert (tmp_path / "agent-history" / "runs" / "run_external" / "run_metadata.json").is_file()
-    assert not (tmp_path / "agent-history" / "runs" / "run_external" / "outputs" / "large-checkpoint.bin").is_symlink()
+    assert (tmp_path / "agent-history" / "runs").is_dir()
+    assert not (tmp_path / "agent-history" / "runs").is_symlink()
+    assert not (tmp_path / "agent-history" / "runs" / "run_external").exists()
     fort_toml = (tmp_path / "agent-work" / ".pi" / "fort.toml").read_text()
     assert f'path="{external_runs}"' in fort_toml
     assert 'target="/history/runs", readonly=true' in fort_toml
-    assert f'target="{tmp_path / "runs"}", readonly=true' in fort_toml
-    assert f'target="{tmp_path / "agent-history" / "runs"}", readonly=true' in fort_toml
+    assert f'target="{tmp_path / "runs"}"' not in fort_toml
+    assert f'target="{tmp_path / "agent-history" / "runs"}"' not in fort_toml
 
 
 def test_prepare_agent_boundary_replaces_existing_snapshot_contents_instead_of_appending(tmp_path: Path):

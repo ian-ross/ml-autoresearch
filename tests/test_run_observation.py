@@ -221,6 +221,47 @@ def test_agent_cli_observation_commands_work_against_fixture_runs(tmp_path: Path
     assert [item["run_id"] for item in json.loads(best.stdout)] == ["run_high", "run_low"]
 
 
+def test_agent_cli_observation_commands_default_to_research_history(tmp_path: Path, monkeypatch):
+    history = tmp_path / "history"
+    runs_root = history / "runs"
+    batches_root = history / "batches"
+    write_run(runs_root, "run_low", "completed", 0.2)
+    write_run(runs_root, "run_high", "completed", 0.9)
+    batch_dir = batches_root / "batch_123"
+    batch_dir.mkdir(parents=True)
+    (batch_dir / "batch_metadata.json").write_text(
+        json.dumps({"batch_id": "batch_123", "status": "completed", "runs": [{"run_id": "run_high"}]}) + "\n"
+    )
+    monkeypatch.setenv("ML_AUTORESEARCH_AGENT_RUNS_ROOT", str(runs_root))
+    monkeypatch.setenv("ML_AUTORESEARCH_AGENT_BATCHES_ROOT", str(batches_root))
+
+    listed = run_agent_cli("list-runs", "--json")
+    summary = run_agent_cli("run-summary", "--run-id", "run_high", "--json")
+    best = run_agent_cli("get-best-runs", "--json")
+    batch = run_agent_cli("batch-summary", "--batch-id", "batch_123", "--json")
+
+    assert listed.returncode == 0, listed.stderr
+    assert summary.returncode == 0, summary.stderr
+    assert best.returncode == 0, best.stderr
+    assert batch.returncode == 0, batch.stderr
+    assert [item["run_id"] for item in json.loads(listed.stdout)] == ["run_high", "run_low"]
+    assert json.loads(summary.stdout)["run_id"] == "run_high"
+    assert [item["run_id"] for item in json.loads(best.stdout)] == ["run_high", "run_low"]
+    assert json.loads(batch.stdout)["batch_id"] == "batch_123"
+
+
+def test_agent_cli_observation_help_documents_research_history_defaults() -> None:
+    completed = run_agent_cli("list-runs", "--help")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "/history/runs" in completed.stdout
+
+    completed = run_agent_cli("batch-summary", "--help")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "/history/batches" in completed.stdout
+
+
 def test_agent_cli_validate_candidate_can_require_submission_readme(tmp_path: Path):
     write_static_candidate_execution_config(tmp_path)
     candidate = tmp_path / "candidate"
