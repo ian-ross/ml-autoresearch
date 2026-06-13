@@ -260,6 +260,7 @@ def test_prepare_agent_boundary_exposes_configured_external_runs_root_without_co
     fort_toml = (tmp_path / "agent-work" / ".pi" / "fort.toml").read_text()
     assert f'path="{external_runs}"' in fort_toml
     assert 'target="/history/runs", readonly=true' in fort_toml
+    assert f'target="{tmp_path / "runs"}", readonly=true' in fort_toml
 
 
 def test_prepare_agent_boundary_replaces_existing_snapshot_contents_instead_of_appending(tmp_path: Path):

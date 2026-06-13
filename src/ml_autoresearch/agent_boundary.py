@@ -320,6 +320,7 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         (project_root / "agent-history", "/history"),
         (project_root / "agent-history" / "candidates", "/history/candidates"),
         (_runs_history_mount_source(project_root, config.runs_root), "/history/runs"),
+        *_external_runs_compatibility_mounts(project_root, config.runs_root),
         (project_root / "agent-history" / "batches", "/history/batches"),
         (project_root / "agent-history" / "research-notes", "/history/research-notes"),
         (project_root / "docs", "/docs"),
@@ -346,6 +347,15 @@ def _runs_history_mount_source(project_root: Path, runs_root: Path) -> Path:
     if runs_root != default_runs_root:
         return runs_root
     return project_root / "agent-history" / "runs"
+
+
+def _external_runs_compatibility_mounts(project_root: Path, runs_root: Path) -> list[tuple[Path, str]]:
+    """Expose external Runs at the canonical project path for legacy provenance paths."""
+
+    default_runs_root = project_root / "runs"
+    if runs_root == default_runs_root:
+        return []
+    return [(runs_root, str(default_runs_root))]
 
 
 def _format_mount(path: Path, target: str) -> str:
