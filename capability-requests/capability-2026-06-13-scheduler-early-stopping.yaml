@@ -1,0 +1,54 @@
+request_id: capability_2026_06_13_scheduler_early_stopping
+capability_type: contract_surface
+blocked_hypothesis: >-
+  Harness-owned learning-rate scheduling and early-stopping/checkpoint-selection controls
+  may improve the current xwide Line Target U-Net family more safely than further
+  architecture-local fixed-epoch tweaks. The current best documented Run,
+  run_20260602_203450_c05550, reached its best validation Dice near epoch 50 during
+  a 60-epoch fixed-budget run, while the final epoch shifted toward lower recall.
+  Recent in-contract local variants around this family (boundary auxiliary,
+  high-resolution refinement, detail fusion, and dropout placement/magnitude
+  changes) mostly trade precision and recall around a plateau instead of producing
+  a clearly better model.
+current_contract_insufficiency: >-
+  Candidate Experiments can request bounded training budgets, but they cannot select
+  an audited scheduler policy, early-stopping patience, best-checkpoint restoration
+  policy, or validation-driven stop criterion. Extending fixed epoch counts is a
+  blunt proxy for this hypothesis and risks overtraining or calibration drift;
+  encoding scheduler or stopping behavior inside candidate model code would be a
+  covert workaround because training-loop policy belongs to the Harness.
+expected_research_value: >-
+  A small allowlisted scheduler/early-stopping slice would test whether the current
+  best architecture benefits from validation-aware training policy rather than more
+  model complexity. It could reduce late-epoch regression, improve reproducibility
+  of best-validation gains, and help distinguish whether the campaign is limited
+  by architecture capacity or by fixed-budget optimization policy.
+safety_reproducibility_risks: >-
+  The Harness must own all scheduler and early-stopping implementations, validation
+  metric selection, checkpoint restoration, patience/min-delta semantics, and
+  metadata recording. Comparisons must record requested and resolved training policy,
+  best epoch, final epoch, restored checkpoint status, and wall-clock effects so
+  results remain interpretable and do not leak locked-evaluation information.
+minimal_harness_change: >-
+  Add a narrow allowlist of Harness-owned training policies, for example
+  constant_lr (current behavior), cosine_decay, reduce_on_plateau, and optional
+  early_stopping with bounded patience/min_delta on working-validation val/dice.
+  Persist the resolved policy and whether the final model artifact represents the
+  final epoch or restored best-validation checkpoint. Candidate authority should be
+  limited to selecting among these audited presets and bounded scalar parameters.
+candidate_authority_requested: none
+example_follow_up_experiments:
+  - >-
+    Re-run the current best documented Candidate Experiment
+    single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60 with a Harness-owned
+    reduce-on-plateau scheduler and early stopping on working-validation val/dice,
+    comparing best/final Dice and precision/recall against run_20260602_203450_c05550.
+  - >-
+    Compare cosine decay versus the current constant learning-rate policy for the
+    same xwide Line Target architecture, holding input mode, auxiliary loss weight,
+    dropout, augmentation policy, and data policy fixed.
+  - >-
+    If best-checkpoint restoration is exposed, evaluate whether restored best-epoch
+    artifacts reduce the final-epoch recall drop observed in the 60-epoch p=0.075
+    baseline without requiring a new architecture.
+priority: high
