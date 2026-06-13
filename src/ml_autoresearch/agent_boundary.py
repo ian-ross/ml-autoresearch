@@ -188,7 +188,7 @@ def _refresh_history_snapshot(project_root: Path, history_dir: Path, runs_root: 
         destination = history_dir / dirname
         if dirname == "runs" and source != default_runs_root:
             source.mkdir(parents=True, exist_ok=True)
-            destination.mkdir(parents=True)
+            destination.symlink_to(source, target_is_directory=True)
         elif source.exists():
             if not source.is_dir():
                 raise AgentBoundaryError(f"history source path is not a directory: {source}")
