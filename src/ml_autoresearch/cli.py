@@ -690,7 +690,10 @@ def run_experiment_batch_command(
 @app.command("run-candidate")
 def run_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
-    runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
+    runs_root: Annotated[
+        Path | None,
+        typer.Option(help="Directory where Harness Run directories are created. Defaults to candidate-execution.toml runs_root."),
+    ] = None,
     project_root: Annotated[Path, typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config.")] = Path("."),
     max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of Research Problem samples used.")] = None,
     max_prediction_samples: Annotated[
@@ -739,15 +742,16 @@ def run_candidate_command(
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
 
-    if daemonize:
-        _daemonize_current_run_candidate(runs_root)
-        return
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
     from ml_autoresearch.runs import run_candidate_with_research_problem
 
-    selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
         config, provider_config = _load_configured_provider(project_root, label="run-candidate")
+        effective_runs_root = config.runs_root if runs_root is None else runs_root
+        if daemonize:
+            _daemonize_current_run_candidate(effective_runs_root)
+            return
+        selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
         max_samples, max_prediction_samples, prediction_sample_policy = _effective_execution_options(
             config,
             max_samples=max_samples,
@@ -756,7 +760,7 @@ def run_candidate_command(
         )
         run = run_candidate_with_research_problem(
             candidate,
-            runs_root,
+            effective_runs_root,
             provider_config,
             max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,

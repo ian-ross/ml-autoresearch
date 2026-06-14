@@ -279,6 +279,23 @@ def test_run_candidate_cli_accepts_by_default_when_proposal_present(tmp_path: Pa
     assert (runs_root / payload["run_id"] / "outputs" / "logs" / "training.log").exists()
 
 
+def test_run_candidate_cli_defaults_runs_root_from_candidate_execution_config(tmp_path: Path):
+    candidate = write_valid_candidate_with_proposal(tmp_path)
+    runs_root = tmp_path / "configured-runs"
+    write_fake_execution_config(tmp_path)
+    config_path = tmp_path / "candidate-execution.toml"
+    config_path.write_text(config_path.read_text().replace("backend = \"native\"\n", f"backend = \"native\"\nruns_root = \"{runs_root}\"\n"))
+
+    completed = run_cli(
+        "run-candidate", "--candidate", str(candidate), "--project-root", str(tmp_path), "--backend", "native"
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "completed"
+    assert (runs_root / payload["run_id"] / "outputs" / "final_metrics.json").exists()
+
+
 def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
