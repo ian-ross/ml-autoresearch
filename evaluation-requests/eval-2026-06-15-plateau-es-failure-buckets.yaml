@@ -1,0 +1,29 @@
+request_id: eval_2026_06_15_plateau_es_failure_buckets
+target_run_id: run_20260614_124226_05e3eb
+evaluation_mode: failure_bucket_review
+diagnostic_question: >-
+  Does the reduce-on-plateau plus best-checkpoint-restored early-stopping
+  training-policy run for the extra-wide p=0.075 Line Target U-Net preserve its
+  aggregate best-validation Dice gain across the whole validation split, or are
+  the gains concentrated at threshold 0.5 while worsening known failure buckets
+  such as missed-positive masks, false-negative-heavy positive masks,
+  false-positive-heavy positives, empty-mask false positives, or empty-mask
+  affected-sample spread relative to the fixed-60-epoch parent?
+expected_decision_impact: >-
+  Compare the threshold sweep and deterministic failure-bucket samples with the
+  parent evaluation eval_eval_2026_06_03_xwide_dropout_p0075_epoch60_failure_buckets
+  for run_20260602_203450_c05550. If run_20260614_124226_05e3eb improves or
+  preserves the parent bucket behavior while keeping superior threshold-sweep
+  Dice/IoU near the primary threshold, promote it as the primary Comparison
+  Target for the next architecture hypothesis. If it worsens empty-sky spread,
+  missed positives, or false-negative-heavy positives despite aggregate metric
+  improvement, prioritize a safer training-policy or thresholding follow-up
+  before changing architecture.
+parameters:
+  primary_threshold: 0.5
+  batch_size: 8
+  artifact_count: 24
+  failure_bucket_count: 4
+artifact_budget:
+  max_artifacts: 24
+  max_runtime_seconds: 1800

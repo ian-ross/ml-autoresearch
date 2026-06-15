@@ -69,6 +69,8 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 
 | `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_head_dropout_p005` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_head_dropout_p005/README.md) — Extra-wide single-frame U-Net with line auxiliary target, p=0.075 bottleneck dropout, and light p=0.05 decoder-head dropout to test precision-safe regularization at the 60-epoch budget. | Pending full GVCCS Research Note. | Pending GVCCS Run. | Pending Harness Run; ingested from Agent Workspace. |
 
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es/README.md) — Current-best extra-wide single-frame U-Net with Line Target auxiliary loss, p=0.075 bottleneck dropout, Harness-owned reduce-on-plateau scheduling, and early stopping with best-checkpoint restoration. | Pending full Research Note. | Pending Research Problem Run. | Pending Harness Run; ingested from Agent Workspace. |
+
 ## Chronological Research Notes
 
 - [`2026-05-04 baseline GVCCS tiny subset`](research-notes/2026-05-04-baseline-gvccs-tiny-subset.md)
@@ -107,3 +109,5 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 - [`2026-06-03 xwide p=0.075 dropout 60-epoch improvement`](research-notes/2026-06-03-xwide-dropout-p0075-epoch60-improvement.md)
 - [`2026-06-03 xwide p=0.075 dropout 60-epoch failure-bucket evaluation`](research-notes/2026-06-03-xwide-dropout-p0075-epoch60-failure-bucket-evaluation.md)
 - [`2026-06-03 detail-fusion architecture regression`](research-notes/2026-06-03-detail-fusion-regression.md)
+- [`2026-06-15 reduce-on-plateau early-stopping training-policy improvement`](research-notes/2026-06-15-plateau-es-training-policy-improvement.md)
+- [`2026-06-15 plateau/es failure-bucket evaluation`](research-notes/2026-06-15-plateau-es-failure-bucket-evaluation.md)
