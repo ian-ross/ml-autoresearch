@@ -32,6 +32,7 @@ class CandidateExecutionConfig:
     docker_rootless_container_root: bool = False
     data_root: Path | None = None
     runs_root: Path = Path("runs")
+    ledger_path: Path | None = None
     max_samples: int | None = None
     max_prediction_samples: int = 2
     prediction_sample_policy: Literal["first_n", "adjacent_and_scattered"] = "first_n"
@@ -60,6 +61,7 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
         runs_root = _path(settings, "runs_root", root, prefix="candidate_execution")
     else:
         runs_root = root / "runs"
+    ledger_path = _optional_path(settings, "ledger_path", root)
     research_problem_provider = _research_problem_provider_config(data, root)
     max_samples = _optional_int(settings, "max_samples", minimum=1)
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
@@ -92,6 +94,7 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
         docker_rootless_container_root=docker_rootless_container_root,
         data_root=data_root,
         runs_root=runs_root,
+        ledger_path=ledger_path,
         max_samples=max_samples,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,  # type: ignore[arg-type]

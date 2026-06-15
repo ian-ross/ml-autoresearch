@@ -271,3 +271,45 @@ auxiliary_targets:
         "shape": [1, 16, 16],
         "auxiliary_outputs": [{"target": "edge", "name": "edge_logits", "shape": [1, 16, 16]}],
     }
+
+
+def test_smoke_specs_from_resolved_manifest_use_container_research_problem_root_override(
+    tmp_path: Path, monkeypatch
+):
+    from ml_autoresearch.smoke import smoke_specs_from_resolved_manifest
+
+    package_root = tmp_path / "research-problem"
+    package = package_root / "tiny_problem"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "research_problem.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "def build_spec(data_config=None):\n"
+        "    return ResearchProblemSpec(\n"
+        "        id='tiny_problem', version='test-v0', contract_version='v0',\n"
+        "        input_modes=('tiny_rgb',), input_specs={'tiny_rgb': {'mode': 'tiny_rgb', 'shape': [3, 8, 8]}},\n"
+        "        output_forms=('tiny_mask_logits',), output_specs={'tiny_mask_logits': {'form': 'tiny_mask_logits', 'shape': [1, 8, 8]}},\n"
+        "        losses=('tiny_loss',), optimizers=('sgd',), sampling_policies=('sequential',), augmentation_policies=('none',),\n"
+        "        primary_metric='val/tiny_score',\n"
+        "    )\n"
+    )
+    resolved_manifest = tmp_path / "resolved_manifest.yaml"
+    resolved_manifest.write_text(
+        """
+research_problem:
+  id: tiny_problem
+  version: test-v0
+  contract_version: v0
+  provider:
+    target: tiny_problem.research_problem:build_spec
+    resolved_package_root: /host/path/that/does/not/exist
+input_mode: tiny_rgb
+output_form: tiny_mask_logits
+""".lstrip()
+    )
+    monkeypatch.setenv("ML_AUTORESEARCH_RESEARCH_PROBLEM_ROOT", str(package_root))
+
+    input_spec, output_spec = smoke_specs_from_resolved_manifest(resolved_manifest)
+
+    assert input_spec == {"mode": "tiny_rgb", "shape": [3, 8, 8]}
+    assert output_spec == {"form": "tiny_mask_logits", "shape": [1, 8, 8]}

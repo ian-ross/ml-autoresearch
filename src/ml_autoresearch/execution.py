@@ -10,9 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+import yaml
+
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig
 
 DEFAULT_DOCKER_IMAGE = "ml-autoresearch-runner:local"
+CONTAINER_RESEARCH_PROBLEM_ROOT = "/research-problem"
 MANUAL_DOCKER_BUILD_COMMAND = f"docker build -t {DEFAULT_DOCKER_IMAGE} ."
 DEFAULT_DOCKER_MEMORY_LIMIT = "4g"
 DEFAULT_DOCKER_CPUS = "2"
@@ -172,7 +175,12 @@ class DockerBackend:
         path = Path(run_dir)
         self._prepare_writable_paths(path)
         self._ensure_image_available()
-        command = self._operation_command(path, "ml_autoresearch.container_smoke")
+        provider_package_root = self._research_problem_package_root_from_resolved_manifest(path)
+        command = self._operation_command(
+            path,
+            "ml_autoresearch.container_smoke",
+            provider_package_root=provider_package_root,
+        )
         self._run_operation(command, "Docker smoke test failed")
         return OperationResult(backend=self.name, operation="smoke_test", docker_image=self.docker_image)
 
@@ -231,6 +239,7 @@ class DockerBackend:
         data_path = self._evaluate_data_root(path, data_root)
         self._prepare_evaluation_writable_paths(path)
         self._ensure_image_available()
+        provider_package_root = self._research_problem_package_root_from_run_metadata(path)
         command = self._operation_command(
             path,
             "ml_autoresearch.container_runner",
@@ -241,6 +250,7 @@ class DockerBackend:
             data_root=data_path,
             outputs_read_only=True,
             evaluations_writable=True,
+            provider_package_root=provider_package_root,
         )
         self._run_operation(command, "Docker evaluation failed")
         return OperationResult(backend=self.name, operation="evaluate_run", docker_image=self.docker_image)
@@ -350,6 +360,7 @@ class DockerBackend:
         outputs_read_only: bool = False,
         evaluations_writable: bool = False,
         provider_package_root: Path | None = None,
+        provider_package_container_path: str = CONTAINER_RESEARCH_PROBLEM_ROOT,
     ) -> list[str]:
         container_name = f"ml-autoresearch-{run_dir.name}-{uuid.uuid4().hex[:12]}"
         docker_is_rootless = self._docker_is_rootless() if self.container_user is None and not self.rootless_container_root else False
@@ -405,7 +416,12 @@ class DockerBackend:
         if data_root is not None:
             command.extend(["--volume", f"{data_root}:/data:ro,z"])
         if provider_package_root is not None:
-            command.extend(["--volume", f"{provider_package_root}:/research_problem_package:ro,z"])
+            command.extend([
+                "--env",
+                f"ML_AUTORESEARCH_RESEARCH_PROBLEM_ROOT={provider_package_container_path}",
+                "--volume",
+                f"{provider_package_root}:{provider_package_container_path}:ro,z",
+            ])
         command.extend(["--entrypoint", "python", self.docker_image, "-m", module, *args])
         return command
 
@@ -453,6 +469,36 @@ class DockerBackend:
     def _validate_research_problem_package_root(self, package_root: str | Path) -> Path:
         return self._validate_host_directory(package_root, label="Research Problem package root")
 
+    def _research_problem_package_root_from_resolved_manifest(self, run_dir: Path) -> Path | None:
+        try:
+            manifest = yaml.safe_load((run_dir / "resolved_manifest.yaml").read_text())
+        except Exception as exc:  # noqa: BLE001 - Docker launch should fail clearly before importing candidate code.
+            raise RuntimeError(f"cannot read resolved manifest for Research Problem package root: {exc}") from exc
+        return self._research_problem_package_root_from_mapping(manifest, source="resolved manifest")
+
+    def _research_problem_package_root_from_run_metadata(self, run_dir: Path) -> Path | None:
+        try:
+            metadata = json.loads((run_dir / "run_metadata.json").read_text())
+        except Exception as exc:  # noqa: BLE001 - Docker launch should fail clearly before importing candidate code.
+            raise RuntimeError(f"cannot read Run metadata for Research Problem package root: {exc}") from exc
+        return self._research_problem_package_root_from_mapping(metadata, source="Run metadata")
+
+    def _research_problem_package_root_from_mapping(self, payload: object, *, source: str) -> Path | None:
+        if not isinstance(payload, dict):
+            return None
+        research_problem = payload.get("research_problem")
+        if not isinstance(research_problem, dict):
+            return None
+        provider = research_problem.get("provider")
+        if not isinstance(provider, dict):
+            return None
+        package_root = provider.get("resolved_package_root")
+        if package_root is None:
+            return None
+        if not isinstance(package_root, str):
+            raise RuntimeError(f"{source} research_problem.provider.resolved_package_root must be a string")
+        return self._validate_research_problem_package_root(package_root)
+
     def _research_problem_data_root(self, provider_config: ResearchProblemProviderConfig) -> Path | None:
         data_root = provider_config.data_config.get("dataset_root") or provider_config.data_config.get("data_root")
         if data_root is None:
@@ -474,7 +520,7 @@ class DockerBackend:
             if "data_root" in data_config:
                 data_config["data_root"] = "/data"
         return provider_config.model_copy(
-            update={"package_root": Path("/research_problem_package"), "data_config": data_config}
+            update={"package_root": Path(CONTAINER_RESEARCH_PROBLEM_ROOT), "data_config": data_config}
         )
 
     def _validate_host_directory(self, value: str | Path, *, label: str) -> Path:

@@ -38,6 +38,9 @@ def write_fake_research_problem_provider(root: Path) -> None:
         "    )\n"
     )
     (root / "candidate-execution.toml").write_text(
+        "[candidate_execution]\n"
+        "ledger_path = \"research-ledger.jsonl\"\n"
+        "\n"
         "[research_problem]\n"
         "id = \"tiny_problem\"\n"
         f"package_root = \"{root}\"\n"

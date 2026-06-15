@@ -113,6 +113,46 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert "/var/run/docker.sock" not in joined
 
 
+def test_docker_backend_mounts_research_problem_package_at_manifest_path_for_smoke(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    run_dir = tmp_path / "runs" / "run_1"
+    package_root = tmp_path / "research-problem-package"
+    package_root.mkdir()
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "logs").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "resolved_manifest.yaml").write_text(
+        f"""
+name: x
+research_problem:
+  id: fake_problem
+  contract_version: v0
+  provider:
+    target: fake_problem.research_problem:build_spec
+    resolved_package_root: "{package_root}"
+""".lstrip()
+    )
+    (run_dir / "run_metadata.json").write_text("{}\n")
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        if command[:2] == ["docker", "info"]:
+            return subprocess.CompletedProcess(command, 0, '["name=seccomp,profile=builtin"]', "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    DockerBackend("custom:tag").smoke_test(run_dir)
+
+    docker_run = calls[2]
+    joined = "\n".join(docker_run)
+    assert "ML_AUTORESEARCH_RESEARCH_PROBLEM_ROOT=/research-problem" in docker_run
+    assert f"{package_root.resolve(strict=True)}:/research-problem:ro,z" in joined
+
+
 def test_docker_backend_defaults_to_rootless_container_root_when_docker_is_rootless(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

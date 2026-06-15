@@ -516,13 +516,16 @@ def _git_provenance(package_root: Path) -> dict[str, object] | None:
             text=True,
         )
 
-    inside = run_git("rev-parse", "--is-inside-work-tree")
-    if inside.returncode != 0 or inside.stdout.strip() != "true":
+    try:
+        inside = run_git("rev-parse", "--is-inside-work-tree")
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            return None
+        commit = run_git("rev-parse", "HEAD")
+        if commit.returncode != 0:
+            return None
+        status = run_git("status", "--porcelain")
+    except FileNotFoundError:
         return None
-    commit = run_git("rev-parse", "HEAD")
-    if commit.returncode != 0:
-        return None
-    status = run_git("status", "--porcelain")
     dirty = status.returncode == 0 and bool(status.stdout.strip())
     return {"commit": commit.stdout.strip(), "dirty": dirty}
 

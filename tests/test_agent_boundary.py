@@ -35,6 +35,9 @@ def write_fake_research_problem_provider(root: Path) -> None:
         "    )\n"
     )
     (root / "candidate-execution.toml").write_text(
+        "[candidate_execution]\n"
+        "ledger_path = \"research-ledger.jsonl\"\n"
+        "\n"
         "[research_problem]\n"
         "id = \"tiny_problem\"\n"
         f"package_root = \"{root}\"\n"
@@ -247,9 +250,12 @@ def test_prepare_agent_boundary_exposes_configured_external_runs_root_without_co
     (external_runs / "run_external" / "run_metadata.json").write_text('{"run_id":"run_external","status":"completed"}\n')
     (external_runs / "run_external" / "outputs" / "large-checkpoint.bin").write_text("do not copy\n")
     (tmp_path / "runs").symlink_to(external_runs, target_is_directory=True)
-    (tmp_path / "candidate-execution.toml").write_text(
-        (tmp_path / "candidate-execution.toml").read_text()
-        + f'\n[candidate_execution]\nruns_root = "{external_runs}"\n'
+    config_path = tmp_path / "candidate-execution.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            'ledger_path = "research-ledger.jsonl"\n',
+            f'ledger_path = "research-ledger.jsonl"\nruns_root = "{external_runs}"\n',
+        )
     )
 
     completed = run_cli(tmp_path, "prepare-agent-boundary")

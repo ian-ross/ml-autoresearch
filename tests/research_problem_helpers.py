@@ -266,6 +266,7 @@ def write_fake_candidate_execution_config(
     max_samples: int | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
+    ledger_path: str | Path | None = "research-ledger.jsonl",
     data_config: dict[str, object] | None = None,
 ) -> Path:
     config_root = root
@@ -278,6 +279,8 @@ def write_fake_candidate_execution_config(
         f"max_prediction_samples = {max_prediction_samples}",
         f"prediction_sample_policy = \"{prediction_sample_policy}\"",
     ]
+    if ledger_path is not None:
+        config_lines.append(f"ledger_path = \"{ledger_path}\"")
     if max_samples is not None:
         config_lines.append(f"max_samples = {max_samples}")
     config_lines.extend([

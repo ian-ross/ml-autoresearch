@@ -355,6 +355,55 @@ def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
     assert "--daemonize" not in payload["command"]
 
 
+def test_run_candidate_cli_requires_configured_ledger_path_when_not_overridden(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    write_fake_research_problem_package(tmp_path)
+    write_fake_candidate_execution_config(tmp_path, ledger_path=None)
+
+    completed = run_cli(
+        "run-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--project-root",
+        str(tmp_path),
+        "--backend",
+        "native",
+        "--no-require-proposal",
+    )
+
+    assert completed.returncode == 1
+    assert "candidate_execution.ledger_path" in completed.stderr
+
+
+def test_run_candidate_cli_allows_explicit_ledger_path_override_when_config_omits_ledger_path(tmp_path: Path):
+    candidate = write_valid_candidate_with_proposal(tmp_path)
+    runs_root = tmp_path / "runs"
+    explicit_ledger = tmp_path / "explicit-ledger.jsonl"
+    write_fake_research_problem_package(tmp_path)
+    write_fake_candidate_execution_config(tmp_path, ledger_path=None)
+
+    completed = run_cli(
+        "run-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--project-root",
+        str(tmp_path),
+        "--backend",
+        "native",
+        "--ledger-path",
+        str(explicit_ledger),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert explicit_ledger.exists()
+    assert "run_completed" in explicit_ledger.read_text()
+
+
 def test_run_candidate_cli_requires_provider_config(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"

@@ -39,6 +39,9 @@ def write_fake_research_problem_provider(root: Path) -> None:
         "    )\n"
     )
     (root / "candidate-execution.toml").write_text(
+        "[candidate_execution]\n"
+        "ledger_path = \"research-ledger.jsonl\"\n"
+        "\n"
         "[research_problem]\n"
         "id = \"tiny_problem\"\n"
         f"package_root = \"{root}\"\n"
@@ -345,9 +348,12 @@ def test_autonomy_step_execute_candidate_submission_writes_run_to_configured_ext
 
     write_project(tmp_path)
     external_runs = tmp_path / "external-runs"
-    (tmp_path / "candidate-execution.toml").write_text(
-        (tmp_path / "candidate-execution.toml").read_text()
-        + f'\n[candidate_execution]\nruns_root = "{external_runs}"\n'
+    config_path = tmp_path / "candidate-execution.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            'ledger_path = "research-ledger.jsonl"\n',
+            f'ledger_path = "research-ledger.jsonl"\nruns_root = "{external_runs}"\n',
+        )
     )
     FakeNativeBackend.provider_ids = []
     monkeypatch.setattr(execution, "NativeBackend", FakeNativeBackend)

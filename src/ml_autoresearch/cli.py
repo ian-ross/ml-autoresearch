@@ -154,6 +154,16 @@ def _effective_execution_options(
     )
 
 
+def _effective_ledger_path(config, *, override: Path | None) -> Path:
+    if override is not None:
+        return override
+    if config.ledger_path is None:
+        raise CandidateExecutionConfigError(
+            "configure candidate_execution.ledger_path in candidate-execution.toml or pass --ledger-path"
+        )
+    return config.ledger_path
+
+
 def _echo_run(run) -> None:
     _echo_json(
         {
@@ -642,7 +652,7 @@ def run_experiment_batch_command(
     ] = False,
     ledger_path: Annotated[
         Path | None,
-        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to batches_root sibling research-ledger.jsonl."),
+        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Overrides candidate-execution.toml."),
     ] = None,
 ) -> None:
     """Validate and synchronously run a bounded Experiment Batch."""
@@ -656,6 +666,7 @@ def run_experiment_batch_command(
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
         config, provider_config = _load_configured_provider(project_root, label="run-experiment-batch")
+        effective_ledger_path = _effective_ledger_path(config, override=ledger_path)
         max_samples, max_prediction_samples, prediction_sample_policy = _effective_execution_options(
             config,
             max_samples=max_samples,
@@ -672,7 +683,7 @@ def run_experiment_batch_command(
             max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
-            ledger_path=ledger_path,
+            ledger_path=effective_ledger_path,
         )
     except (
         CandidateExecutionConfigError,
@@ -737,7 +748,7 @@ def run_candidate_command(
     ] = False,
     ledger_path: Annotated[
         Path | None,
-        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to runs_root sibling research-ledger.jsonl."),
+        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Overrides candidate-execution.toml."),
     ] = None,
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
@@ -748,6 +759,7 @@ def run_candidate_command(
     try:
         config, provider_config = _load_configured_provider(project_root, label="run-candidate")
         effective_runs_root = config.runs_root if runs_root is None else runs_root
+        effective_ledger_path = _effective_ledger_path(config, override=ledger_path)
         if daemonize:
             _daemonize_current_run_candidate(effective_runs_root)
             return
@@ -766,7 +778,7 @@ def run_candidate_command(
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
             backend=selected_backend,
-            ledger_path=ledger_path,
+            ledger_path=effective_ledger_path,
             require_proposal=require_proposal,
         )
     except (CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:

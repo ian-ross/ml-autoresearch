@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import traceback
 from dataclasses import dataclass
@@ -297,7 +298,7 @@ def resolve_run_research_problem(metadata: dict[str, object], *, data_root: Path
     provider = raw_research_problem.get("provider")
     if isinstance(provider, dict):
         target = provider.get("target")
-        root = provider.get("resolved_package_root")
+        root = os.environ.get("ML_AUTORESEARCH_RESEARCH_PROBLEM_ROOT") or provider.get("resolved_package_root")
         if not isinstance(target, str) or not target:
             raise EvaluationError("source Run research_problem provider metadata is missing target")
         if not isinstance(root, str) or not root:

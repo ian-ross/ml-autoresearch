@@ -140,7 +140,7 @@ def test_docker_backend_constructs_structurally_contained_synthetic_training_com
     assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined
     assert f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z" in joined
     assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
-    assert f"{_package_root.resolve(strict=True)}:/research_problem_package:ro,z" in joined
+    assert f"{_package_root.resolve(strict=True)}:/research-problem:ro,z" in joined
     assert "type=tmpfs,destination=/scratch,tmpfs-size=2g,tmpfs-mode=1777" in joined
     assert "/var/run/docker.sock" not in joined
 
@@ -220,7 +220,7 @@ def test_docker_backend_constructs_research_problem_training_command_with_read_o
     assert f"{data_root.resolve() }:/data:ro,z" in joined
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
     assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
-    assert f"{_package_root.resolve(strict=True)}:/research_problem_package:ro,z" in joined
+    assert f"{_package_root.resolve(strict=True)}:/research-problem:ro,z" in joined
     assert "/data" in joined
     assert f"{data_root}:/data:z" not in joined
 
@@ -368,7 +368,7 @@ def test_docker_backend_constructs_generic_research_problem_training_command_wit
     docker_run = calls[2]
     joined = "\n".join(docker_run)
     assert f"{data_root.resolve(strict=True)}:/data:ro,z" in joined
-    assert f"{provider_root.resolve(strict=True)}:/research_problem_package:ro,z" in joined
+    assert f"{provider_root.resolve(strict=True)}:/research-problem:ro,z" in joined
     assert "train-gvccs" not in docker_run
     assert docker_run[-6] == "ml_autoresearch.container_runner"
     assert docker_run[-5] == "train-research-problem"
@@ -376,7 +376,7 @@ def test_docker_backend_constructs_generic_research_problem_training_command_wit
     assert provider_arg.startswith("--provider-config-json=")
     payload = json.loads(provider_arg.split("=", 1)[1])
     assert payload["id"] == "other_problem"
-    assert payload["package_root"] == "/research_problem_package"
+    assert payload["package_root"] == "/research-problem"
     assert payload["data_config"]["dataset_root"] == "/data"
     assert docker_run[-3:] == [
         "--max-samples=4",

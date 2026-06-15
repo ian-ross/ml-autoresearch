@@ -382,6 +382,8 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
         provider_config = resolve_configured_research_problem_provider(config)
         if provider_config is None:
             raise AutonomyStepError("configure [research_problem] before executing candidate next actions")
+        if config.ledger_path is None:
+            raise AutonomyStepError("configure candidate_execution.ledger_path before executing candidate next actions")
         backend = execution_backend_from_config(config)
         research_problem_registry = load_configured_research_problem_registry(root)
         previous_result = ingestion.get("next_action_result")
@@ -402,7 +404,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
                             max_prediction_samples=config.max_prediction_samples,
                             prediction_sample_policy=config.prediction_sample_policy,
                             backend=backend,
-                            ledger_path=root / "research-ledger.jsonl",
+                            ledger_path=config.ledger_path,
                         )
                     elif previous_status in {status.value for status in RunStatus}:
                         run = RunSubmission(str(previous_metadata.get("run_id") or previous_run_path.name), previous_run_path, RunStatus(str(previous_status)))
@@ -415,7 +417,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
                 candidate_path,
                 config.runs_root,
                 backend=backend,
-                ledger_path=root / "research-ledger.jsonl",
+                ledger_path=config.ledger_path,
                 require_proposal=True,
                 research_problem_registry=research_problem_registry,
             )
@@ -427,7 +429,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
                     max_prediction_samples=config.max_prediction_samples,
                     prediction_sample_policy=config.prediction_sample_policy,
                     backend=backend,
-                    ledger_path=root / "research-ledger.jsonl",
+                    ledger_path=config.ledger_path,
                 )
         return {
             "status": "completed",
@@ -452,6 +454,8 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
         provider_config = resolve_configured_research_problem_provider(config)
         if provider_config is None:
             raise AutonomyStepError("configure [research_problem] before executing Experiment Batch next actions")
+        if config.ledger_path is None:
+            raise AutonomyStepError("configure candidate_execution.ledger_path before executing Experiment Batch next actions")
         result = run_experiment_batch_with_research_problem(
             batch_path,
             batches_root=root / "batches",
@@ -462,7 +466,7 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
             max_samples=config.max_samples,
             max_prediction_samples=config.max_prediction_samples,
             prediction_sample_policy=config.prediction_sample_policy,
-            ledger_path=root / "research-ledger.jsonl",
+            ledger_path=config.ledger_path,
         )
         return {
             "status": "completed",
@@ -477,10 +481,11 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
         request_path = _required_relative_path(root, ingestion, "canonical_path")
         from ml_autoresearch.evaluation_requests import run_post_run_evaluation
 
+        ledger_path = _configured_ledger_path(root)
         evaluation = run_post_run_evaluation(
             request_path,
             runs_root=_configured_runs_root(root),
-            ledger_path=root / "research-ledger.jsonl",
+            ledger_path=ledger_path,
         )
         return {
             "status": "completed",
@@ -520,6 +525,15 @@ def _configured_runs_root(root: Path) -> Path:
     from ml_autoresearch.candidate_execution_config import load_candidate_execution_config
 
     return load_candidate_execution_config(root).runs_root
+
+
+def _configured_ledger_path(root: Path) -> Path:
+    from ml_autoresearch.candidate_execution_config import load_candidate_execution_config
+
+    config = load_candidate_execution_config(root)
+    if config.ledger_path is None:
+        raise AutonomyStepError("configure candidate_execution.ledger_path before executing next actions")
+    return config.ledger_path
 
 
 def _required_relative_path(root: Path, payload: dict[str, object], field: str) -> Path:

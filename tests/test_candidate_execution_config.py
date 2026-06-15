@@ -104,18 +104,20 @@ def test_candidate_execution_config_defaults_to_native_when_absent(tmp_path: Pat
     assert isinstance(execution_backend_from_config(config), NativeBackend)
 
 
-def test_candidate_execution_config_resolves_configured_runs_root(tmp_path: Path) -> None:
+def test_candidate_execution_config_resolves_configured_runs_root_and_ledger_path(tmp_path: Path) -> None:
     external_runs = tmp_path / "scratch" / "runs"
     (tmp_path / "candidate-execution.toml").write_text(
         f'''
 [candidate_execution]
 runs_root = "{external_runs}"
+ledger_path = "research-ledger.jsonl"
 '''.lstrip()
     )
 
     config = load_candidate_execution_config(tmp_path)
 
     assert config.runs_root == external_runs
+    assert config.ledger_path == tmp_path / "research-ledger.jsonl"
 
 
 @pytest.mark.parametrize(

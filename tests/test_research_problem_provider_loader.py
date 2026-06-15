@@ -131,6 +131,22 @@ def test_provider_can_return_mapping_that_is_checked_before_registration(tmp_pat
     assert registry.get("tiny_problem") == loaded.spec
 
 
+def test_provider_load_tolerates_missing_git_executable_for_best_effort_provenance(tmp_path, monkeypatch) -> None:
+    import ml_autoresearch.research_problems as research_problems
+
+    _write_fake_package(tmp_path)
+
+    def missing_git(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(research_problems, "_SUBPROCESS_RUN", missing_git)
+
+    loaded = load_research_problem_provider(_config(tmp_path))
+
+    assert loaded.spec.id == "tiny_problem"
+    assert loaded.provenance.git is None
+
+
 def test_external_fake_provider_package_ships_brief_documents_used_by_harness_tests() -> None:
     package_root = require_test_research_problem_root()
 

@@ -3,6 +3,7 @@
 backend = "docker"
 docker_image = "ml-autoresearch-runner:local"
 runs_root = "/data/iross/ml-autoresearch/runs"
+ledger_path = "research-ledger.jsonl"
 
 # Bounded run defaults for Harness-owned autonomous candidate execution.
 max_prediction_samples = 2

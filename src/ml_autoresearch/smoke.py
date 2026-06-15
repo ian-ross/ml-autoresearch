@@ -8,6 +8,7 @@ import sys
 import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from types import ModuleType
 from typing import Iterator
@@ -210,7 +211,7 @@ def _registry_from_resolved_manifest_provider(
     if not isinstance(provider, dict):
         return None
     target = provider.get("target")
-    package_root = provider.get("resolved_package_root")
+    package_root = os.environ.get("ML_AUTORESEARCH_RESEARCH_PROBLEM_ROOT") or provider.get("resolved_package_root")
     contract_version = research_problem.get("contract_version")
     if not isinstance(target, str) or not isinstance(package_root, str) or not isinstance(contract_version, str):
         return None
