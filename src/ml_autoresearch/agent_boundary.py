@@ -220,23 +220,39 @@ def _render_research_problem_brief_index(research_problem: LoadedResearchProblem
         f"Spec version: `{research_problem.spec.version}`; contract version: `{research_problem.spec.contract_version}`",
         "Provider package mount: `/research-problem/`",
         "",
-        "Use progressive disclosure: start from this index, then read only the deeper brief documents relevant to the current Candidate Experiment.",
+        "Use progressive disclosure: start from this index, then read only the deeper brief documents and dataset profile artifacts relevant to the current Candidate Experiment.",
     ]
     if not research_problem.brief_documents:
         lines.extend(["", "No Research Problem Brief documents were declared by the configured provider."])
-        return "\n".join(lines)
-    lines.extend(["", "Available documents:"])
-    for document in research_problem.brief_documents:
-        mounted_path = Path("/research-problem") / document.path
-        summary = document.summary or "No summary provided."
-        required = " Required." if document.required else ""
-        lines.extend(
-            [
-                f"- **{document.name}** (`{document.role}`): {summary}{required}",
-                f"  - Path: `{mounted_path.as_posix()}`",
-                f"  - Read with: `cat {mounted_path.as_posix()}`",
-            ]
-        )
+    else:
+        lines.extend(["", "Available documents:"])
+        for document in research_problem.brief_documents:
+            mounted_path = Path("/research-problem") / document.path
+            summary = document.summary or "No summary provided."
+            required = " Required." if document.required else ""
+            lines.extend(
+                [
+                    f"- **{document.name}** (`{document.role}`): {summary}{required}",
+                    f"  - Path: `{mounted_path.as_posix()}`",
+                    f"  - Read with: `cat {mounted_path.as_posix()}`",
+                ]
+            )
+    if not research_problem.dataset_profile_artifacts:
+        lines.extend(["", "No Dataset Profile Artifacts were declared by the configured provider."])
+    else:
+        lines.extend(["", "Available Dataset Profile Artifacts:"])
+        for artifact in research_problem.dataset_profile_artifacts:
+            mounted_path = Path("/research-problem") / artifact.path
+            summary = artifact.summary or "No summary provided."
+            required = " Required." if artifact.required else ""
+            scope = f" Scope: {artifact.split_scope}." if artifact.split_scope else ""
+            lines.extend(
+                [
+                    f"- **{artifact.name}** (`{artifact.role}`): {summary}{scope}{required}",
+                    f"  - Path: `{mounted_path.as_posix()}`",
+                    f"  - Read with: `cat {mounted_path.as_posix()}`",
+                ]
+            )
     return "\n".join(lines)
 
 
@@ -292,11 +308,11 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "\n"
         + brief_index
         + "\n\n"
-        "The same index is available at `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Read only the deeper `/research-problem/...` documents you need.\n"
+        "The same index is available at `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Read only the deeper `/research-problem/...` documents and dataset profile artifacts you need.\n"
         "\n"
         "## Dataset profile artifacts\n"
         "\n"
-        "Dataset profile artifacts, when supplied by the Harness or active Research Problem package, are trusted agent-visible context under `/research-problem/profile/` or linked from `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Use them as reproducible dataset intelligence for proposals and analysis; they are not raw training data or authoritative Run Results. If a needed statistic or qualitative view is missing, write a Capability Request instead of probing `/data`.\n"
+        "Dataset profile artifacts, when supplied by the Harness or active Research Problem package, are trusted agent-visible context under `/research-problem/profile/` and linked from `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Use them as reproducible dataset intelligence for proposals and analysis; they are not raw training data or authoritative Run Results. If a needed statistic or qualitative view is missing, write a Capability Request instead of probing `/data`.\n"
         "\n"
         "## Writable handoff locations\n"
         "\n"

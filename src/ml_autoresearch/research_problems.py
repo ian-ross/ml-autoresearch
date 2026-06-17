@@ -35,6 +35,17 @@ class UnknownResearchProblemSpecError(ResearchProblemSpecError):
     """Raised when a spec id is not present in a registry."""
 
 
+def _provider_relative_path(path: Path, *, kind: str) -> Path:
+    path_text = str(path)
+    if path.is_absolute():
+        raise ValueError(f"{kind} path must be relative to the Research Problem package")
+    if "\\" in path_text:
+        raise ValueError(f"{kind} path must use portable forward-slash separators")
+    if any(part in ("", ".", "..") for part in path.parts):
+        raise ValueError(f"{kind} path must not contain empty, current-directory, or parent-directory parts")
+    return path
+
+
 class ResearchProblemBriefDocument(BaseModel):
     """Advisory Research Problem Brief document declared by a provider."""
 
@@ -49,14 +60,25 @@ class ResearchProblemBriefDocument(BaseModel):
     @field_validator("path")
     @classmethod
     def path_must_be_provider_relative(cls, path: Path) -> Path:
-        path_text = str(path)
-        if path.is_absolute():
-            raise ValueError("brief document path must be relative to the Research Problem package")
-        if "\\" in path_text:
-            raise ValueError("brief document path must use portable forward-slash separators")
-        if any(part in ("", ".", "..") for part in path.parts):
-            raise ValueError("brief document path must not contain empty, current-directory, or parent-directory parts")
-        return path
+        return _provider_relative_path(path, kind="brief document")
+
+
+class DatasetProfileArtifact(BaseModel):
+    """Trusted dataset profile artifact declared by a Research Problem provider."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+    name: str = Field(min_length=1)
+    role: str = Field(min_length=1)
+    path: Path
+    summary: str | None = None
+    split_scope: str | None = None
+    required: bool = False
+
+    @field_validator("path")
+    @classmethod
+    def path_must_be_provider_relative(cls, path: Path) -> Path:
+        return _provider_relative_path(path, kind="dataset profile artifact")
 
 
 class ResolvedResearchProblemBriefDocument(BaseModel):
@@ -81,6 +103,34 @@ class ResolvedResearchProblemBriefDocument(BaseModel):
         }
         if self.summary is not None:
             metadata["summary"] = self.summary
+        return metadata
+
+
+class ResolvedDatasetProfileArtifact(BaseModel):
+    """Dataset profile artifact with its provider-root-relative path resolved."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+    name: str = Field(min_length=1)
+    role: str = Field(min_length=1)
+    path: Path
+    resolved_path: Path
+    summary: str | None = None
+    split_scope: str | None = None
+    required: bool = False
+
+    def metadata(self) -> dict[str, object]:
+        metadata: dict[str, object] = {
+            "name": self.name,
+            "role": self.role,
+            "path": self.path.as_posix(),
+            "resolved_path": str(self.resolved_path),
+            "required": self.required,
+        }
+        if self.summary is not None:
+            metadata["summary"] = self.summary
+        if self.split_scope is not None:
+            metadata["split_scope"] = self.split_scope
         return metadata
 
 
@@ -114,6 +164,7 @@ class ResearchProblemSpec(BaseModel):
     augmentation_policies: tuple[str, ...] = Field(min_length=1)
     primary_metric: str = Field(min_length=1)
     brief_documents: tuple[ResearchProblemBriefDocument, ...] = ()
+    dataset_profile_artifacts: tuple[DatasetProfileArtifact, ...] = ()
     training_adapter: object | None = Field(default=None, exclude=True)
     evaluation_adapter: object | None = Field(default=None, exclude=True)
 
@@ -148,6 +199,11 @@ class ResearchProblemSpec(BaseModel):
         if duplicate_brief_names:
             duplicates = ", ".join(sorted(duplicate_brief_names))
             raise ValueError(f"brief_documents contains duplicate document name(s): {duplicates}")
+        profile_names = [artifact.name for artifact in self.dataset_profile_artifacts]
+        duplicate_profile_names = {name for name in profile_names if profile_names.count(name) > 1}
+        if duplicate_profile_names:
+            duplicates = ", ".join(sorted(duplicate_profile_names))
+            raise ValueError(f"dataset_profile_artifacts contains duplicate artifact name(s): {duplicates}")
         return self
 
     def build_input_spec(self, resolved_manifest: Mapping[str, object]) -> dict[str, object]:
@@ -231,6 +287,7 @@ class LoadedResearchProblemSpec(BaseModel):
     spec: ResearchProblemSpec
     provenance: ResearchProblemProviderProvenance
     brief_documents: tuple[ResolvedResearchProblemBriefDocument, ...] = ()
+    dataset_profile_artifacts: tuple[ResolvedDatasetProfileArtifact, ...] = ()
 
     def run_metadata(self) -> dict[str, object]:
         """Return JSON-serialisable Research Problem metadata for Run recording."""
@@ -243,6 +300,8 @@ class LoadedResearchProblemSpec(BaseModel):
         }
         if self.brief_documents:
             metadata["brief_documents"] = [document.metadata() for document in self.brief_documents]
+        if self.dataset_profile_artifacts:
+            metadata["dataset_profile_artifacts"] = [artifact.metadata() for artifact in self.dataset_profile_artifacts]
         return metadata
 
 
@@ -364,9 +423,15 @@ def load_research_problem_provider(
         git=_git_provenance(package_root),
     )
     brief_documents = _resolve_brief_documents(spec, package_root)
+    dataset_profile_artifacts = _resolve_dataset_profile_artifacts(spec, package_root)
     if registry is not None:
         registry.register(spec, provenance=provenance)
-    return LoadedResearchProblemSpec(spec=spec, provenance=provenance, brief_documents=brief_documents)
+    return LoadedResearchProblemSpec(
+        spec=spec,
+        provenance=provenance,
+        brief_documents=brief_documents,
+        dataset_profile_artifacts=dataset_profile_artifacts,
+    )
 
 
 def _resolve_package_root(package_root: Path) -> Path:
@@ -504,6 +569,37 @@ def _resolve_brief_documents(
             )
         )
     return tuple(resolved_documents)
+
+
+def _resolve_dataset_profile_artifacts(
+    spec: ResearchProblemSpec,
+    package_root: Path,
+) -> tuple[ResolvedDatasetProfileArtifact, ...]:
+    resolved_artifacts: list[ResolvedDatasetProfileArtifact] = []
+    for artifact in spec.dataset_profile_artifacts:
+        try:
+            resolved_path = (package_root / artifact.path).resolve(strict=False)
+            resolved_path.relative_to(package_root)
+        except (OSError, ValueError) as exc:
+            raise ResearchProblemProviderLoadError(
+                f"Dataset Profile Artifact {artifact.name!r} path escapes package root: {artifact.path}"
+            ) from exc
+        if artifact.required and not resolved_path.is_file():
+            raise ResearchProblemProviderLoadError(
+                f"required Dataset Profile Artifact {artifact.name!r} does not exist: {artifact.path}"
+            )
+        resolved_artifacts.append(
+            ResolvedDatasetProfileArtifact(
+                name=artifact.name,
+                role=artifact.role,
+                path=artifact.path,
+                resolved_path=resolved_path,
+                summary=artifact.summary,
+                split_scope=artifact.split_scope,
+                required=artifact.required,
+            )
+        )
+    return tuple(resolved_artifacts)
 
 
 def _git_provenance(package_root: Path) -> dict[str, object] | None:

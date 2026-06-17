@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -53,6 +55,20 @@ def _write_fake_package(root):
         "    return {**build_spec(data_config).model_dump(), 'brief_documents': [\n"
         "        {'name': 'required_missing', 'role': 'problem_overview', 'path': 'brief/missing.md', 'required': True},\n"
         "    ]}\n"
+        "\n"
+        "def build_spec_with_dataset_profile_artifacts(data_config=None):\n"
+        "    return {**build_spec(data_config).model_dump(), 'dataset_profile_artifacts': [\n"
+        "        {'name': 'tiny_profile', 'role': 'deterministic_test_dataset_profile', 'path': 'profile/tiny-dataset-profile.json', 'summary': 'Tiny profile', 'split_scope': 'train+validation', 'required': True},\n"
+        "        {'name': 'future_profile', 'role': 'optional_operator_generated_profile', 'path': 'profile/future.json'},\n"
+        "    ]}\n"
+        "\n"
+        "def build_spec_with_missing_required_profile(data_config=None):\n"
+        "    return {**build_spec(data_config).model_dump(), 'dataset_profile_artifacts': [\n"
+        "        {'name': 'required_missing', 'role': 'deterministic_test_dataset_profile', 'path': 'profile/missing.json', 'required': True},\n"
+        "    ]}\n"
+        "\n"
+        "def build_spec_with_escaping_profile(data_config=None):\n"
+        "    return {**build_spec(data_config).model_dump(), 'dataset_profile_artifacts': [{'name': 'bad', 'role': 'profile', 'path': '../outside.json'}]}\n"
         "\n"
         "def build_spec_with_escaping_brief(data_config=None):\n"
         "    return {**build_spec(data_config).model_dump(), 'brief_documents': [{'name': 'bad', 'role': 'problem_overview', 'path': '../outside.md'}]}\n"
@@ -166,6 +182,13 @@ def test_external_fake_provider_package_ships_brief_documents_used_by_harness_te
     assert loaded.brief_documents[1].resolved_path == (package_root / "brief" / "baselines.md").resolve()
     assert loaded.brief_documents[1].required is True
     assert "Tiny Problem Overview" in loaded.brief_documents[0].resolved_path.read_text()
+    assert len(loaded.dataset_profile_artifacts) == 1
+    profile = loaded.dataset_profile_artifacts[0]
+    assert profile.name == "tiny_dataset_profile"
+    assert profile.role == "deterministic_test_dataset_profile"
+    assert profile.required is True
+    assert profile.resolved_path == (package_root / "profile" / "tiny-dataset-profile.json").resolve()
+    assert "positive_mask_prevalence" in profile.resolved_path.read_text()
 
 
 def test_external_gvccs_provider_package_ships_ground_camera_contrail_detection_brief() -> None:
@@ -199,6 +222,43 @@ def test_external_gvccs_provider_package_ships_ground_camera_contrail_detection_
     ]:
         assert required_section in text
     assert "zenodo.org/records/16612390" in text
+    assert len(loaded.dataset_profile_artifacts) == 1
+    profile = loaded.dataset_profile_artifacts[0]
+    assert profile.name == "gvccs_initial_dataset_profile"
+    assert profile.role == "operator_generated_dataset_profile_or_generator"
+    assert profile.required is True
+    assert profile.resolved_path == (package_root / "profile" / "initial-dataset-profile.md").resolve()
+    profile_text = profile.resolved_path.read_text()
+    assert "positive-Contrail-Mask image counts" in profile_text
+    assert "If `--data-root` is absent or malformed" in profile_text
+
+
+def test_gvccs_profile_generator_documents_missing_optional_data(tmp_path) -> None:
+    package_root = gvccs_research_problem_root()
+    output = tmp_path / "missing-profile.json"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(package_root) + os.pathsep + env.get("PYTHONPATH", "")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gvccs.profile",
+            "--data-root",
+            str(tmp_path / "missing-gvccs"),
+            "--output",
+            str(output),
+            "--allow-missing",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert '"status": "missing_optional_data"' in output.read_text()
+    assert "Run the generator outside the Agent Control Boundary" in output.read_text()
 
 
 def test_provider_brief_documents_are_resolved_relative_to_package_root(tmp_path) -> None:
@@ -224,11 +284,41 @@ def test_provider_brief_documents_are_resolved_relative_to_package_root(tmp_path
     }
 
 
+def test_provider_dataset_profile_artifacts_are_resolved_relative_to_package_root(tmp_path) -> None:
+    _write_fake_package(tmp_path)
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    (profile_dir / "tiny-dataset-profile.json").write_text('{"provenance": {"research_problem_id": "tiny_problem"}}\n')
+
+    loaded = load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_spec_with_dataset_profile_artifacts"))
+
+    assert [artifact.name for artifact in loaded.dataset_profile_artifacts] == ["tiny_profile", "future_profile"]
+    assert loaded.dataset_profile_artifacts[0].resolved_path == (profile_dir / "tiny-dataset-profile.json").resolve()
+    assert loaded.dataset_profile_artifacts[0].required is True
+    assert loaded.dataset_profile_artifacts[1].resolved_path == (profile_dir / "future.json").resolve()
+    assert loaded.run_metadata()["dataset_profile_artifacts"][0] == {
+        "name": "tiny_profile",
+        "role": "deterministic_test_dataset_profile",
+        "path": "profile/tiny-dataset-profile.json",
+        "resolved_path": str((profile_dir / "tiny-dataset-profile.json").resolve()),
+        "required": True,
+        "summary": "Tiny profile",
+        "split_scope": "train+validation",
+    }
+
+
 def test_advisory_brief_documents_may_be_missing_but_required_documents_must_exist(tmp_path) -> None:
     _write_fake_package(tmp_path)
 
     with pytest.raises(ResearchProblemProviderLoadError, match="required Research Problem Brief document"):
         load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_spec_with_missing_required_brief"))
+
+
+def test_optional_profile_artifacts_may_be_missing_but_required_artifacts_must_exist(tmp_path) -> None:
+    _write_fake_package(tmp_path)
+
+    with pytest.raises(ResearchProblemProviderLoadError, match="required Dataset Profile Artifact"):
+        load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_spec_with_missing_required_profile"))
 
 
 @pytest.mark.parametrize(
@@ -237,6 +327,7 @@ def test_advisory_brief_documents_may_be_missing_but_required_documents_must_exi
         "build_spec_with_escaping_brief",
         "build_spec_with_absolute_brief",
         "build_spec_with_backslash_brief",
+        "build_spec_with_escaping_profile",
     ],
 )
 def test_unsafe_brief_document_paths_are_rejected(tmp_path, provider_symbol) -> None:
