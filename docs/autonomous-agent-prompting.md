@@ -16,10 +16,15 @@ are not expected by default inside the Agent Control Boundary.
 The boundary protects infrastructure authority. It is not primarily a dataset
 hiding mechanism, but the agent should normally learn from Harness-owned
 observations instead of untracked raw-dataset exploration. If a new class-balance
-breakdown, mask statistic, subset summary, or qualitative view is needed, the
-agent should file a Capability Request for a Harness-generated dataset profile
-artifact. Candidate Experiment code must remain data-path agnostic and all
-authoritative Results must come from the Harness.
+breakdown, mask statistic, subset summary, or qualitative view is needed to
+answer a data-distribution question, the agent should file a Capability Request
+for a Harness-generated dataset profile artifact. That request must state the
+diagnostic question, expected research decision impact, scope/split, bounded
+computation or artifact budget, and provenance requirements. Prefer a Candidate
+Experiment when the hypothesis can be tested with current contract choices; use
+an Evaluation Request when the question is about an already-completed Run.
+Candidate Experiment code must remain data-path agnostic and all authoritative
+Results must come from the Harness.
 
 ## Contract-bound exploration
 

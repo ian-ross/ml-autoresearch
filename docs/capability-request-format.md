@@ -22,6 +22,27 @@ example_follow_up_experiments:
 priority: medium
 ```
 
+Dataset statistic/profile requests use `capability_type: dataset_profile_artifact` and add dataset-profile details:
+
+```yaml
+request_id: capability-gvccs-mask-area-profile
+capability_type: dataset_profile_artifact
+blocked_hypothesis: Tiny positive masks may need a recall-oriented architecture change.
+current_contract_insufficiency: Existing dataset profile artifacts do not summarize positive-mask area by split.
+expected_research_value: This would show whether missed positives are dominated by small masks before proposing a new Candidate Experiment.
+safety_reproducibility_risks: The summary must be generated deterministically without exposing raw training images.
+minimal_harness_change: Generate a durable dataset profile artifact with mask-area histograms for train and validation splits.
+candidate_authority_requested: none
+example_follow_up_experiments:
+  - Compare a thin-structure recall model against the current best if small masks dominate missed positives.
+priority: medium
+diagnostic_question: Are positive Contrail Masks concentrated in a small-area tail that explains recent false negatives?
+expected_research_decision_impact: Decide whether the next Candidate Experiment should prioritize thin-structure recall or a different error mode.
+scope_split: GVCCS Working Validation Split and training split; aggregate counts only.
+bounded_computation_artifact_budget: One offline scan producing one YAML/Markdown summary and up to four provenance-linked plots.
+provenance_requirements: Record dataset version, split definition, generation command, code version, and source mask identifiers or hashes.
+```
+
 ## Required fields
 
 - `capability_type`: one of `contract_surface`, `approved_resource`, `operational_policy`, or `dataset_profile_artifact`.
@@ -33,6 +54,16 @@ priority: medium
 - `candidate_authority_requested`: one of `none`, `read_only_harness_metadata`, or `other`; prefer `none`.
 - `example_follow_up_experiments`: non-empty list of Candidate Experiments that would become possible.
 - `priority`: one of `low`, `medium`, `high`, or `urgent`.
+
+For `capability_type: dataset_profile_artifact`, these additional fields are required:
+
+- `diagnostic_question`: the concrete dataset question the new statistic, subset summary, or qualitative view should answer.
+- `expected_research_decision_impact`: how the artifact will change the next research decision, such as choosing between a Candidate Experiment, stopping a line, or requesting a different capability.
+- `scope_split`: the dataset scope and split(s) to summarize; avoid broad raw-data access requests.
+- `bounded_computation_artifact_budget`: limits on scan cost, generated tables/figures, sample counts, or storage.
+- `provenance_requirements`: dataset version, split definition, generation code/command, source identifiers/hashes, and other metadata needed to regenerate and audit the artifact.
+
+Use a dataset-profile Capability Request when the missing information is about the Research Problem data distribution itself. Use a Candidate Experiment when the next step can be tested within the existing Candidate Experiment Contract. Use an Evaluation Request when the question concerns an already-completed Run and can be answered by approved Post-Run Evaluation over that Run's artifacts.
 
 `request_id` is optional. If omitted, the Harness uses the request filename stem as the stable request identifier recorded in the Research Ledger.
 

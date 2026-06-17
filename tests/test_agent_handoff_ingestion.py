@@ -515,6 +515,26 @@ def test_ingest_capability_request_copies_to_canonical_records_events_and_stops(
     assert json.loads((source.parent / f"{source.name}.INGESTED.json").read_text())["canonical_path"] == result["canonical_path"]
 
 
+def test_ingest_capability_request_rejects_malformed_dataset_profile_request(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_capability_request(
+        tmp_path,
+        filename="capability-dataset-profile.yaml",
+        capability_type="dataset_profile_artifact",
+        diagnostic_question="Which mask-size bins dominate validation misses?",
+        expected_research_decision_impact="Choose whether to propose a thin-structure Candidate Experiment.",
+        scope_split="Working Validation Split.",
+        bounded_computation_artifact_budget="One summary table.",
+    )
+
+    with pytest.raises(AgentHandoffIngestionError, match="dataset_profile_artifact requests require provenance_requirements"):
+        ingest_capability_request(tmp_path)
+
+    assert not (tmp_path / "capability-requests" / source.name).exists()
+    assert not (source.parent / f"{source.name}.INGESTED.json").exists()
+    assert (tmp_path / "research-ledger.jsonl").read_text() == ""
+
+
 def test_ingest_evaluation_request_copies_without_recording_execution_event(tmp_path: Path) -> None:
     write_project(tmp_path)
     source = write_evaluation_request(tmp_path)

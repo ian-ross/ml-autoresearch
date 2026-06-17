@@ -149,7 +149,7 @@ Campaign Reports should be produced on a fixed cadence and in response to events
 
 ## Capability Requests
 
-A Capability Request is a structured, human-gated request to expand Harness-owned contract surface, approved resources, or operational policy when current capabilities block useful Research Progress. Requests should be written using `docs/capability-request-format.md`.
+A Capability Request is a structured, human-gated request to expand Harness-owned contract surface, approved resources, operational policy, or agent-visible research context such as a durable dataset profile artifact when current capabilities block useful Research Progress. Requests should be written using `docs/capability-request-format.md`.
 
 Capability Requests are not self-approving. The agent may continue using existing Candidate Experiment Contract choices while a request is pending. Candidate authority requested should normally be `none`; prefer Harness-owned parameters or approved resources.
 

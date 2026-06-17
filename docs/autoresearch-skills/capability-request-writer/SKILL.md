@@ -17,7 +17,9 @@ Use when a hypothesis is blocked by the current Candidate Experiment Contract, A
 
 ## Instructions
 
-Describe the blocked hypothesis, current insufficiency, expected research value, safety/reproducibility risks, minimal Harness-owned change, and example follow-up experiments. For dataset-statistic requests, ask for a durable Harness-generated profile artifact or summary with provenance rather than raw training-data access inside the Agent Control Boundary. Prefer `candidate_authority_requested: none`. Recording the request only creates an auditable event; it does not authorize implementation.
+Describe the blocked hypothesis, current insufficiency, expected research value, safety/reproducibility risks, minimal Harness-owned change, and example follow-up experiments. Prefer `candidate_authority_requested: none`. Recording the request only creates an auditable event; it does not authorize implementation.
+
+For dataset-statistic requests, use `capability_type: dataset_profile_artifact` and ask for a durable Harness-generated profile artifact or summary with provenance rather than raw training-data access inside the Agent Control Boundary. Include the diagnostic question, expected research decision impact, scope/split, bounded computation or artifact budget, and provenance requirements. Choose this only when the missing information is about the Research Problem data distribution itself; propose a Candidate Experiment when the next hypothesis can be tested within the existing contract, and write an Evaluation Request when the question is about an already-completed Run.
 
 ## Guardrails
 

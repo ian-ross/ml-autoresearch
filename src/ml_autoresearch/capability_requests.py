@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
 
@@ -15,7 +15,7 @@ class CapabilityRequestError(ValueError):
     """Raised when a Capability Request cannot be validated or recorded."""
 
 
-CapabilityType = Literal["contract_surface", "approved_resource", "operational_policy"]
+CapabilityType = Literal["contract_surface", "approved_resource", "operational_policy", "dataset_profile_artifact"]
 Priority = Literal["low", "medium", "high", "urgent"]
 CandidateAuthorityRequested = Literal["none", "read_only_harness_metadata", "other"]
 
@@ -35,6 +35,11 @@ class CapabilityRequest(BaseModel):
     candidate_authority_requested: CandidateAuthorityRequested
     example_follow_up_experiments: list[str] = Field(min_length=1)
     priority: Priority
+    diagnostic_question: str | None = None
+    expected_research_decision_impact: str | None = None
+    scope_split: str | None = None
+    bounded_computation_artifact_budget: str | None = None
+    provenance_requirements: str | None = None
 
     @field_validator("example_follow_up_experiments")
     @classmethod
@@ -42,6 +47,40 @@ class CapabilityRequest(BaseModel):
         if any(not example.strip() for example in examples):
             raise ValueError("example_follow_up_experiments entries must be non-empty")
         return examples
+
+    @field_validator(
+        "diagnostic_question",
+        "expected_research_decision_impact",
+        "scope_split",
+        "bounded_computation_artifact_budget",
+        "provenance_requirements",
+    )
+    @classmethod
+    def _dataset_profile_fields_must_be_non_empty(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("dataset-profile request fields must be non-empty when provided")
+        return value
+
+    @model_validator(mode="after")
+    def _dataset_profile_requests_require_profile_details(self) -> "CapabilityRequest":
+        if self.capability_type != "dataset_profile_artifact":
+            return self
+        required_fields = [
+            "diagnostic_question",
+            "expected_research_decision_impact",
+            "scope_split",
+            "bounded_computation_artifact_budget",
+            "provenance_requirements",
+        ]
+        missing = [field for field in required_fields if getattr(self, field) is None]
+        if missing:
+            raise ValueError(f"dataset_profile_artifact requests require {', '.join(missing)}")
+        if self.candidate_authority_requested != "none":
+            raise ValueError(
+                "dataset_profile_artifact requests must use candidate_authority_requested: none; "
+                "ask for a Harness-generated artifact rather than raw training-data access"
+            )
+        return self
 
 
 def validate_capability_request_file(request_path: str | Path) -> CapabilityRequest:
@@ -83,4 +122,4 @@ def create_capability_request(
         {"request_id": request.request_id, "request_path": str(path)},
         ledger_path=ledger_path,
     )
-    return {"request": request.model_dump(), "ledger_event": event}
+    return {"request": request.model_dump(exclude_none=True), "ledger_event": event}

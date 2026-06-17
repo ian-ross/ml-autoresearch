@@ -41,6 +41,8 @@ EXPECTED_GVCCS_CANDIDATE_CONTRACTS = {
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_detail_fuse": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_head_dropout_p005": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
+    "single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
+    "single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_refine": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_rerun": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p015": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),

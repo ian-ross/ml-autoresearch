@@ -43,6 +43,44 @@ def test_validate_capability_request_file_accepts_valid_request(tmp_path: Path) 
     assert request.example_follow_up_experiments == ["Compare single-frame RGB against centered temporal RGB clip."]
 
 
+def test_validate_capability_request_file_accepts_dataset_profile_artifact_request(tmp_path: Path) -> None:
+    request_path = write_request(
+        tmp_path / "dataset-profile.yaml",
+        request_id="capability-gvccs-mask-area-profile",
+        capability_type="dataset_profile_artifact",
+        blocked_hypothesis="Tiny positive masks may need a recall-oriented architecture change.",
+        current_contract_insufficiency="Existing dataset profile artifacts do not summarize positive-mask area by split.",
+        expected_research_value="This would show whether missed positives are dominated by small masks before proposing a new Candidate Experiment.",
+        safety_reproducibility_risks="The summary must be generated deterministically without exposing raw training images.",
+        minimal_harness_change="Generate a durable dataset profile artifact with mask-area histograms for train and validation splits.",
+        diagnostic_question="Are positive Contrail Masks concentrated in a small-area tail that explains recent false negatives?",
+        expected_research_decision_impact="Decide whether the next Candidate Experiment should prioritize thin-structure recall or a different error mode.",
+        scope_split="GVCCS Working Validation Split and training split; aggregate counts only.",
+        bounded_computation_artifact_budget="One offline scan producing one YAML/Markdown summary and up to four provenance-linked plots.",
+        provenance_requirements="Record dataset version, split definition, generation command, code version, and source mask identifiers or hashes.",
+    )
+
+    request = validate_capability_request_file(request_path)
+
+    assert request.capability_type == "dataset_profile_artifact"
+    assert request.diagnostic_question.startswith("Are positive Contrail Masks")
+    assert request.candidate_authority_requested == "none"
+
+
+def test_validate_capability_request_file_rejects_malformed_dataset_profile_artifact_request(tmp_path: Path) -> None:
+    request_path = write_request(
+        tmp_path / "dataset-profile.yaml",
+        capability_type="dataset_profile_artifact",
+        diagnostic_question="Which camera sources contain small masks?",
+        expected_research_decision_impact="Choose the next architecture family.",
+        scope_split="Working Validation Split.",
+        bounded_computation_artifact_budget="One summary table.",
+    )
+
+    with pytest.raises(CapabilityRequestError, match="dataset_profile_artifact requests require provenance_requirements"):
+        validate_capability_request_file(request_path)
+
+
 @pytest.mark.parametrize("field", [
     "capability_type",
     "blocked_hypothesis",
