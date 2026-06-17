@@ -20,6 +20,10 @@ _Avoid_: Candidate plugin, candidate-provided dataset adapter, arbitrary task co
 Advisory, versioned documentation declared by a filesystem Research Problem package to support progressive disclosure of context such as problem overview, domain/data notes, literature, baselines, and modeling suggestions. The Research Problem Brief informs agents and humans but is not the normative machine-checkable execution contract unless a document is explicitly marked required by the interface.
 _Avoid_: Hidden contract, prompt-only spec, candidate authority
 
+**Dataset Profile Artifact**:
+Harness-generated or trusted Research Problem package-generated agent-visible context that summarizes reproducible dataset intelligence such as class balance, positive-pixel fraction, mask-area distributions, source summaries, sequence statistics, caveats, or Harness-selected qualitative examples. It is distinct from raw training data and distinct from authoritative Run Results.
+_Avoid_: Agent-scanned dataset statistic, private data note, evaluation result
+
 **Filesystem Research Problem Package**:
 A trusted local filesystem package that exposes a checked Research Problem Spec provider for one Research Problem outside the reusable Harness package.
 _Avoid_: Built-in Harness problem package, candidate plugin, PyPI plugin marketplace
@@ -307,6 +311,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Ground-Camera Contrail Detection** is used to prove the autoresearch infrastructure before applying it to future Research Problems such as **Satellite Contrail Detection**.
 - A **Research Problem Spec** is the near-term trusted registration unit for a **Research Problem** before mature definitions move into separate **Research Problem Repositories**.
 - A **Research Problem Brief** provides advisory context alongside a checked **Research Problem Spec** without replacing the normative machine-checkable contract.
+- A **Dataset Profile Artifact** provides reproducible agent-visible dataset intelligence without exposing raw training data by default or becoming authoritative **Run** **Results**.
 - A **Filesystem Research Problem Package** is the source-location boundary for trusted Research Problem-specific code; the semantic boundary is the checked **Research Problem Spec** it returns.
 - The **Research Problem Spec Registry** separates reusable **Harness** infrastructure from trusted problem-specific capability registration.
 - **Research Problem Specs** are Harness-side trusted registrations, not **Candidate Experiment** plugins or authority to bypass the **Candidate Experiment Contract**.

@@ -60,6 +60,36 @@ def test_agent_control_boundary_docs_define_inner_agent_commands_and_data_policy
     assert "dataset hiding" in text
 
 
+def test_agent_control_boundary_docs_define_dataset_profile_artifacts() -> None:
+    text = DOC_PATH.read_text()
+
+    assert "A dataset profile artifact is trusted agent-visible context" in text
+    assert "Harness-generated or trusted Research Problem package-generated" in text
+    assert "not raw training data" in text
+    assert "not authoritative Run Results" in text
+    for example in [
+        "class balance",
+        "positive-pixel fraction",
+        "mask-area histogram",
+        "image/camera/source summaries",
+        "frame-sequence statistics",
+        "thin-structure summaries",
+        "known caveats",
+        "Harness-selected qualitative examples",
+    ]:
+        assert example in text
+    for provenance_field in [
+        "Research Problem id/version",
+        "dataset identity or data config",
+        "generation command/version",
+        "generation timestamp",
+        "source split/scope",
+    ]:
+        assert provenance_field in text
+    assert "`/research-problem/profile/`" in text
+    assert "`RESEARCH_PROBLEM_BRIEF_INDEX.md`" in text
+
+
 def test_agent_control_boundary_docs_describe_lightweight_image_dependency_boundary() -> None:
     text = DOC_PATH.read_text()
 

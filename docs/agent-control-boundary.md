@@ -245,10 +245,49 @@ The Agent Control Boundary should expose curated dataset intelligence rather
 than the full training dataset by default. Useful agent-visible context includes
 Research Problem Brief documents, dataset profile artifacts, representative
 Harness-selected figures, prior Research Notes, Run artifacts, and Post-Run
-Evaluation diagnostics. Examples of dataset profile content include class
-balance, positive-pixel fraction, mask-area histograms, image-size and camera
-source summaries, frame-sequence statistics, thin-structure summaries, known data
-caveats, and qualitative examples selected by Harness policy.
+Evaluation diagnostics.
+
+A dataset profile artifact is trusted agent-visible context that is
+Harness-generated or trusted Research Problem package-generated. It summarizes
+reproducible facts, caveats, or representative examples about a Research Problem dataset so
+agents can propose Candidate Experiments without direct raw training-data
+traversal. It is not raw training data, does not grant candidate-owned data
+loading authority, and is not authoritative Run Results; Results remain the
+metrics and artifacts produced by Harness-executed Runs and Post-Run
+Evaluations.
+
+Initial dataset profile artifact examples include class balance,
+positive-pixel fraction, mask-area histogram, image/camera/source summaries,
+frame-sequence statistics, thin-structure summaries, known caveats, and
+Harness-selected qualitative examples. Qualitative examples are selected by
+Harness or Research Problem policy, not by an agent searching the raw dataset for
+private examples.
+
+Dataset profile artifacts are exposed inside the Agent Control Boundary as
+read-only Research Problem context. The preferred location is a profile directory
+inside the active Research Problem package mount, such as
+`/research-problem/profile/`; setup-generated instructions may also reference
+copied profile artifacts from `agent-work/AGENTS.md` or from the related
+`RESEARCH_PROBLEM_BRIEF_INDEX.md`. Index entries should name each artifact,
+state its role and scope, and give a direct read command or path so the inner
+agent discovers the profile through the same progressive-disclosure flow used
+for Research Problem Brief documents.
+
+Each dataset profile artifact should carry enough provenance for regeneration
+and audit. Required provenance expectations are Research Problem id/version,
+dataset identity or data config, generation command/version, generation timestamp,
+source split/scope where applicable, and the source policy explaining whether it
+was Harness-generated or trusted Research Problem package-generated.
+When an artifact covers only a subset, camera, source, fold, Working Validation
+Split, or other scope, that source split/scope must be explicit.
+
+Refresh is Harness-owned. Profile artifacts are regenerated or copied when the
+Research Problem package, dataset identity/data config, generator version, or
+source split/scope changes. Stale profiles should be replaced by setup before a
+new Autonomy Step rather than edited by the inner agent. The agent may cite a
+profile artifact in Experiment Proposals, Research Notes, Evaluation Requests,
+and Capability Requests, but must not mutate it or treat it as a Run-scoped
+Result.
 
 This keeps the autonomous Research Loop auditable and reproducible. Raw dataset
 exploration can encourage slow filesystem scans, private untracked statistics,
