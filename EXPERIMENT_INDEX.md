@@ -71,6 +71,8 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 
 | `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es/README.md) — Current-best extra-wide single-frame U-Net with Line Target auxiliary loss, p=0.075 bottleneck dropout, Harness-owned reduce-on-plateau scheduling, and early stopping with best-checkpoint restoration. | Pending full Research Note. | Pending Research Problem Run. | Pending Harness Run; ingested from Agent Workspace. |
 
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context/README.md) — Extra-wide single-frame U-Net with Line Target auxiliary loss, p=0.075 bottleneck dropout, lightweight dilated bottleneck context, reduce-on-plateau scheduling, and early stopping with best-checkpoint restoration. | Pending full Research Note. | Pending Research Problem Run. | Pending Harness Run; ingested from Agent Workspace. |
+
 ## Chronological Research Notes
 
 - [`2026-05-04 baseline GVCCS tiny subset`](research-notes/2026-05-04-baseline-gvccs-tiny-subset.md)
