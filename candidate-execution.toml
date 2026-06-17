@@ -2,6 +2,8 @@
 # Candidate Execution Boundary policy for local runs.
 backend = "docker"
 docker_image = "ml-autoresearch-runner:local"
+docker_enable_gpu = true
+docker_rootless_container_root = true
 runs_root = "/data/iross/ml-autoresearch/runs"
 ledger_path = "research-ledger.jsonl"
 
