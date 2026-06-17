@@ -7,7 +7,7 @@ description: Create human-reviewable Capability Requests.
 
 ## Use
 
-Use when a hypothesis is blocked by the current Candidate Experiment Contract, Approved Weight Artifact set, Data Policy, or operational policy. A Capability Request is not self-approving.
+Use when a hypothesis is blocked by the current Candidate Experiment Contract, Approved Weight Artifact set, Data Policy, operational policy, or missing Harness-generated dataset profile/statistic. A Capability Request is not self-approving.
 
 ## Read first
 
@@ -17,7 +17,7 @@ Use when a hypothesis is blocked by the current Candidate Experiment Contract, A
 
 ## Instructions
 
-Describe the blocked hypothesis, current insufficiency, expected research value, safety/reproducibility risks, minimal Harness-owned change, and example follow-up experiments. Prefer `candidate_authority_requested: none`. Recording the request only creates an auditable event; it does not authorize implementation.
+Describe the blocked hypothesis, current insufficiency, expected research value, safety/reproducibility risks, minimal Harness-owned change, and example follow-up experiments. For dataset-statistic requests, ask for a durable Harness-generated profile artifact or summary with provenance rather than raw training-data access inside the Agent Control Boundary. Prefer `candidate_authority_requested: none`. Recording the request only creates an auditable event; it does not authorize implementation.
 
 ## Guardrails
 

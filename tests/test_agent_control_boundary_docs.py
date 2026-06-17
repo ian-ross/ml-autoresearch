@@ -51,7 +51,9 @@ def test_agent_control_boundary_docs_define_inner_agent_commands_and_data_policy
     ]:
         assert forbidden in text
 
-    assert "Read-only `/data` inspection is allowed for hypothesis formation" in text
+    assert "curated dataset intelligence" in text
+    assert "full training dataset by default" in text
+    assert "Capability Request for a Harness-generated dataset\nprofile artifact" in text
     assert "Candidate Experiment code must remain data-path agnostic" in text
     assert "Authoritative Results come from the Harness" in text
     assert "protects infrastructure authority" in text
@@ -114,3 +116,7 @@ def test_agent_control_boundary_docs_define_root_config_schema() -> None:
     assert "relative to the project root" in text
     assert "image paths are interpreted by pi-fort" in text
     assert "`agent-work/.pi/fort.toml` file" in text
+    assert "ML_AUTORESEARCH_PI_FORT" in text
+    assert "Agent-Workspace-local `candidate-execution.toml`" in text
+    assert "pi install -l" in text
+    assert "fail before invoking the autonomy agent if pi-fort" in text

@@ -8,12 +8,17 @@ When running inside the Agent Control Boundary, the agent should treat the
 current directory as the writable Agent Workspace, use `ml-autoresearch-agent`
 rather than `ml-autoresearch`, and hand off finalized Candidate Experiments via
 `submissions/` for Harness ingestion outside the boundary. Read-only
-`/reference`, `/history`, `/docs`, and approved `/data` mounts are context for
-proposal and analysis, not places to write or sources of execution authority.
+`/reference`, `/history`, `/docs`, Research Problem Briefs, dataset profile
+artifacts, and approved data summaries are context for proposal and analysis,
+not places to write or sources of execution authority. Full training-data mounts
+are not expected by default inside the Agent Control Boundary.
 
 The boundary protects infrastructure authority. It is not primarily a dataset
-hiding mechanism: read-only `/data` inspection may be allowed for hypothesis
-formation, but Candidate Experiment code must remain data-path agnostic and all
+hiding mechanism, but the agent should normally learn from Harness-owned
+observations instead of untracked raw-dataset exploration. If a new class-balance
+breakdown, mask statistic, subset summary, or qualitative view is needed, the
+agent should file a Capability Request for a Harness-generated dataset profile
+artifact. Candidate Experiment code must remain data-path agnostic and all
 authoritative Results must come from the Harness.
 
 ## Contract-bound exploration

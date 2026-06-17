@@ -5,7 +5,11 @@ running inside the VM. It protects infrastructure authority: the agent cannot
 control host shell, Docker, GPUs, cluster schedulers, secrets, cloud credentials,
 or Harness-owned Run execution. It is not primarily a dataset hiding mechanism
 for overfitting control; validation authority and authoritative Results remain
-owned by the Harness.
+owned by the Harness. However, full training datasets should not be mounted into
+the Agent Control Boundary by default. The autonomous agent should normally learn
+from Harness-owned observations, Research Notes, Run artifacts, Post-Run
+Evaluation artifacts, Research Problem Briefs, and curated dataset profile
+artifacts rather than private, untracked exploratory scans of raw training data.
 
 ## Inner-agent prompt contract
 
@@ -14,8 +18,8 @@ Prompt the inner agent with these operational rules:
 - The Agent Workspace is the current writable directory inside the VM.
 - Use `ml-autoresearch-agent`, not `ml-autoresearch`, inside the VM.
 - Draft Candidate Experiments and handoff artifacts only in the Agent Workspace.
-- Review read-only reference, history, docs, and approved data mounts before
-  proposing work.
+- Review read-only reference, history, docs, Research Problem Briefs, dataset
+  profile artifacts, and approved data summaries before proposing work.
 - Do not modify Harness code, canonical Research Ledger files, canonical
   Experiment Index files, or mounted history/reference/data.
 - Do not seek hidden authority through filesystem probing, candidate helper
@@ -194,8 +198,9 @@ The VM exposes these read-only paths:
   Contract, Run lifecycle, request/report formats, and agent skill docs.
 - `/research-problem` — the active configured Research Problem provider package,
   including any declared Research Problem Brief documents.
-- `/data` — approved read-only Research Problem data mounts, when policy
-  permits.
+- `/data` — optional approved read-only Research Problem data mounts, when an
+  explicit policy permits a bounded mount. Full training datasets are not part
+  of the default Agent Control Boundary.
 
 ## Approved commands
 
@@ -236,10 +241,28 @@ Agent Control Boundary.
 
 ## Data access policy
 
-Read-only `/data` inspection is allowed for hypothesis formation when the
-Harness mounts approved Research Problem data. The agent may inspect schema,
-metadata, filenames, small samples, class balance, or qualitative examples to
-understand the Research Problem and write better proposals.
+The Agent Control Boundary should expose curated dataset intelligence rather
+than the full training dataset by default. Useful agent-visible context includes
+Research Problem Brief documents, dataset profile artifacts, representative
+Harness-selected figures, prior Research Notes, Run artifacts, and Post-Run
+Evaluation diagnostics. Examples of dataset profile content include class
+balance, positive-pixel fraction, mask-area histograms, image-size and camera
+source summaries, frame-sequence statistics, thin-structure summaries, known data
+caveats, and qualitative examples selected by Harness policy.
+
+This keeps the autonomous Research Loop auditable and reproducible. Raw dataset
+exploration can encourage slow filesystem scans, private untracked statistics,
+validation overfitting, ad hoc scripts, and data-dependent Candidate Experiment
+ideas that bypass the Candidate Experiment Contract. Candidate Experiment
+development should instead be driven by Harness-owned observations that can be
+recorded, reviewed, regenerated, and cited in Experiment Proposals, Research
+Notes, Evaluation Requests, and Capability Requests.
+
+Full or partial `/data` mounts remain possible only as an explicit
+Agent-Control-Boundary policy choice for bounded cases. If the agent needs a new
+dataset statistic, subset summary, or qualitative view to unblock a research
+hypothesis, it should create a Capability Request for a Harness-generated dataset
+profile artifact rather than probing raw training files directly.
 
 Candidate Experiment code must remain data-path agnostic. It must not hard-code
 `/data` paths, implement candidate-owned data loading, probe mounted data from
@@ -343,20 +366,28 @@ for the PyTorch/CUDA stack used by Candidate Execution Boundary training.
 
 The host-side Harness prepares the Agent Reference Snapshot, Research History
 snapshot, Agent Workspace directory layout, and managed pi-fort configuration
-from root `agent-boundary.toml`:
+from root `agent-boundary.toml`. Operators must first point the Harness at a
+local checkout of the pi-fort Pi extension:
 
 ```shell
+export ML_AUTORESEARCH_PI_FORT=/absolute/path/to/local/pi-fort
 ml-autoresearch prepare-agent-boundary
 ```
 
 The command overwrites only managed pi-fort files under
 `agent-work/.pi/fort.toml` and `agent-work/.pi/fort.d/`, refreshes managed
-Autoresearch Skill Set files under `agent-work/.pi/skills/`, and rewrites the
-managed workspace instruction file `agent-work/AGENTS.md`; it does not delete
-the whole `agent-work/.pi` directory or existing Agent Workspace outputs.
+Autoresearch Skill Set files under `agent-work/.pi/skills/`, rewrites the
+managed workspace instruction file `agent-work/AGENTS.md`, writes an
+Agent-Workspace-local `candidate-execution.toml` pointing at `/research-problem`
+and mounted `/data/...` paths for agent-safe static validation, and installs pi-fort
+into `agent-work` with `pi install -l "$ML_AUTORESEARCH_PI_FORT"`; it does not
+delete the whole `agent-work/.pi` directory or existing Agent Workspace outputs.
+The local pi-fort path must exist and resolve to an absolute path after `~`
+expansion. `prepare-agent-boundary`, `autonomy-step`, and
+`run-autonomous-iteration` fail before invoking the autonomy agent if pi-fort
+cannot be installed into the Agent Workspace.
 
 ```shell
-pi install -l git:git@github.com:ian-ross/pi-fort
 cd agent-work
 pi
 ```

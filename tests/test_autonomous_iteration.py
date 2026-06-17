@@ -11,6 +11,10 @@ from ml_autoresearch.autonomous_iteration import (
 )
 
 
+@pytest.fixture(autouse=True)
+def skip_pi_fort_install(monkeypatch):
+    monkeypatch.setattr("ml_autoresearch.agent_boundary._install_pi_fort_extension", lambda workspace_dir: None)
+
 
 def write_fake_research_problem_provider(root: Path) -> None:
     package = root / "fake_research_problem"

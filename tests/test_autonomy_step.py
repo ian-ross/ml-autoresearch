@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from ml_autoresearch.autonomy_step import run_autonomy_step
 from ml_autoresearch.cli import app
 from ml_autoresearch.execution import OperationResult
@@ -11,6 +13,10 @@ from conftest import invoke_typer_cli
 def run_cli(cwd: Path, *args: str):
     return invoke_typer_cli(app, args, cwd=cwd)
 
+
+@pytest.fixture(autouse=True)
+def skip_pi_fort_install(monkeypatch):
+    monkeypatch.setattr("ml_autoresearch.agent_boundary._install_pi_fort_extension", lambda workspace_dir: None)
 
 
 def write_fake_research_problem_provider(root: Path) -> None:
