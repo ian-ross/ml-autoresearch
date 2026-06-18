@@ -234,6 +234,25 @@ def test_prepare_agent_boundary_requires_explicit_research_problem_provider(tmp_
     assert "require an explicit [research_problem] provider" in completed.stderr
     assert "built-in/default Research Problem fallback is not allowed" in completed.stderr
 
+def test_prepare_agent_boundary_default_does_not_expose_raw_dataset_mount_or_path(tmp_path: Path, monkeypatch):
+    write_project(tmp_path)
+    configure_fake_pi_fort(tmp_path, monkeypatch)
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 0, completed.stderr
+    instructions = (tmp_path / "agent-work" / "AGENTS.md").read_text()
+    assert "Full training datasets are not part of the default Agent Control Boundary" in instructions
+    assert "`/data/` contains approved read-only Research Problem data mounts when present" not in instructions
+    agent_candidate_config = (tmp_path / "agent-work" / "candidate-execution.toml").read_text()
+    assert "dataset_root" not in agent_candidate_config
+    assert str(tmp_path / "gvccs-data") not in agent_candidate_config
+    fort_toml = (tmp_path / "agent-work" / ".pi" / "fort.toml").read_text()
+    assert 'target="/data/gvccs"' not in fort_toml
+    assert str(tmp_path / "gvccs-data") not in fort_toml
+
+
+
 def test_prepare_agent_boundary_fails_for_missing_data_mount_path(tmp_path: Path):
     write_project(
         tmp_path,

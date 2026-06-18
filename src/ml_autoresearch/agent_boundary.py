@@ -279,8 +279,21 @@ def _agent_workspace_data_config(data_config: dict[str, object], data_mounts: tu
     rewritten: dict[str, object] = {}
     mount_targets = {str(mount.path): mount.target for mount in data_mounts}
     for key, value in data_config.items():
-        rewritten[key] = mount_targets.get(str(value), value) if isinstance(value, str) else value
+        if isinstance(value, str):
+            mounted_value = mount_targets.get(str(value))
+            if mounted_value is not None:
+                rewritten[key] = mounted_value
+            elif _is_raw_dataset_root_key(key):
+                continue
+            else:
+                rewritten[key] = value
+        else:
+            rewritten[key] = value
     return rewritten
+
+
+def _is_raw_dataset_root_key(key: str) -> bool:
+    return key in {"dataset_root", "data_root"}
 
 
 def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: LoadedResearchProblemSpec) -> None:
@@ -302,7 +315,8 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "- `runs/` -> `/history/runs/` for prior Run summaries/artifacts\n"
         "- `batches/` -> `/history/batches/` for prior Experiment Batch summaries/artifacts\n"
         "- `research-notes/` -> `/history/research-notes/` for prior notes\n"
-        "- `/data/` contains approved read-only Research Problem data mounts when present\n"
+        "- `/data/` is reserved for optional approved read-only Research Problem data mounts only when an explicit bounded-exception policy configures them\n"
+        "- Full training datasets are not part of the default Agent Control Boundary; use Research Problem Briefs, Research History, Run artifacts, Post-Run Evaluation diagnostics, and Dataset Profile Artifacts instead\n"
         "\n"
         "## Active Research Problem Brief\n"
         "\n"
@@ -333,7 +347,7 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "and static Candidate preparation commands. Observation commands default to\n"
         "the `/history/runs` and `/history/batches` Research History roots; do not\n"
         "invent host-relative Runs root paths. Do not edit mounted read-only\n"
-        "reference, history, docs, or data paths.\n"
+        "reference, history, docs, Research Problem, or explicit bounded-exception data paths.\n"
     )
 
 
