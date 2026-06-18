@@ -212,10 +212,11 @@ path = "{data_root}"
         'target="/docs"',
         'target="/research-problem"',
         'target="/usr/local/lib/python3.12/site-packages/ml_autoresearch"',
-        'target="/usr/local/lib/python3.12/dist-packages/ml_autoresearch"',
         'target="/data/gvccs"',
     ]:
         assert target in fort_toml
+    assert 'target="/usr/local/lib/python3.12/dist-packages/ml_autoresearch"' not in fort_toml
+    assert fort_toml.count('target="/usr/local/lib/python3.12/site-packages/ml_autoresearch"') == 1
     assert f'path="{tmp_path / "src" / "ml_autoresearch"}"' in fort_toml
     assert f'path="{data_root}"' in fort_toml
     assert 'target="/data/gvccs", readonly=true' in fort_toml
