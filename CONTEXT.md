@@ -37,8 +37,28 @@ A reusable trusted library of segmentation, imaging, metric, target-construction
 _Avoid_: Candidate helper library, policy registry, generic plugin API
 
 **Research Problem Repository**:
-A future trusted package boundary for Research Problem-specific definitions such as dataset adapters, input modes, prediction targets, metrics, augmentation policies, auxiliary targets, allowed losses, reporting templates, and figure selectors, separated from reusable ML Autoresearch infrastructure after the proving-ground loop matures.
+A trusted Python project and operational workspace for one Research Problem, containing problem-specific definitions, Workspace Configuration, and durable Research Loop state while depending on the reusable ML Autoresearch Harness package.
 _Avoid_: Fork of the Harness, candidate repository, candidate-provided plugin
+
+**Research Workspace Root**:
+The operational root directory for one Research Problem's configuration, mutable research state, Research History, and Agent Workspace, used by Harness CLI commands even when the reusable Harness is installed from elsewhere.
+_Avoid_: Harness checkout, project root when ambiguous, ml-autoresearch repo
+
+**Workspace Configuration**:
+The single operator-authored `ml-autoresearch.toml` file at a Research Workspace Root that configures Harness execution policy, the active Research Problem, Agent Control Boundary policy, data mounts, and notifications.
+_Avoid_: Split config files, Harness package config, candidate config
+
+**Research Workspace Setup**:
+A guided Harness operation that initializes a Research Problem Repository as a usable Research Workspace Root by creating Workspace Configuration, initial research memory files, required handoff directories, and starter Research Problem Brief materials.
+_Avoid_: Example workspace, manual template copy, Harness install
+
+**Runtime Image Build**:
+A Harness operation that builds workspace-specific Candidate Execution Boundary Docker images and Agent Runtime Image assets from packaged build recipes for the Harness version used by the Research Workspace Root.
+_Avoid_: Manual container build, bundled built images, global local image
+
+**Runtime Image Validation Stamp**:
+A hidden workspace-local record that the configured Agent Runtime Image and Candidate Execution Boundary runner image match the Harness version or explicit development source override used by the Research Workspace Root.
+_Avoid_: Research Ledger event, warning-only image check, source-controlled research memory
 
 **Research Loop**:
 The closed cycle in which Candidate Experiments are proposed, the system runs them, Results are evaluated, and the next Candidate Experiment is informed by prior Results. In early Human-Guided Research Iterations, humans may make proposal decisions before the Pi-agent proposal loop is automated.
@@ -188,6 +208,10 @@ _Avoid_: Pi runner, Docker runner, contrail runner
 The boundary that prevents the agent from directly accessing host shell, Docker, GPU or cluster control, secrets, cloud credentials, or unrestricted infrastructure/network resources, while allowing explicitly configured read-only Research Problem data access when policy permits.
 _Avoid_: Sandbox when referring specifically to agent permissions
 
+**Agent Runtime Image**:
+The Gondolin/pi-fort image asset directory used to run the Agent Control Boundary, distinct from a Docker image used by the Candidate Execution Boundary.
+_Avoid_: Docker image when referring to the agent image, runner image, container tag
+
 **Agent Workspace**:
 The writable area inside the Agent Control Boundary where the agent drafts Candidate Experiments and creates autonomous-loop artifacts before Harness ingestion.
 _Avoid_: History, Harness workspace, run directory
@@ -197,8 +221,12 @@ The read-only prior research material exposed inside the Agent Control Boundary 
 _Avoid_: Workspace, scratch area
 
 **Agent Reference Snapshot**:
-A setup-generated, read-only directory exposed inside the Agent Control Boundary containing copies of root-level canonical reference files that cannot be mounted individually, such as `CONTEXT.md` and `EXPERIMENT_INDEX.md`.
-_Avoid_: Canonical source file, editable reference
+A setup-generated, read-only directory exposed inside the Agent Control Boundary containing copies of canonical Harness and Research Loop reference files that cannot be mounted individually, such as `HARNESS_CONTEXT.md` and `EXPERIMENT_INDEX.md`.
+_Avoid_: Canonical source file, editable reference, Research Problem Brief
+
+**Agent Research Problem Snapshot**:
+A setup-generated, read-only directory exposed inside the Agent Control Boundary containing only curated Research Problem Brief documents, Dataset Profile Artifacts, and their index for the active Research Problem.
+_Avoid_: Full Research Problem Repository mount, editable problem package, raw data mount
 
 **Candidate Submission Queue**:
 A Harness-ingested handoff area where the agent places finalized Candidate Experiment submissions that are ready for validation and execution by the Harness.
@@ -317,6 +345,14 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Research Problem Specs** are Harness-side trusted registrations, not **Candidate Experiment** plugins or authority to bypass the **Candidate Experiment Contract**.
 - The **Problem Support Library** provides reusable trusted building blocks for **Research Problem Specs** without becoming an independent policy boundary or Candidate-facing plugin API.
 - Mature **Research Problem** definitions are expected to move into trusted **Research Problem Repositories** that register problem-specific capabilities with reusable ML Autoresearch infrastructure.
+- A **Research Problem Repository** is both the trusted Python package boundary for problem-specific code and the **Research Workspace Root** for that Research Problem.
+- A **Research Workspace Root** belongs to one active **Research Problem** and contains that problem's durable Research Loop state, while the reusable **Harness** may be installed as a dependency outside that root.
+- The **Candidate Execution Boundary** may receive the full trusted **Research Problem Repository** needed for Harness-side imports, but the **Agent Control Boundary** should expose only curated Research Problem Briefs, Dataset Profile Artifacts, and Research History rather than the full repository.
+- Durable **Research Loop** state such as Candidate Experiments, Research Notes, Campaign Reports, Capability Requests, Evaluation Requests, Research Ledger, Experiment Index, Runs, Batches, Research History snapshots, and Agent Workspace contents lives under the **Research Workspace Root**, not in the reusable **Harness** checkout or package.
+- A **Research Workspace Root** has one canonical **Workspace Configuration** file named `ml-autoresearch.toml`; legacy split configuration files are not part of the target model.
+- **Research Workspace Setup** is the preferred way to create a new **Research Workspace Root**, rather than copying a static example workspace.
+- A **Runtime Image Build** writes Agent Runtime Image assets under hidden workspace operational state and tags Candidate Execution Boundary runner images with workspace- and Harness-version-specific identity.
+- A **Runtime Image Validation Stamp** is required by runtime operations after image build or dependency changes, while durable research memory remains in the Research Ledger and Experiment Index.
 - **Ground-Camera Contrail Detection** remains the only real registered **Research Problem** initially; other problems should wait until the GVCCS proving-ground loop justifies extraction.
 - Temporal input should be implemented after the **Research Problem Spec Registry** seam so GVCCS-specific **Frame Sequence**, **Target Frame**, sampling, augmentation, and reporting semantics are registered problem capabilities rather than ad hoc core **Harness** behavior.
 - **Ground-Camera Contrail Detection** uses the **GVCCS Dataset** for training.
@@ -343,6 +379,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Human-Guided Research Iterations** are early **Research Loop** iterations used before **Autonomous Research Iterations** are implemented.
 - **Autonomous Research Iterations** allow the agent to conduct Candidate Experiment proposal, implementation, submission for Harness execution, observation, note-writing, and next-step selection within fixed Harness and Research Problem boundaries.
 - An **Autoresearch Skill Set** should use focused skills with progressive disclosure, orchestrated by a campaign-manager skill rather than one monolithic prompt.
+- The reusable **Harness** packages Harness-owned agent resources such as the **Autoresearch Skill Set** so Agent Workspace preparation does not depend on files in the **Research Workspace Root** except through declared Research Problem context and durable Research Loop state.
 - An **Autonomy Smoke Loop** uses the current narrow **Candidate Experiment Contract** to test autonomous behavior and whether the agent creates **Capability Requests** instead of attempting covert workarounds.
 - An **Autonomous Research Iteration** normally proposes one **Candidate Experiment**, but may propose an **Experiment Batch** when parallel variants are bounded and tied to one research hypothesis.
 - An **Experiment Batch** is limited by Harness policy for maximum parallel submissions.
@@ -414,10 +451,13 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - A **Post-Run Evaluation** has an Evaluation ID of the form `eval_YYYYMMDD_HHMMSS_<suffix>` and records its own lifecycle status (`running`, `completed`, or `failed`) without changing the parent **Run** status.
 - The agent may have MLflow read access, explicitly configured read-only Research Problem data access, and normal pi-enclave network access constrained by Gondolin policy.
 - The **Agent Control Boundary** constrains infrastructure authority rather than serving as the primary mechanism for validation/test overfitting control.
+- The **Agent Runtime Image** is a Gondolin/pi-fort image asset directory, not a Docker image name.
 - The **Candidate Execution Boundary** constrains what Candidate Experiment code can do during a Run.
 - The **Agent Workspace** is writable by the agent; the **Research History** is read-only prior research context.
+- The **Agent Research Problem Snapshot** is distinct from **Research History**: it contains trusted problem brief/profile context, while **Research History** contains prior Research Loop artifacts.
 - The **Agent Workspace** contains mutable draft Candidate Experiments under `drafts/candidates/`, immutable queued submissions under `submissions/`, and writable autonomous-loop artifacts such as Research Notes, Capability Requests, Evaluation Requests, Campaign Reports, and scratch files; it does not contain generic Research Ledger event requests.
-- The **Agent Reference Snapshot** provides read-only setup-time copies of root canonical files such as `CONTEXT.md` and `EXPERIMENT_INDEX.md` because the Agent Control Boundary mounts directories rather than individual files.
+- The **Agent Reference Snapshot** provides read-only setup-time copies of canonical Harness and Research Loop reference files such as `HARNESS_CONTEXT.md` and `EXPERIMENT_INDEX.md` because the Agent Control Boundary mounts directories rather than individual files.
+- The **Agent Research Problem Snapshot** exposes curated Research Problem Brief documents and Dataset Profile Artifacts, including any problem-specific context document if declared, without mounting the full **Research Problem Repository** into the Agent Control Boundary.
 - The **Research History** may use a generated parent directory for singleton files such as `research-ledger.jsonl` plus placeholder child directories that are over-mounted by read-only historical Candidate Experiment, Run, and Research Note directories.
 - Canonical Research Ledger and Experiment Index updates are performed by Harness ingestion outside the **Agent Control Boundary**, not by direct agent edits.
 - The **Candidate Submission Queue** separates draft **Candidate Experiments** from submissions that are ready for Harness validation and execution.
@@ -465,6 +505,8 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - "candidate", "architecture", "package", and "experiment" were overlapping — resolved: the submitted research unit is a **Candidate Experiment**; the neural network design inside it is a **Model Architecture**.
 - "safe" was used for both agent access control and untrusted code containment — resolved: use **Agent Control Boundary** for agent permissions and **Candidate Execution Boundary** for candidate-code execution.
 - "task", "use case", and "test case" were used for the target ML problem — resolved: use **Research Problem**.
+- "project root" was used for both the reusable Harness source checkout and the operational directory containing research state — resolved: CLI operations should refer to the **Research Workspace Root**.
+- `agent-boundary.toml`, `candidate-execution.toml`, and `notification.toml` split one operator concern across several files — resolved: use one **Workspace Configuration** file, `ml-autoresearch.toml`.
 - "minimal contract" could mean minimal expressiveness or minimal implementation — resolved: the **Candidate Experiment Contract** minimizes unsafe authority while preserving enough research expressiveness through Harness-owned parameters.
 - Wall-clock limits could prematurely bias architecture search or waste compute — resolved: keep **Wall-Clock Budget Policy** Harness-owned and explicitly adjustable, likely smaller during early exploration.
 - "pretrained weights" could mean runtime downloads, arbitrary checkpoint paths, or audited reusable artifacts — resolved: Candidate Experiments may only reference **Approved Weight Artifacts**, and new weights enter through **Pretrained Weight Requests**.
