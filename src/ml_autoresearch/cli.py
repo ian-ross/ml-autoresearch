@@ -47,6 +47,7 @@ from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.package_resources import PackageResourceError, stage_workspace_container_build_recipes
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
+from ml_autoresearch.runtime_images import RuntimeImageError, build_runtime_images, validate_runtime_images
 from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs
 from ml_autoresearch.batches import get_batch_summary, list_batches
 from ml_autoresearch.setup import (
@@ -294,6 +295,40 @@ def stage_runtime_build_recipes_command(
     except (PackageResourceError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json({"destination": str(result.destination), "copied": [str(path) for path in result.copied]})
+
+
+@app.command("build-runtime-images")
+def build_runtime_images_command(
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml.")] = Path("."),
+    update_config: Annotated[
+        bool,
+        typer.Option("--update-config", help="Explicitly update ml-autoresearch.toml with the built runtime image identities."),
+    ] = False,
+    execute: Annotated[
+        bool,
+        typer.Option("--execute/--no-execute", help="Run Docker/Gondolin build commands instead of only staging recipes and metadata."),
+    ] = True,
+) -> None:
+    """Build or prepare workspace-specific runtime images from packaged recipes."""
+
+    try:
+        result = build_runtime_images(workspace_root, update_config=update_config, execute=execute)
+    except (RuntimeImageError, PackageResourceError, subprocess.CalledProcessError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result.model_dump())
+
+
+@app.command("validate-runtime-images")
+def validate_runtime_images_command(
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml.")] = Path("."),
+) -> None:
+    """Validate configured runtime image identities and write the validation stamp."""
+
+    try:
+        stamp = validate_runtime_images(workspace_root)
+    except (RuntimeImageError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(stamp)
 
 
 @app.command("autonomy-step")
