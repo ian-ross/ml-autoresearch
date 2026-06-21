@@ -6,12 +6,12 @@ import json
 import os
 import shutil
 import subprocess
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ml_autoresearch.candidate_execution_config import CandidateExecutionConfig, load_candidate_execution_config
+from ml_autoresearch.workspace import WORKSPACE_CONFIG_FILENAME
 from ml_autoresearch.research_problems import (
     LoadedResearchProblemSpec,
     ResearchProblemProviderLoadError,
@@ -33,7 +33,7 @@ class DataMount:
 
 @dataclass(frozen=True)
 class AgentBoundaryConfig:
-    """Root agent-boundary.toml settings used to prepare the boundary."""
+    """Workspace Configuration settings used to prepare the boundary."""
 
     distro: str
     image: str
@@ -59,12 +59,11 @@ WORKSPACE_DIRS = (
 
 
 def load_agent_boundary_config(project_root: Path) -> AgentBoundaryConfig:
-    """Load and validate root agent-boundary.toml."""
+    """Load and validate Agent Control Boundary settings from Workspace Configuration."""
 
-    config_path = project_root / "agent-boundary.toml"
-    if not config_path.is_file():
-        raise AgentBoundaryError(f"missing Agent Control Boundary config: {config_path}")
-    data = tomllib.loads(config_path.read_text())
+    config_path = project_root / WORKSPACE_CONFIG_FILENAME
+    candidate_config = load_candidate_execution_config(project_root)
+    data = _load_workspace_toml(config_path)
     settings = data.get("agent_control_boundary", {})
     if not isinstance(settings, dict):
         raise AgentBoundaryError("[agent_control_boundary] must be a table")
@@ -73,7 +72,6 @@ def load_agent_boundary_config(project_root: Path) -> AgentBoundaryConfig:
     allow_egress = settings.get("allow_egress", True)
     if not isinstance(allow_egress, bool):
         raise AgentBoundaryError("agent_control_boundary.allow_egress must be a boolean")
-    candidate_config = load_candidate_execution_config(project_root)
     return AgentBoundaryConfig(
         distro=distro,
         image=image,
@@ -92,12 +90,23 @@ def _load_agent_boundary_research_problem(candidate_config: CandidateExecutionCo
     if provider_config is None:
         raise AgentBoundaryError(
             "Agent Control Boundary handoff/autonomy flows require an explicit [research_problem] "
-            "provider in candidate-execution.toml; built-in/default Research Problem fallback is not allowed"
+            f"provider in {WORKSPACE_CONFIG_FILENAME}; built-in/default Research Problem fallback is not allowed"
         )
     try:
         return load_research_problem_provider(provider_config)
     except ResearchProblemProviderLoadError as exc:
         raise AgentBoundaryError(f"failed to load configured Research Problem provider: {exc}") from exc
+
+
+def _load_workspace_toml(config_path: Path) -> dict[str, object]:
+    import tomllib
+
+    try:
+        return tomllib.loads(config_path.read_text())
+    except FileNotFoundError as exc:
+        raise AgentBoundaryError(f"missing Workspace Configuration: {config_path}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise AgentBoundaryError(f"invalid Workspace Configuration {config_path}: {exc}") from exc
 
 
 def _string_setting(settings: dict[str, Any], key: str, default: str) -> str:
@@ -272,7 +281,7 @@ def _write_agent_candidate_execution_config(workspace_dir: Path, config: AgentBo
     if data_config:
         entries = ", ".join(f'{key} = "{_toml_escape(str(value))}"' for key, value in sorted(data_config.items()))
         lines.append(f"data_config = {{ {entries} }}")
-    (workspace_dir / "candidate-execution.toml").write_text("\n".join(lines) + "\n")
+    (workspace_dir / WORKSPACE_CONFIG_FILENAME).write_text("\n".join(lines) + "\n")
 
 
 def _agent_workspace_data_config(data_config: dict[str, object], data_mounts: tuple[DataMount, ...]) -> dict[str, object]:

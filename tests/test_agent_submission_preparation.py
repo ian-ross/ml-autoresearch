@@ -77,7 +77,7 @@ def test_prepare_candidate_submission_copies_draft_and_writes_metadata(tmp_path:
         str(candidate),
         "--submissions-root",
         str(submissions_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
 
@@ -112,7 +112,7 @@ def test_prepare_candidate_submission_refuses_to_overwrite_existing_submission(t
         str(candidate),
         "--submissions-root",
         str(tmp_path / "submissions"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
 
@@ -133,7 +133,7 @@ def test_prepare_candidate_submission_requires_proposal_and_readme(tmp_path: Pat
         str(missing_proposal),
         "--submissions-root",
         str(tmp_path / "submissions-a"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
     readme_result = run_agent_cli(
@@ -142,7 +142,7 @@ def test_prepare_candidate_submission_requires_proposal_and_readme(tmp_path: Pat
         str(missing_readme),
         "--submissions-root",
         str(tmp_path / "submissions-b"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
 
@@ -166,7 +166,7 @@ def test_prepare_candidate_submission_rejects_invalid_candidate_and_name_mismatc
         str(invalid),
         "--submissions-root",
         str(tmp_path / "submissions-a"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
     mismatch_result = run_agent_cli(
@@ -175,7 +175,7 @@ def test_prepare_candidate_submission_rejects_invalid_candidate_and_name_mismatc
         str(queue_id_path),
         "--submissions-root",
         str(tmp_path / "submissions-b"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
 
@@ -209,7 +209,7 @@ def test_prepare_candidate_submission_is_static_without_torch_available(tmp_path
             str(candidate),
             "--submissions-root",
             str(tmp_path / "submissions"),
-            "--project-root",
+            "--workspace-root",
             str(tmp_path),
         ],
         check=False,

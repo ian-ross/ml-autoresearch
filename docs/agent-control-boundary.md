@@ -46,7 +46,7 @@ manual outputs cannot be mistaken for new autonomous work.
 
 On completion the loop writes `agent-work/autonomous-iteration-result.json` and
 sends a Mailjet plain-text completion email. Mailjet settings live in local
-`notification.toml` at the project root:
+`ml-autoresearch.toml` at the Research Workspace Root:
 
 ```toml
 [mailjet]
@@ -91,7 +91,7 @@ one Post-Run Evaluation for an ingested Evaluation Request. If the operator ran 
 Autonomy Step without `--execute-next-action`, `ml-autoresearch
 execute-next-action` reads the previous `agent-work/autonomy-step-result.json`
 and executes the same outstanding Harness-owned next action later. Candidate
-Run next actions use the project-root `candidate-execution.toml` Candidate
+Run next actions use the Research Workspace Root `ml-autoresearch.toml` Candidate
 Execution Boundary policy rather than Agent Control Boundary settings.
 
 The result file, `agent-work/autonomy-step-result.json`, records the agent
@@ -154,15 +154,15 @@ entry. Submissions are ingested by the Harness outside the Agent Control Boundar
 where validation, canonical ledger/index updates, and Run scheduling occur.
 
 The Harness also writes `agent-work/AGENTS.md` with the Agent Control Boundary
-path map. It tells the inner agent how to translate project-root paths mentioned
+path map. It tells the inner agent how to translate Research Workspace Root paths mentioned
 in Autoresearch skills into boundary mounts, for example `CONTEXT.md` to
 `/reference/CONTEXT.md`, `docs/` to `/docs/`, and prior `research-notes/` to
 `/history/research-notes/`, while keeping new draft notes under the writable
 workspace `research-notes/` directory.
 
 `prepare-agent-boundary`, `autonomy-step`, and `run-autonomous-iteration`
-require an explicit `[research_problem]` provider in root
-`candidate-execution.toml`. Agent handoff/autonomy flows do not fall back to a
+require an explicit `[research_problem]` provider in the Research Workspace
+Root `ml-autoresearch.toml`. Agent handoff/autonomy flows do not fall back to a
 built-in/default Research Problem, because the active provider is the source of
 agent-visible Research Problem Brief metadata. During setup the Harness loads
 that provider, validates its declared brief documents, mounts the provider
@@ -309,10 +309,11 @@ model/helper code, cache dataset-derived side channels, or treat local analysis
 as an official evaluation. Authoritative Results come from the Harness after it
 validates and executes submitted Candidate Experiments.
 
-## `agent-boundary.toml` schema
+## `ml-autoresearch.toml` schema
 
-`ml-autoresearch prepare-agent-boundary` reads `agent-boundary.toml` from the
-project root. A minimal configuration is:
+`ml-autoresearch prepare-agent-boundary` reads the canonical Workspace
+Configuration, `ml-autoresearch.toml`, from the Research Workspace Root. A
+minimal Agent Control Boundary section is:
 
 ```toml
 [agent_control_boundary]
@@ -330,7 +331,7 @@ The `[agent_control_boundary]` table accepts:
 
 The `image` value is copied into the generated pi-fort configuration. Relative
 image paths are interpreted by pi-fort relative to the generated
-`agent-work/.pi/fort.toml` file, not relative to the project root or the
+`agent-work/.pi/fort.toml` file, not relative to the Research Workspace Root or the
 `agent-work/` current working directory. Thus the default
 `../../containers/ml-autoresearch-agent` resolves from `agent-work/.pi/` to the
 project's `containers/ml-autoresearch-agent` image reference.
@@ -350,7 +351,7 @@ Each `[[data_mounts]]` entry accepts:
 - `name` — required non-empty string. If `target` is omitted, this name is used
   to derive `target = "/data/{name}"`.
 - `path` — required non-empty string naming an existing host path. Relative
-  paths are resolved relative to the project root.
+  paths are resolved relative to the Research Workspace Root.
 - `target` — optional non-empty string; defaults to `/data/{name}`. The target
   must be a non-overlapping direct child of `/data`, for example
   `/data/example-research-problem-data`; nested targets such as
@@ -361,7 +362,7 @@ Each `[[data_mounts]]` entry accepts:
 ## Implementation using pi-fort
 
 The `.pi/fort.toml` configuration when running Pi inside the Agent Control
-Boundary should be generated from `agent-boundary.toml` by the Harness. A
+Boundary should be generated from `ml-autoresearch.toml` by the Harness. A
 representative default generated configuration has no `/data` mount:
 
 ```toml
@@ -384,7 +385,7 @@ mounts = [
 
 If an operator configures an explicit bounded-exception `[[data_mounts]]` entry,
 `prepare-agent-boundary` appends that read-only mount and rewrites matching
-Agent-Workspace-local `candidate-execution.toml` data config values to the
+Agent-Workspace-local `ml-autoresearch.toml` data config values to the
 mounted `/data/...` target. Without a matching explicit data mount, setup does not copy unmapped raw dataset paths such as `dataset_root`/`data_root` into the Agent Workspace-local config.
 
 ## Agent image and dependency boundary
@@ -408,7 +409,7 @@ for the PyTorch/CUDA stack used by Candidate Execution Boundary training.
 
 The host-side Harness prepares the Agent Reference Snapshot, Research History
 snapshot, Agent Workspace directory layout, and managed pi-fort configuration
-from root `agent-boundary.toml`. Operators must first point the Harness at a
+from root `ml-autoresearch.toml`. Operators must first point the Harness at a
 local checkout of the pi-fort Pi extension:
 
 ```shell
@@ -420,7 +421,7 @@ The command overwrites only managed pi-fort files under
 `agent-work/.pi/fort.toml` and `agent-work/.pi/fort.d/`, refreshes managed
 Autoresearch Skill Set files under `agent-work/.pi/skills/`, rewrites the
 managed workspace instruction file `agent-work/AGENTS.md`, writes an
-Agent-Workspace-local `candidate-execution.toml` pointing at `/research-problem`
+Agent-Workspace-local `ml-autoresearch.toml` pointing at `/research-problem`
 and only explicit bounded-exception mounted `/data/...` paths for agent-safe static validation, and installs pi-fort
 into `agent-work` with `pi install -l "$ML_AUTORESEARCH_PI_FORT"`; it does not
 delete the whole `agent-work/.pi` directory or existing Agent Workspace outputs.

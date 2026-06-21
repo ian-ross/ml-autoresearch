@@ -41,7 +41,7 @@ def write_fake_research_problem_provider(root: Path) -> None:
         "        ),\n"
         "    )\n"
     )
-    (root / "candidate-execution.toml").write_text(
+    (root / "ml-autoresearch.toml").write_text(
         "[candidate_execution]\n"
         "ledger_path = \"research-ledger.jsonl\"\n"
         "\n"
@@ -67,8 +67,11 @@ def write_project(root: Path, extra_config: str = "") -> None:
     )
     (root / "research-ledger.jsonl").write_text("")
     (root / "docs").mkdir()
-    (root / "agent-boundary.toml").write_text(
-        """
+    config_path = root / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text()
+        + "\n"
+        + """
 [agent_control_boundary]
 distro = "debian"
 image = "../../containers/ml-autoresearch-agent"
@@ -90,8 +93,11 @@ def write_fake_agent(path: Path, body: str) -> str:
 
 
 def write_notification_config(root: Path) -> None:
-    (root / "notification.toml").write_text(
-        """
+    config_path = root / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text()
+        + "\n"
+        + """
 [mailjet]
 api_key = "key"
 api_secret = "secret"

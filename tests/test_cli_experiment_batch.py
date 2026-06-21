@@ -69,7 +69,7 @@ def test_run_experiment_batch_command_uses_configured_research_problem(tmp_path:
         str(tmp_path / "batches"),
         "--runs-root",
         str(tmp_path / "runs"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",
@@ -97,11 +97,11 @@ def test_run_experiment_batch_command_requires_configured_problem(tmp_path: Path
         str(tmp_path / "batches"),
         "--runs-root",
         str(tmp_path / "runs"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",
     )
 
     assert completed.returncode != 0
-    assert "candidate-execution.toml" in completed.stderr
+    assert "ml-autoresearch.toml" in completed.stderr

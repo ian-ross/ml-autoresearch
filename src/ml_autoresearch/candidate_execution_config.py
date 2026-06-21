@@ -1,4 +1,4 @@
-"""Project-local Candidate Execution Boundary configuration."""
+"""Research Workspace Configuration for Candidate Execution Boundary policy."""
 
 from __future__ import annotations
 
@@ -8,17 +8,18 @@ from pathlib import Path
 from typing import Literal
 
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend
+from ml_autoresearch.workspace import WORKSPACE_CONFIG_FILENAME, WorkspaceConfigError
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
     ResearchProblemSpecRegistry,
     load_research_problem_provider,
 )
 
-CONFIG_FILENAME = "candidate-execution.toml"
+CONFIG_FILENAME = WORKSPACE_CONFIG_FILENAME
 
 
-class CandidateExecutionConfigError(ValueError):
-    """Raised when Candidate Execution Boundary configuration is invalid."""
+class CandidateExecutionConfigError(WorkspaceConfigError):
+    """Raised when Workspace Configuration execution policy is invalid."""
 
 
 @dataclass(frozen=True)
@@ -39,14 +40,17 @@ class CandidateExecutionConfig:
     research_problem_provider: ResearchProblemProviderConfig | None = None
 
 
-def load_candidate_execution_config(project_root: str | Path = Path(".")) -> CandidateExecutionConfig:
-    """Load Candidate Execution Boundary config from candidate-execution.toml if present."""
+def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> CandidateExecutionConfig:
+    """Load Candidate Execution Boundary policy from canonical Workspace Configuration."""
 
-    root = Path(project_root).resolve()
+    root = Path(workspace_root).resolve()
     path = root / CONFIG_FILENAME
     if not path.is_file():
-        return CandidateExecutionConfig(runs_root=root / "runs")
-    data = tomllib.loads(path.read_text())
+        raise CandidateExecutionConfigError(f"missing Workspace Configuration: {path}")
+    try:
+        data = tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as exc:
+        raise CandidateExecutionConfigError(f"invalid Workspace Configuration {path}: {exc}") from exc
     settings = data.get("candidate_execution", {})
     if not isinstance(settings, dict):
         raise CandidateExecutionConfigError("[candidate_execution] must be a table")
@@ -102,14 +106,14 @@ def load_candidate_execution_config(project_root: str | Path = Path(".")) -> Can
     )
 
 
-def load_configured_research_problem_registry(project_root: str | Path = Path(".")) -> ResearchProblemSpecRegistry | None:
+def load_configured_research_problem_registry(workspace_root: str | Path = Path(".")) -> ResearchProblemSpecRegistry | None:
     """Load the configured trusted Research Problem Spec Registry, when configured.
 
     ``None`` preserves compatibility/bootstrap behavior where callers supply
     their own Research Problem registry elsewhere.
     """
 
-    config = load_candidate_execution_config(project_root)
+    config = load_candidate_execution_config(workspace_root)
     if config.research_problem_provider is None:
         return None
     registry = ResearchProblemSpecRegistry(active_id=config.research_problem_provider.id)
@@ -154,14 +158,14 @@ def resolve_configured_research_problem_provider(
     return provider.model_copy(update={"data_config": data_config})
 
 
-def _research_problem_provider_config(data: dict[str, object], project_root: Path) -> ResearchProblemProviderConfig | None:
+def _research_problem_provider_config(data: dict[str, object], workspace_root: Path) -> ResearchProblemProviderConfig | None:
     settings = data.get("research_problem")
     if settings is None:
         return None
     if not isinstance(settings, dict):
         raise CandidateExecutionConfigError("[research_problem] must be a table")
     spec_id = _required_string(settings, "id")
-    package_root = _path(settings, "package_root", project_root)
+    package_root = _path(settings, "package_root", workspace_root)
     provider_target = _required_string(settings, "provider_target")
     expected_contract_version = _string(settings, "expected_contract_version", "v0")
     data_config = settings.get("data_config", {})
@@ -229,18 +233,18 @@ def _optional_int(settings: dict[str, object], key: str, *, minimum: int) -> int
     return value
 
 
-def _optional_path(settings: dict[str, object], key: str, project_root: Path) -> Path | None:
+def _optional_path(settings: dict[str, object], key: str, workspace_root: Path) -> Path | None:
     value = settings.get(key)
     if value is None:
         return None
-    return _path(settings, key, project_root, prefix="candidate_execution")
+    return _path(settings, key, workspace_root, prefix="candidate_execution")
 
 
-def _path(settings: dict[str, object], key: str, project_root: Path, *, prefix: str = "research_problem") -> Path:
+def _path(settings: dict[str, object], key: str, workspace_root: Path, *, prefix: str = "research_problem") -> Path:
     value = settings.get(key)
     if not isinstance(value, str) or not value:
         raise CandidateExecutionConfigError(f"{prefix}.{key} must be a non-empty string")
     path = Path(value).expanduser()
     if not path.is_absolute():
-        path = project_root / path
+        path = workspace_root / path
     return path

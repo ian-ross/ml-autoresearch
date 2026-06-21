@@ -19,7 +19,7 @@ def test_run_candidate_defaults_to_docker_backend(tmp_path: Path):
         str(tmp_path / "missing"),
         "--runs-root",
         str(tmp_path / "runs"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
 
@@ -40,7 +40,7 @@ def test_run_candidate_native_escape_hatch_records_developer_unsafe_backend(tmp_
         str(tmp_path / "missing"),
         "--runs-root",
         str(tmp_path / "runs"),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",

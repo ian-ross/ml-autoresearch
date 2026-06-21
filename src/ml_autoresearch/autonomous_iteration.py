@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import json
 import re
-import tomllib
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -35,7 +34,7 @@ class MailjetConfig:
 class AutonomousIterationResult:
     status: str
     stop_reason: str
-    project_root: str
+    workspace_root: str
     started_at: str
     completed_at: str
     elapsed_seconds: float
@@ -50,7 +49,7 @@ class AutonomousIterationResult:
         return {
             "status": self.status,
             "stop_reason": self.stop_reason,
-            "project_root": self.project_root,
+            "workspace_root": self.workspace_root,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "elapsed_seconds": self.elapsed_seconds,
@@ -138,7 +137,7 @@ def run_autonomous_iteration(
     result = AutonomousIterationResult(
         status="completed",
         stop_reason=stop_reason,
-        project_root=str(root),
+        workspace_root=str(root),
         started_at=started_at,
         completed_at=completed_at,
         elapsed_seconds=round(monotonic() - start_monotonic, 3),
@@ -171,19 +170,26 @@ def format_autonomous_iteration_summary(result: AutonomousIterationResult) -> st
         f"Steps completed: {result.steps_completed}",
         f"Elapsed seconds: {result.elapsed_seconds}",
         f"Notification: {result.notification.get('status')}",
-        f"Result file: {Path(result.project_root) / 'agent-work' / RESULT_FILENAME}",
+        f"Result file: {Path(result.workspace_root) / 'agent-work' / RESULT_FILENAME}",
     ]
     return "\n".join(lines)
 
 
 def load_mailjet_config(project_root: str | Path = Path(".")) -> MailjetConfig:
-    path = Path(project_root) / "notification.toml"
+    import tomllib
+
+    from ml_autoresearch.workspace import WORKSPACE_CONFIG_FILENAME
+
+    path = Path(project_root) / WORKSPACE_CONFIG_FILENAME
     if not path.is_file():
-        raise AutonomousIterationError(f"missing notification config: {path}")
-    data = tomllib.loads(path.read_text())
+        raise AutonomousIterationError(f"missing Workspace Configuration: {path}")
+    try:
+        data = tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as exc:
+        raise AutonomousIterationError(f"invalid Workspace Configuration {path}: {exc}") from exc
     mailjet = data.get("mailjet")
     if not isinstance(mailjet, dict):
-        raise AutonomousIterationError("notification.toml must contain [mailjet]")
+        raise AutonomousIterationError(f"{path.name} must contain [mailjet]")
     values: dict[str, str] = {}
     for field_name in ("api_key", "api_secret", "from_email", "from_name"):
         value = mailjet.get(field_name)
@@ -289,7 +295,7 @@ def _mailjet_message(config: MailjetConfig, recipient: str, result: AutonomousIt
     ingestion = final.get("ingestion") if isinstance(final.get("ingestion"), dict) else {}
     text = (
         "Autonomous iteration completed.\n\n"
-        f"Project root: {result.project_root}\n"
+        f"Workspace root: {result.workspace_root}\n"
         f"Status: {result.status}\n"
         f"Stop reason: {result.stop_reason}\n"
         f"Steps completed: {result.steps_completed}\n"

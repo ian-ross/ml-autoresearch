@@ -60,7 +60,7 @@ Run CPU/no-GPU Docker training by default:
 uv run ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root runs \
-  --project-root . \
+  --workspace-root . \
   --max-samples 8
 ```
 
@@ -70,7 +70,7 @@ Opt in to GPU access explicitly:
 uv run ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root runs \
-  --project-root . \
+  --workspace-root . \
   --max-samples 8 \
   --docker-enable-gpu
 ```

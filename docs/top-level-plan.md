@@ -107,7 +107,7 @@ Policy decisions for the branch:
 - Harness-owned files stay at the Run root; operation-produced artifacts move under `outputs/`.
 - In Docker, `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` are mounted read-only.
 - In Docker, only `/outputs` and `/scratch` are writable container paths; `/outputs` is a run-scoped artifact mount and `/scratch` is bounded tmpfs.
-- For Research Problem-backed training, a configured `dataset_root` (or legacy `data_root`) from `candidate-execution.toml` is mounted read-only at `/data`.
+- For Research Problem-backed training, a configured `dataset_root` (or legacy `data_root`) from `ml-autoresearch.toml` is mounted read-only at `/data`.
 - Candidate Experiments cannot request mounts or receive host dataset paths.
 - Containers run with no network, Harness-selected user policy (rootless Docker may use container `0:0` mapped to the invoking host user; rootful Docker uses the host Harness uid/gid), read-only root filesystems, dropped Linux capabilities, process/CPU/memory limits, and GPU disabled by default unless enabled by Harness configuration.
 - Wall-clock budget exhaustion should use a graceful shutdown protocol for training Runs: signal the training loop, allow a bounded grace period to write the best meaningful Result available, and force-terminate only if the grace period expires.

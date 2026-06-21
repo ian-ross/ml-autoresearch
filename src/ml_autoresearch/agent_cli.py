@@ -197,9 +197,9 @@ def get_best_runs_command(
 @app.command("validate-candidate")
 def validate_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
-    project_root: Annotated[
+    workspace_root: Annotated[
         Path,
-        typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config."),
+        typer.Option(help="Research Workspace Root containing ml-autoresearch.toml Research Problem provider config."),
     ] = Path("."),
     require_proposal: Annotated[
         bool,
@@ -222,7 +222,7 @@ def validate_candidate_command(
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
 
     try:
-        registry = load_configured_research_problem_registry(project_root)
+        registry = load_configured_research_problem_registry(workspace_root)
         manifest = validate_candidate_directory(
             candidate,
             require_proposal=require_proposal,
@@ -256,9 +256,9 @@ def prepare_experiment_batch_submission_command(
 def prepare_candidate_submission_command(
     candidate: Annotated[Path, typer.Option(help="Path to a draft Candidate Experiment directory.")],
     submissions_root: Annotated[Path, typer.Option(help="Root of the immutable Candidate Submission Queue.")],
-    project_root: Annotated[
+    workspace_root: Annotated[
         Path,
-        typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config."),
+        typer.Option(help="Research Workspace Root containing ml-autoresearch.toml Research Problem provider config."),
     ] = Path("."),
 ) -> None:
     """Statically validate and copy a draft Candidate Experiment into the submission queue."""
@@ -268,7 +268,7 @@ def prepare_candidate_submission_command(
     from ml_autoresearch.submissions import CandidateSubmissionPreparationError, prepare_candidate_submission
 
     try:
-        registry = load_configured_research_problem_registry(project_root)
+        registry = load_configured_research_problem_registry(workspace_root)
         result = prepare_candidate_submission(candidate, submissions_root, research_problem_registry=registry)
     except (CandidateExecutionConfigError, ResearchProblemProviderLoadError, CandidateSubmissionPreparationError, OSError) as exc:
         _echo_json({"status": "rejected", "rejection_reason": str(exc)})

@@ -37,7 +37,7 @@ def write_fake_research_problem_provider(root: Path) -> None:
         "        augmentation_policies=('none',), primary_metric='val/dice',\n"
         "    )\n"
     )
-    (root / "candidate-execution.toml").write_text(
+    (root / "ml-autoresearch.toml").write_text(
         "[candidate_execution]\n"
         "ledger_path = \"research-ledger.jsonl\"\n"
         "\n"

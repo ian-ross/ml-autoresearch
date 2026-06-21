@@ -288,7 +288,7 @@ training:
         str(candidate),
         "--no-require-proposal",
         "--require-readme",
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
     (candidate / "README.md").write_text("# Static candidate\n")
@@ -298,7 +298,7 @@ training:
         str(candidate),
         "--no-require-proposal",
         "--require-readme",
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
     )
 
@@ -334,7 +334,7 @@ training:
     (candidate / "model.py").write_text("raise RuntimeError('model.py should not be imported during static validation')\n")
 
     completed = run_agent_cli(
-        "validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--project-root", str(tmp_path)
+        "validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--workspace-root", str(tmp_path)
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -366,7 +366,7 @@ training:
     (candidate / "model.py").write_text("raise RuntimeError('model.py should not be imported during static validation')\n")
 
     completed = run_agent_cli(
-        "validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--project-root", str(tmp_path)
+        "validate-candidate", "--candidate", str(candidate), "--no-require-proposal", "--workspace-root", str(tmp_path)
     )
 
     assert completed.returncode == 0, completed.stderr

@@ -138,16 +138,16 @@ def test_agent_control_boundary_docs_cover_manual_autonomy_step_checklist() -> N
 def test_agent_control_boundary_docs_define_root_config_schema() -> None:
     text = DOC_PATH.read_text()
 
-    assert "## `agent-boundary.toml` schema" in text
+    assert "## `ml-autoresearch.toml` schema" in text
     assert "[agent_control_boundary]" in text
     for field in ["distro", "image", "allow_egress", "[[data_mounts]]", "name", "path", "target", "readonly"]:
         assert field in text
     assert "direct child of `/data`" in text
-    assert "relative to the project root" in text
+    assert "relative to the Research Workspace Root" in text
     assert "image paths are interpreted by pi-fort" in text
     assert "`agent-work/.pi/fort.toml` file" in text
     assert "ML_AUTORESEARCH_PI_FORT" in text
-    assert "Agent-Workspace-local `candidate-execution.toml`" in text
+    assert "Agent-Workspace-local `ml-autoresearch.toml`" in text
     assert "does not copy unmapped raw dataset paths" in text
     assert "explicit bounded exception" in text
     assert "{path=\"/path/to/research-problem-data\", target=\"/data/example-research-problem-data\", readonly=true}" not in text

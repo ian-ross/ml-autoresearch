@@ -162,7 +162,7 @@ def test_run_candidate_cli_rejects_missing_dataset_root_before_training(tmp_path
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",

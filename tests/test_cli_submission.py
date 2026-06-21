@@ -228,7 +228,7 @@ def test_run_candidate_cli_rejects_missing_proposal_in_autonomous_mode(tmp_path:
     write_fake_execution_config(tmp_path)
 
     completed = run_cli(
-        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--project-root", str(tmp_path), "--backend", "native"
+        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--workspace-root", str(tmp_path), "--backend", "native"
     )
 
     assert completed.returncode == 1, completed.stderr
@@ -248,7 +248,7 @@ def test_run_candidate_cli_reports_ledger_failure_without_traceback(tmp_path: Pa
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",
@@ -269,7 +269,7 @@ def test_run_candidate_cli_accepts_by_default_when_proposal_present(tmp_path: Pa
     write_fake_execution_config(tmp_path)
 
     completed = run_cli(
-        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--project-root", str(tmp_path), "--backend", "native"
+        "run-candidate", "--candidate", str(candidate), "--runs-root", str(runs_root), "--workspace-root", str(tmp_path), "--backend", "native"
     )
 
     assert completed.returncode == 0
@@ -283,11 +283,11 @@ def test_run_candidate_cli_defaults_runs_root_from_candidate_execution_config(tm
     candidate = write_valid_candidate_with_proposal(tmp_path)
     runs_root = tmp_path / "configured-runs"
     write_fake_execution_config(tmp_path)
-    config_path = tmp_path / "candidate-execution.toml"
+    config_path = tmp_path / "ml-autoresearch.toml"
     config_path.write_text(config_path.read_text().replace("backend = \"native\"\n", f"backend = \"native\"\nruns_root = \"{runs_root}\"\n"))
 
     completed = run_cli(
-        "run-candidate", "--candidate", str(candidate), "--project-root", str(tmp_path), "--backend", "native"
+        "run-candidate", "--candidate", str(candidate), "--workspace-root", str(tmp_path), "--backend", "native"
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -307,7 +307,7 @@ def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--max-prediction-samples",
         "3",
@@ -334,7 +334,7 @@ def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",
@@ -367,7 +367,7 @@ def test_run_candidate_cli_requires_configured_ledger_path_when_not_overridden(t
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",
@@ -391,7 +391,7 @@ def test_run_candidate_cli_allows_explicit_ledger_path_override_when_config_omit
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",
@@ -414,7 +414,7 @@ def test_run_candidate_cli_requires_provider_config(tmp_path: Path):
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--backend",
         "native",
@@ -422,7 +422,7 @@ def test_run_candidate_cli_requires_provider_config(tmp_path: Path):
     )
 
     assert completed.returncode == 1
-    assert "candidate-execution.toml" in completed.stderr
+    assert "ml-autoresearch.toml" in completed.stderr
 
 
 def test_run_candidate_cli_uses_fallback_dataset_config_from_file(tmp_path: Path):
@@ -443,7 +443,7 @@ def test_run_candidate_cli_uses_fallback_dataset_config_from_file(tmp_path: Path
         str(candidate),
         "--runs-root",
         str(runs_root),
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--max-samples",
         "4",

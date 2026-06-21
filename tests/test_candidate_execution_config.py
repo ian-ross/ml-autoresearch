@@ -14,7 +14,7 @@ from ml_autoresearch.execution import DockerBackend, NativeBackend
 def test_candidate_execution_config_selects_docker_gpu_policy_and_data_root(tmp_path: Path) -> None:
     data_root = tmp_path / "gvccs"
     data_root.mkdir()
-    (tmp_path / "candidate-execution.toml").write_text(
+    (tmp_path / "ml-autoresearch.toml").write_text(
         f'''
 [candidate_execution]
 backend = "docker"
@@ -56,7 +56,7 @@ def test_candidate_execution_config_loads_research_problem_provider_registry(tmp
         "        losses=('tiny_loss',), optimizers=('sgd',),\n"
         "        sampling_policies=('sequential',), augmentation_policies=('none',), primary_metric='val/tiny_score')\n"
     )
-    (tmp_path / "candidate-execution.toml").write_text(
+    (tmp_path / "ml-autoresearch.toml").write_text(
         '''
 [research_problem]
 id = "tiny_problem"
@@ -77,7 +77,7 @@ def test_candidate_execution_config_allows_research_problem_values_from_config(t
     dataset_root = tmp_path / "configured-data"
     package_root.mkdir()
     dataset_root.mkdir()
-    (tmp_path / "candidate-execution.toml").write_text(
+    (tmp_path / "ml-autoresearch.toml").write_text(
         f'''
 [research_problem]
 id = "ground_camera_contrail_detection"
@@ -96,17 +96,30 @@ data_config = {{ dataset_root = "{dataset_root}" }}
     assert config.research_problem_provider.data_config == {"dataset_root": str(dataset_root)}
 
 
-def test_candidate_execution_config_defaults_to_native_when_absent(tmp_path: Path) -> None:
-    config = load_candidate_execution_config(tmp_path)
+def test_candidate_execution_config_requires_workspace_config(tmp_path: Path) -> None:
+    with pytest.raises(CandidateExecutionConfigError, match="missing Workspace Configuration"):
+        load_candidate_execution_config(tmp_path)
 
-    assert config.backend == "native"
-    assert config.runs_root == tmp_path / "runs"
-    assert isinstance(execution_backend_from_config(config), NativeBackend)
+
+def test_candidate_execution_config_ignores_legacy_split_config_files(tmp_path: Path) -> None:
+    (tmp_path / "candidate-execution.toml").write_text('[candidate_execution]\nbackend = "native"\n')
+    (tmp_path / "agent-boundary.toml").write_text('[agent_control_boundary]\n')
+    (tmp_path / "notification.toml").write_text('[mailjet]\n')
+
+    with pytest.raises(CandidateExecutionConfigError, match="missing Workspace Configuration"):
+        load_candidate_execution_config(tmp_path)
+
+
+def test_candidate_execution_config_reports_invalid_workspace_config(tmp_path: Path) -> None:
+    (tmp_path / "ml-autoresearch.toml").write_text("[candidate_execution\n")
+
+    with pytest.raises(CandidateExecutionConfigError, match="invalid Workspace Configuration"):
+        load_candidate_execution_config(tmp_path)
 
 
 def test_candidate_execution_config_resolves_configured_runs_root_and_ledger_path(tmp_path: Path) -> None:
     external_runs = tmp_path / "scratch" / "runs"
-    (tmp_path / "candidate-execution.toml").write_text(
+    (tmp_path / "ml-autoresearch.toml").write_text(
         f'''
 [candidate_execution]
 runs_root = "{external_runs}"
@@ -131,7 +144,7 @@ ledger_path = "research-ledger.jsonl"
     ],
 )
 def test_candidate_execution_config_rejects_incoherent_docker_policy(tmp_path: Path, body: str, match: str) -> None:
-    (tmp_path / "candidate-execution.toml").write_text(body)
+    (tmp_path / "ml-autoresearch.toml").write_text(body)
 
     with pytest.raises(CandidateExecutionConfigError, match=match):
         load_candidate_execution_config(tmp_path)

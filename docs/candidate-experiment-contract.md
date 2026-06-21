@@ -170,4 +170,4 @@ Composable augmentation policies or candidate-defined transform DSLs are deferre
 
 ## Dataset and mount authority
 
-Candidate manifests cannot request data roots, bind mounts, arbitrary filesystem paths, custom data loaders, custom samplers, custom transforms, or custom training loops. The Harness resolves dataset location through the configured Research Problem `data_config` (e.g., `dataset_root`) in `candidate-execution.toml`; for Docker execution, the Harness validates and mounts it read-only at `/data` for the in-container Research Problem adapter. Candidate code receives only the tensors supplied by the Harness.
+Candidate manifests cannot request data roots, bind mounts, arbitrary filesystem paths, custom data loaders, custom samplers, custom transforms, or custom training loops. The Harness resolves dataset location through the configured Research Problem `data_config` (e.g., `dataset_root`) in `ml-autoresearch.toml`; for Docker execution, the Harness validates and mounts it read-only at `/data` for the in-container Research Problem adapter. Candidate code receives only the tensors supplied by the Harness.

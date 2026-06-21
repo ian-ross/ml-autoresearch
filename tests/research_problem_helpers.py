@@ -241,7 +241,7 @@ def write_static_research_problem_package(root: Path, *, package_name: str = "st
 
 def write_static_candidate_execution_config(root: Path, *, package_name: str = "static_problem") -> Path:
     write_static_research_problem_package(root, package_name=package_name)
-    config_path = root / "candidate-execution.toml"
+    config_path = root / "ml-autoresearch.toml"
     config_path.write_text(
         "[candidate_execution]\n"
         "backend = \"native\"\n"
@@ -272,7 +272,7 @@ def write_fake_candidate_execution_config(
     config_root = root
     package_container = Path(package_root) if package_root is not None else root
     package_path = package_container / package_name
-    config_path = config_root / "candidate-execution.toml"
+    config_path = config_root / "ml-autoresearch.toml"
     config_lines: list[str] = [
         "[candidate_execution]",
         f"backend = \"{backend}\"",

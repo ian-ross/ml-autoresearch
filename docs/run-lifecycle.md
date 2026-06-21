@@ -63,12 +63,12 @@ Observation commands read metrics and summaries from the `outputs/` layout. Dock
 ## Run command
 
 ```bash
-ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --project-root /path/to/project
+ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --workspace-root /path/to/project
 ```
 
-`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Execution loads the configured trusted Research Problem provider from `candidate-execution.toml` when present, passes that package into native or Docker-backed operations, and records Research Problem and dataset metadata in `run_metadata.json`.
+`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Execution loads the configured trusted Research Problem provider from `ml-autoresearch.toml` when present, passes that package into native or Docker-backed operations, and records Research Problem and dataset metadata in `run_metadata.json`.
 
-Harness-owned autonomous next actions read project-local `candidate-execution.toml` for the Candidate Execution Boundary policy. This file captures the backend, Docker image, GPU policy, rootless/user policy, active Research Problem id, provider package path/target, Research Problem data root, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
+Harness-owned autonomous next actions read workspace-local `ml-autoresearch.toml` for the Candidate Execution Boundary policy. This file captures the backend, Docker image, GPU policy, rootless/user policy, active Research Problem id, provider package path/target, Research Problem data root, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
 
 Configured provider example:
 
@@ -76,11 +76,11 @@ Configured provider example:
 ml-autoresearch run-candidate \
   --candidate path/to/candidate \
   --runs-root runs \
-  --project-root /path/to/project \
+  --workspace-root /path/to/project \
   --max-samples 8
 ```
 
-Provider and dataset metadata are defined by the project-local `candidate-execution.toml` and are echoed in `run_metadata.json`.
+Provider and dataset metadata are defined by the workspace-local `ml-autoresearch.toml` and are echoed in `run_metadata.json`.
 
 ## Rejected submissions
 

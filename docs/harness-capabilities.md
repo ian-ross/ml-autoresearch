@@ -17,8 +17,8 @@ The current tracer-bullet implementation is synchronous and local, with Docker a
 1. The agent or human submits a Candidate Experiment with `submit-candidate` or `run-candidate`.
 2. The Harness validates the manifest/source, creates a Run ID, and copies accepted source into the Run directory.
 3. The Harness performs a PyTorch smoke test through `build_model(input_spec, output_spec)`.
-4. `run-candidate` trains synchronously against the configured Research Problem provider from `candidate-execution.toml`.
-5. For Docker-backed Research Problem training, the host Harness validates `research_problem.data_config.dataset_root` in `candidate-execution.toml`, mounts it read-only at `/data`, and the in-container Research Problem adapter reads `/data`.
+4. `run-candidate` trains synchronously against the configured Research Problem provider from `ml-autoresearch.toml`.
+5. For Docker-backed Research Problem training, the host Harness validates `research_problem.data_config.dataset_root` in `ml-autoresearch.toml`, mounts it read-only at `/data`, and the in-container Research Problem adapter reads `/data`.
 6. The agent follows Results through local observation commands: `list-runs`, `run-summary` / `get-run-summary`, and `get-best-runs`.
 
 The native backend remains available as an explicit developer-unsafe escape hatch. Asynchronous queueing, MLflow persistence, and stronger production isolation are planned layers around the same Research Loop.

@@ -51,7 +51,7 @@ sys.argv = [
     '--candidate',
     {str(candidate)!r},
     '--no-require-proposal',
-    '--project-root',
+    '--workspace-root',
     {str(tmp_path)!r},
 ]
 try:

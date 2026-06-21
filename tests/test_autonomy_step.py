@@ -44,7 +44,7 @@ def write_fake_research_problem_provider(root: Path) -> None:
         "        ),\n"
         "    )\n"
     )
-    (root / "candidate-execution.toml").write_text(
+    (root / "ml-autoresearch.toml").write_text(
         "[candidate_execution]\n"
         "ledger_path = \"research-ledger.jsonl\"\n"
         "\n"
@@ -70,8 +70,11 @@ def write_project(root: Path, extra_config: str = "") -> None:
     )
     (root / "research-ledger.jsonl").write_text("")
     (root / "docs").mkdir()
-    (root / "agent-boundary.toml").write_text(
-        """
+    config_path = root / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text()
+        + "\n"
+        + """
 [agent_control_boundary]
 distro = "debian"
 image = "../../containers/ml-autoresearch-agent"
@@ -110,7 +113,7 @@ Path('scratch/invocation.json').write_text(json.dumps({'cwd': os.getcwd(), 'refe
 """,
     )
 
-    completed = run_cli(tmp_path, "autonomy-step", "--project-root", str(tmp_path), "--agent-command", fake_command)
+    completed = run_cli(tmp_path, "autonomy-step", "--workspace-root", str(tmp_path), "--agent-command", fake_command)
 
     assert completed.returncode == 0, completed.stderr
     assert "Autonomy Step complete" in completed.stdout
@@ -132,14 +135,14 @@ Path('scratch/invocation.json').write_text(json.dumps({'cwd': os.getcwd(), 'refe
 
 def test_autonomy_step_refreshes_agent_control_boundary_before_invocation(tmp_path: Path):
     write_project(tmp_path)
-    run_cli(tmp_path, "prepare-agent-boundary", "--project-root", str(tmp_path))
+    run_cli(tmp_path, "prepare-agent-boundary", "--workspace-root", str(tmp_path))
     (tmp_path / "CONTEXT.md").write_text("context v2\n")
     fake_command = write_fake_agent(
         tmp_path / "fake_agent.py",
         "Path('scratch/reference.txt').write_text(Path('../agent-reference/CONTEXT.md').read_text())\n",
     )
 
-    completed = run_cli(tmp_path, "autonomy-step", "--project-root", str(tmp_path), "--agent-command", fake_command)
+    completed = run_cli(tmp_path, "autonomy-step", "--workspace-root", str(tmp_path), "--agent-command", fake_command)
 
     assert completed.returncode == 0, completed.stderr
     assert (tmp_path / "agent-work" / "scratch" / "reference.txt").read_text() == "context v2\n"
@@ -213,7 +216,7 @@ sys.exit(7)
 """,
     )
 
-    completed = run_cli(tmp_path, "autonomy-step", "--project-root", str(tmp_path), "--agent-command", fake_command)
+    completed = run_cli(tmp_path, "autonomy-step", "--workspace-root", str(tmp_path), "--agent-command", fake_command)
 
     assert completed.returncode != 0
     assert "Status: agent_failed" in completed.stdout
@@ -230,7 +233,7 @@ def test_autonomy_step_uses_configured_agent_command_when_cli_option_is_absent(t
     write_project(tmp_path, extra_config=f'\n[autonomy_step]\nagent_command = "{sys.executable} {fake_path}"\n')
     write_fake_agent(fake_path, "Path('scratch/config-agent-used.txt').write_text('yes')\n")
 
-    completed = run_cli(tmp_path, "autonomy-step", "--project-root", str(tmp_path))
+    completed = run_cli(tmp_path, "autonomy-step", "--workspace-root", str(tmp_path))
 
     assert completed.returncode == 0, completed.stderr
     assert (tmp_path / "agent-work" / "scratch" / "config-agent-used.txt").read_text() == "yes"
@@ -354,7 +357,7 @@ def test_autonomy_step_execute_candidate_submission_writes_run_to_configured_ext
 
     write_project(tmp_path)
     external_runs = tmp_path / "external-runs"
-    config_path = tmp_path / "candidate-execution.toml"
+    config_path = tmp_path / "ml-autoresearch.toml"
     config_path.write_text(
         config_path.read_text().replace(
             'ledger_path = "research-ledger.jsonl"\n',
@@ -501,7 +504,7 @@ def test_execute_next_action_cli_runs_outstanding_action_from_previous_autonomy_
     assert result.ingestion is not None
     assert result.ingestion["executed_next_action"] is False
 
-    completed = run_cli(tmp_path, "execute-next-action", "--project-root", str(tmp_path))
+    completed = run_cli(tmp_path, "execute-next-action", "--workspace-root", str(tmp_path))
 
     assert completed.returncode == 0, completed.stderr
     assert "Next action execution: completed" in completed.stdout
@@ -528,7 +531,7 @@ def test_execute_next_action_cli_reruns_legacy_evaluation_result_missing_outputs
     }
     (tmp_path / "agent-work" / "autonomy-step-result.json").write_text(json.dumps(result_payload))
 
-    completed = run_cli(tmp_path, "execute-next-action", "--project-root", str(tmp_path))
+    completed = run_cli(tmp_path, "execute-next-action", "--workspace-root", str(tmp_path))
 
     assert completed.returncode == 0, completed.stderr
     assert "Next action execution: completed" in completed.stdout
@@ -582,7 +585,7 @@ def test_autonomy_step_cli_execute_next_action_flag_exits_nonzero_when_execution
     completed = run_cli(
         tmp_path,
         "autonomy-step",
-        "--project-root",
+        "--workspace-root",
         str(tmp_path),
         "--agent-command",
         fake_command,

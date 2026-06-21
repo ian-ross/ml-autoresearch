@@ -91,7 +91,7 @@ def _select_backend(
 
 
 def _load_configured_provider(
-    project_root: Path,
+    workspace_root: Path,
     *,
     label: str = "run",
 ):
@@ -102,9 +102,9 @@ def _load_configured_provider(
         resolve_configured_research_problem_provider,
     )
 
-    root = Path(project_root).resolve()
+    root = Path(workspace_root).resolve()
     if not root.is_dir():
-        raise CandidateExecutionConfigError(f"project-root does not exist or is not a directory: {root}")
+        raise CandidateExecutionConfigError(f"workspace-root does not exist or is not a directory: {root}")
     config_path = root / CONFIG_FILENAME
     if not config_path.is_file():
         raise CandidateExecutionConfigError(
@@ -116,7 +116,7 @@ def _load_configured_provider(
     if provider_config is None:
         raise CandidateExecutionConfigError(f"configure [research_problem] in {config_path}")
 
-    resolved_data_root = _resolve_research_problem_data_root(provider_config.data_config, project_root=root)
+    resolved_data_root = _resolve_research_problem_data_root(provider_config.data_config, workspace_root=root)
     if resolved_data_root is not None:
         provider_config = resolve_configured_research_problem_provider(config, data_root_override=resolved_data_root)
         if provider_config is None:
@@ -124,7 +124,7 @@ def _load_configured_provider(
     return config, provider_config
 
 
-def _resolve_research_problem_data_root(configured_data_config: dict[str, object], *, project_root: Path) -> Path | None:
+def _resolve_research_problem_data_root(configured_data_config: dict[str, object], *, workspace_root: Path) -> Path | None:
     data_root = configured_data_config.get("dataset_root") or configured_data_config.get("data_root")
     if data_root is None:
         return None
@@ -132,7 +132,7 @@ def _resolve_research_problem_data_root(configured_data_config: dict[str, object
         raise CandidateExecutionConfigError("research_problem.data_config.dataset_root must be a string")
     candidate_root = Path(data_root)
     if not candidate_root.is_absolute():
-        candidate_root = Path(project_root) / candidate_root
+        candidate_root = Path(workspace_root) / candidate_root
     if not candidate_root.exists():
         raise CandidateExecutionConfigError(f"Research Problem data root does not exist: {candidate_root}")
     if not candidate_root.is_dir():
@@ -159,7 +159,7 @@ def _effective_ledger_path(config, *, override: Path | None) -> Path:
         return override
     if config.ledger_path is None:
         raise CandidateExecutionConfigError(
-            "configure candidate_execution.ledger_path in candidate-execution.toml or pass --ledger-path"
+            "configure candidate_execution.ledger_path in ml-autoresearch.toml or pass --ledger-path"
         )
     return config.ledger_path
 
@@ -195,12 +195,12 @@ def _exit_with_error(exc: BaseException) -> None:
 
 @app.command("prepare-agent-boundary")
 def prepare_agent_boundary_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-boundary.toml.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml.")] = Path("."),
 ) -> None:
     """Prepare Agent Control Boundary snapshots, workspace directories, and pi-fort config."""
 
     try:
-        result = prepare_agent_boundary(project_root)
+        result = prepare_agent_boundary(workspace_root)
     except (AgentBoundaryError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -208,7 +208,7 @@ def prepare_agent_boundary_command(
 
 @app.command("autonomy-step")
 def autonomy_step_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-boundary.toml.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml.")] = Path("."),
     agent_command: Annotated[
         str | None,
         typer.Option(
@@ -227,7 +227,7 @@ def autonomy_step_command(
     """Run one Autonomy Step: prepare boundary, invoke agent once, ingest one handoff, and optionally execute its next action."""
 
     try:
-        result = run_autonomy_step(project_root, agent_command=agent_command, execute_next_action=execute_next_action)
+        result = run_autonomy_step(workspace_root, agent_command=agent_command, execute_next_action=execute_next_action)
     except (AutonomyStepError, AgentBoundaryError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     typer.echo(format_autonomy_step_summary(result))
@@ -237,7 +237,7 @@ def autonomy_step_command(
 
 @app.command("run-autonomous-iteration")
 def run_autonomous_iteration_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-boundary.toml and notification.toml.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml.")] = Path("."),
     agent_command: Annotated[
         str | None,
         typer.Option(
@@ -257,7 +257,7 @@ def run_autonomous_iteration_command(
     try:
         max_duration_seconds = parse_duration_seconds(max_duration) if max_duration is not None else None
         result = run_autonomous_iteration(
-            project_root,
+            workspace_root,
             agent_command=agent_command,
             max_steps=max_steps,
             max_duration_seconds=max_duration_seconds,
@@ -270,12 +270,12 @@ def run_autonomous_iteration_command(
 
 @app.command("execute-next-action")
 def execute_next_action_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/autonomy-step-result.json.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing agent-work/autonomy-step-result.json.")] = Path("."),
 ) -> None:
     """Execute the outstanding Harness-owned next action from the previous Autonomy Step."""
 
     try:
-        result = execute_outstanding_next_action(project_root)
+        result = execute_outstanding_next_action(workspace_root)
     except (AutonomyStepError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     typer.echo(format_autonomy_step_summary(result))
@@ -285,14 +285,14 @@ def execute_next_action_command(
 
 @app.command("ingest-agent-handoff")
 def ingest_agent_handoff_command(
-    project_root: Annotated[
-        Path, typer.Option(help="Project root containing agent-work handoff directories.")
+    workspace_root: Annotated[
+        Path, typer.Option(help="Research Workspace Root containing agent-work handoff directories.")
     ] = Path("."),
 ) -> None:
     """Collect and ingest exactly one primary Agent Workspace handoff."""
 
     try:
-        result = collect_agent_handoff(project_root)
+        result = collect_agent_handoff(workspace_root)
     except (ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -300,12 +300,12 @@ def ingest_agent_handoff_command(
 
 @app.command("ingest-candidate-submission")
 def ingest_candidate_submission_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/submissions.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing agent-work/submissions.")] = Path("."),
 ) -> None:
     """Ingest one Agent Workspace Candidate Submission into canonical candidates/."""
 
     try:
-        result = ingest_candidate_submission(project_root)
+        result = ingest_candidate_submission(workspace_root)
     except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -313,12 +313,12 @@ def ingest_candidate_submission_command(
 
 @app.command("ingest-experiment-batch-submission")
 def ingest_experiment_batch_submission_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/batch-submissions.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing agent-work/batch-submissions.")] = Path("."),
 ) -> None:
     """Ingest one Agent Workspace Experiment Batch Submission into canonical experiment-batches/."""
 
     try:
-        result = ingest_experiment_batch_submission(project_root)
+        result = ingest_experiment_batch_submission(workspace_root)
     except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -328,12 +328,12 @@ def ingest_experiment_batch_submission_command(
 
 @app.command("ingest-research-note")
 def ingest_research_note_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/research-notes.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing agent-work/research-notes.")] = Path("."),
 ) -> None:
     """Ingest one Agent Workspace Research Note into canonical research-notes/."""
 
     try:
-        result = ingest_research_note(project_root)
+        result = ingest_research_note(workspace_root)
     except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -341,12 +341,12 @@ def ingest_research_note_command(
 
 @app.command("ingest-capability-request")
 def ingest_capability_request_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/capability-requests.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing agent-work/capability-requests.")] = Path("."),
 ) -> None:
     """Ingest one Agent Workspace Capability Request into canonical capability-requests/."""
 
     try:
-        result = ingest_capability_request(project_root)
+        result = ingest_capability_request(workspace_root)
     except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -354,12 +354,12 @@ def ingest_capability_request_command(
 
 @app.command("ingest-evaluation-request")
 def ingest_evaluation_request_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/evaluation-requests.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing agent-work/evaluation-requests.")] = Path("."),
 ) -> None:
     """Ingest one Agent Workspace Evaluation Request without executing it."""
 
     try:
-        result = ingest_evaluation_request(project_root)
+        result = ingest_evaluation_request(workspace_root)
     except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -367,12 +367,12 @@ def ingest_evaluation_request_command(
 
 @app.command("ingest-campaign-report")
 def ingest_campaign_report_command(
-    project_root: Annotated[Path, typer.Option(help="Project root containing agent-work/campaign-reports.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing agent-work/campaign-reports.")] = Path("."),
 ) -> None:
     """Ingest one Agent Workspace Campaign Report into canonical campaign-reports/."""
 
     try:
-        result = ingest_campaign_report(project_root)
+        result = ingest_campaign_report(workspace_root)
     except (AgentHandoffIngestionError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
@@ -524,7 +524,7 @@ def _daemonize_current_command(log_path: Path) -> None:
 @app.command("validate-candidate")
 def validate_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
-    project_root: Annotated[Path, typer.Option(help="Project root containing optional candidate-execution.toml Research Problem provider config.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing optional ml-autoresearch.toml Research Problem provider config.")] = Path("."),
     require_proposal: Annotated[
         bool,
         typer.Option(
@@ -551,7 +551,7 @@ def validate_candidate_command(
 
     try:
         try:
-            registry = load_configured_research_problem_registry(project_root)
+            registry = load_configured_research_problem_registry(workspace_root)
             if registry is None:
                 registry = legacy_smoke_research_problem_registry()
         except (CandidateExecutionConfigError, ResearchProblemProviderLoadError):
@@ -628,7 +628,7 @@ def run_experiment_batch_command(
     batch: Annotated[Path, typer.Option(help="Path to a local Experiment Batch directory.")],
     batches_root: Annotated[Path, typer.Option(help="Directory where Experiment Batch artifact directories are created.")],
     runs_root: Annotated[Path, typer.Option(help="Directory where Harness Run directories are created.")],
-    project_root: Annotated[Path, typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml Research Problem provider config.")] = Path("."),
     max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of Research Problem samples used.")] = None,
     max_parallel_runs: Annotated[int, typer.Option("--max-parallel-runs", help="Harness-owned parallel Run cap, capped at 4.")] = 4,
     max_prediction_samples: Annotated[
@@ -652,7 +652,7 @@ def run_experiment_batch_command(
     ] = False,
     ledger_path: Annotated[
         Path | None,
-        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Overrides candidate-execution.toml."),
+        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Overrides ml-autoresearch.toml."),
     ] = None,
 ) -> None:
     """Validate and synchronously run a bounded Experiment Batch."""
@@ -665,7 +665,7 @@ def run_experiment_batch_command(
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
-        config, provider_config = _load_configured_provider(project_root, label="run-experiment-batch")
+        config, provider_config = _load_configured_provider(workspace_root, label="run-experiment-batch")
         effective_ledger_path = _effective_ledger_path(config, override=ledger_path)
         max_samples, max_prediction_samples, prediction_sample_policy = _effective_execution_options(
             config,
@@ -703,9 +703,9 @@ def run_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
     runs_root: Annotated[
         Path | None,
-        typer.Option(help="Directory where Harness Run directories are created. Defaults to candidate-execution.toml runs_root."),
+        typer.Option(help="Directory where Harness Run directories are created. Defaults to ml-autoresearch.toml runs_root."),
     ] = None,
-    project_root: Annotated[Path, typer.Option(help="Project root containing candidate-execution.toml Research Problem provider config.")] = Path("."),
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml Research Problem provider config.")] = Path("."),
     max_samples: Annotated[int | None, typer.Option("--max-samples", help="Bound the number of Research Problem samples used.")] = None,
     max_prediction_samples: Annotated[
         int | None,
@@ -748,7 +748,7 @@ def run_candidate_command(
     ] = False,
     ledger_path: Annotated[
         Path | None,
-        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Overrides candidate-execution.toml."),
+        typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Overrides ml-autoresearch.toml."),
     ] = None,
 ) -> None:
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
@@ -757,7 +757,7 @@ def run_candidate_command(
     from ml_autoresearch.runs import run_candidate_with_research_problem
 
     try:
-        config, provider_config = _load_configured_provider(project_root, label="run-candidate")
+        config, provider_config = _load_configured_provider(workspace_root, label="run-candidate")
         effective_runs_root = config.runs_root if runs_root is None else runs_root
         effective_ledger_path = _effective_ledger_path(config, override=ledger_path)
         if daemonize:

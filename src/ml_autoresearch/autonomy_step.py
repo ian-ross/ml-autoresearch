@@ -27,7 +27,7 @@ class AutonomyStepResult:
     """Machine-readable result for one Autonomy Step."""
 
     status: str
-    project_root: str
+    workspace_root: str
     agent_workspace: str
     prompt_path: str
     agent_command: list[str]
@@ -39,7 +39,7 @@ class AutonomyStepResult:
     def to_json(self) -> dict[str, object]:
         return {
             "status": self.status,
-            "project_root": self.project_root,
+            "workspace_root": self.workspace_root,
             "agent_workspace": self.agent_workspace,
             "prompt_path": self.prompt_path,
             "agent_command": self.agent_command,
@@ -50,10 +50,12 @@ class AutonomyStepResult:
         }
 
 
-def load_configured_agent_command(project_root: Path) -> str | None:
-    """Return optional Autonomy Step agent command from agent-boundary.toml."""
+def load_configured_agent_command(workspace_root: Path) -> str | None:
+    """Return optional Autonomy Step agent command from Workspace Configuration."""
 
-    config_path = project_root / "agent-boundary.toml"
+    from ml_autoresearch.workspace import WORKSPACE_CONFIG_FILENAME
+
+    config_path = workspace_root / WORKSPACE_CONFIG_FILENAME
     if not config_path.is_file():
         return None
     data = tomllib.loads(config_path.read_text())
@@ -92,7 +94,7 @@ def run_autonomy_step(
     if completed.returncode != 0:
         result = AutonomyStepResult(
             status="agent_failed",
-            project_root=str(root),
+            workspace_root=str(root),
             agent_workspace=str(workspace),
             prompt_path=str(prompt_path),
             agent_command=command,
@@ -121,7 +123,7 @@ def run_autonomy_step(
 
     result = AutonomyStepResult(
         status=status,
-        project_root=str(root),
+        workspace_root=str(root),
         agent_workspace=str(workspace),
         prompt_path=str(prompt_path),
         agent_command=command,
@@ -306,7 +308,7 @@ def execute_outstanding_next_action(project_root: str | Path = Path(".")) -> Aut
 
     result = AutonomyStepResult(
         status=status,
-        project_root=str(root),
+        workspace_root=str(root),
         agent_workspace=str(root / "agent-work"),
         prompt_path=str(root / "agent-work" / PROMPT_FILENAME),
         agent_command=_string_list(payload.get("agent_command")),
@@ -542,7 +544,7 @@ def _required_relative_path(root: Path, payload: dict[str, object], field: str) 
         raise AutonomyStepError(f"ingestion result missing {field}")
     path = Path(value)
     if path.is_absolute() or ".." in path.parts:
-        raise AutonomyStepError(f"ingestion result {field} must be a relative path inside the project root")
+        raise AutonomyStepError(f"ingestion result {field} must be a relative path inside the Research Workspace Root")
     return root / path
 
 
