@@ -48,6 +48,13 @@ from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, Execu
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs
 from ml_autoresearch.batches import get_batch_summary, list_batches
+from ml_autoresearch.setup import (
+    SUPPORTED_BINARY_SEGMENTATION,
+    WorkspaceSetupError,
+    WorkspaceSetupRequest,
+    infer_provider_module_from_pyproject,
+    initialize_workspace,
+)
 
 CLI_DEFAULT_MAX_ARTIFACT_SAMPLES = 12
 
@@ -191,6 +198,75 @@ def _parse_event_fields(fields: list[str]) -> dict[str, str]:
 def _exit_with_error(exc: BaseException) -> None:
     typer.echo(str(exc), err=True)
     raise typer.Exit(1) from exc
+
+
+@app.command("setup")
+def setup_command(
+    workspace_root: Annotated[Path, typer.Option(help="Directory to initialize as the Research Workspace Root.")] = Path("."),
+    problem_id: Annotated[str | None, typer.Option("--problem-id", help="Research Problem id, e.g. satellite_cloud_segmentation.")] = None,
+    provider_module: Annotated[str | None, typer.Option("--provider-module", help="Python package module for starter trusted problem code.")] = None,
+    problem_type: Annotated[str, typer.Option("--problem-type", help="Starter problem type to generate.")] = SUPPORTED_BINARY_SEGMENTATION,
+    runs_root: Annotated[str | None, typer.Option("--runs-root", help="Directory where local Run artifacts will be written.")] = None,
+    non_interactive: Annotated[bool, typer.Option("--non-interactive", help="Use defaults/options without prompts for tests or automation.")] = False,
+    reset_research_memory: Annotated[
+        bool,
+        typer.Option("--reset-research-memory", help="Explicitly truncate research-ledger.jsonl if it already exists."),
+    ] = False,
+) -> None:
+    """Initialize a Research Problem Repository as a Research Workspace Root."""
+
+    root = workspace_root.resolve()
+    try:
+        inferred_provider = infer_provider_module_from_pyproject(root)
+    except WorkspaceSetupError as exc:
+        _exit_with_error(exc)
+
+    if non_interactive:
+        effective_problem_id = problem_id or inferred_provider
+        effective_provider = provider_module or inferred_provider
+        effective_runs_root = runs_root or "runs"
+    else:
+        typer.echo("Research Workspace Setup will create missing workspace files conservatively.")
+        effective_problem_id = typer.prompt("Research Problem id", default=problem_id or inferred_provider)
+        inferred_message = f"Inferred provider module from pyproject.toml: {inferred_provider}"
+        typer.echo(inferred_message)
+        if provider_module is not None:
+            effective_provider = provider_module
+        elif typer.confirm("Use inferred provider module?", default=True):
+            effective_provider = inferred_provider
+        else:
+            effective_provider = typer.prompt("Provider module", default=inferred_provider)
+        effective_runs_root = typer.prompt(
+            "Runs root (Run artifacts are normally not committed; use external storage for large/long-lived Runs)",
+            default=runs_root or "runs",
+        )
+
+    typer.echo(
+        "Runs root stores local Run artifacts. Keeping it inside the workspace is convenient; "
+        "external storage can reduce repository/disk pressure. Run artifacts are normally not committed."
+    )
+    try:
+        result = initialize_workspace(
+            WorkspaceSetupRequest(
+                workspace_root=root,
+                problem_id=effective_problem_id,
+                provider_module=effective_provider,
+                problem_type=problem_type,
+                runs_root=effective_runs_root,
+                reset_research_memory=reset_research_memory,
+            )
+        )
+    except (WorkspaceSetupError, OSError) as exc:
+        _exit_with_error(exc)
+
+    typer.echo(f"Initialized Research Workspace Root: {result.workspace_root}")
+    typer.echo(f"Provider target: {result.provider_target}")
+    typer.echo(f"Runs root: {result.runs_root}")
+    typer.echo(f"Created {len(result.created)} path(s); skipped {len(result.skipped)} existing path(s).")
+    if problem_type != SUPPORTED_BINARY_SEGMENTATION:
+        typer.echo("Unsupported starter problem type generated TODO provider; implement it before real Runs.")
+    else:
+        typer.echo("Before real Runs, replace starter TODOs with trusted data adapters and problem-specific policy.")
 
 
 @app.command("prepare-agent-boundary")
