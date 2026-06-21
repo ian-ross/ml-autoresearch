@@ -17,6 +17,7 @@ def write_fake_research_problem_provider(root: Path) -> None:
     (package / "__init__.py").write_text("")
     (package / "brief" / "overview.md").write_text("# Tiny overview\n")
     (package / "brief" / "baselines.md").write_text("# Tiny baselines\n")
+    (package / "brief" / "undeclared.md").write_text("# Do not expose\n")
     (package / "profile" / "tiny-dataset-profile.json").write_text('{"provenance": {"research_problem_id": "tiny_problem"}}\n')
     (package / "research_problem.py").write_text(
         "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
@@ -146,8 +147,15 @@ path = "{data_root}"
             "check": False,
         }
     ]
-    assert (tmp_path / "agent-reference" / "CONTEXT.md").read_text() == "context v1\n"
+    assert (tmp_path / "agent-reference" / "HARNESS_CONTEXT.md").read_text() == "context v1\n"
+    assert not (tmp_path / "agent-reference" / "CONTEXT.md").exists()
     assert (tmp_path / "agent-reference" / "EXPERIMENT_INDEX.md").read_text() == "index v1\n"
+    assert (tmp_path / "agent-research-problem" / "fake_research_problem" / "brief" / "overview.md").read_text() == "# Tiny overview\n"
+    assert (tmp_path / "agent-research-problem" / "fake_research_problem" / "brief" / "baselines.md").read_text() == "# Tiny baselines\n"
+    assert (tmp_path / "agent-research-problem" / "fake_research_problem" / "profile" / "tiny-dataset-profile.json").read_text() == '{"provenance": {"research_problem_id": "tiny_problem"}}\n'
+    assert (tmp_path / "agent-research-problem" / "RESEARCH_PROBLEM_BRIEF_INDEX.md").is_file()
+    assert not (tmp_path / "agent-research-problem" / "fake_research_problem" / "brief" / "undeclared.md").exists()
+    assert not (tmp_path / "agent-research-problem" / "fake_research_problem" / "research_problem.py").exists()
     assert (tmp_path / "agent-history" / "research-ledger.jsonl").read_text() == '{"event_type":"proposal_created"}\n'
     assert (tmp_path / "agent-history" / "runs" / "run_123" / "outputs" / "evaluations" / "eval_abc" / "summary.json").read_text() == '{"ok": true}\n'
     assert (tmp_path / "agent-history" / "candidates" / "candidate_123" / "manifest.yaml").read_text() == "name: candidate_123\n"
@@ -178,7 +186,7 @@ path = "{data_root}"
     assert "Available Dataset Profile Artifacts:" in brief_index
     assert "**tiny_profile** (`deterministic_test_dataset_profile`)" in brief_index
     assert "# Tiny baselines" not in brief_index
-    assert "`CONTEXT.md` -> `/reference/CONTEXT.md`" in instructions
+    assert "`CONTEXT.md` -> `/reference/HARNESS_CONTEXT.md`" in instructions
     assert "`docs/` -> `/docs/`" in instructions
     assert "`research-notes/` -> `/history/research-notes/` for prior notes" in instructions
     assert "write new draft Research Notes under `research-notes/`" in instructions
@@ -218,6 +226,8 @@ path = "{data_root}"
         'target="/data/gvccs"',
     ]:
         assert target in fort_toml
+    assert f'path="{tmp_path / "agent-research-problem"}"' in fort_toml
+    assert f'path="{tmp_path}"' not in fort_toml
     assert 'target="/usr/local/lib/python3.12/dist-packages/ml_autoresearch"' not in fort_toml
     assert fort_toml.count('target="/usr/local/lib/python3.12/site-packages/ml_autoresearch"') == 1
     assert f'path="{tmp_path / "src" / "ml_autoresearch"}"' in fort_toml
@@ -226,6 +236,27 @@ path = "{data_root}"
     assert not old_dropin.exists()
     assert (tmp_path / "agent-work" / ".pi" / "fort.d" / "README.md").is_file()
 
+
+
+def test_prepare_agent_boundary_rejects_colliding_research_problem_snapshot_paths(tmp_path: Path, monkeypatch):
+    write_project(tmp_path)
+    configure_fake_pi_fort(tmp_path, monkeypatch)
+    provider = tmp_path / "fake_research_problem" / "research_problem.py"
+    provider.write_text(
+        provider.read_text().replace(
+            "        dataset_profile_artifacts=(\n"
+            "            {'name': 'tiny_profile', 'role': 'deterministic_test_dataset_profile', 'path': 'fake_research_problem/profile/tiny-dataset-profile.json', 'summary': 'Tiny deterministic profile for Harness tests.', 'split_scope': 'train+validation', 'required': True},\n"
+            "        ),\n",
+            "        dataset_profile_artifacts=(\n"
+            "            {'name': 'tiny_profile', 'role': 'deterministic_test_dataset_profile', 'path': 'fake_research_problem/brief/overview.md', 'summary': 'Tiny deterministic profile for Harness tests.', 'split_scope': 'train+validation', 'required': True},\n"
+            "        ),\n",
+        )
+    )
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 1
+    assert "colliding Agent Research Problem Snapshot path" in completed.stderr
 
 
 def test_prepare_agent_boundary_requires_explicit_research_problem_provider(tmp_path: Path):

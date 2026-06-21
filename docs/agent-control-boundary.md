@@ -156,7 +156,7 @@ where validation, canonical ledger/index updates, and Run scheduling occur.
 The Harness also writes `agent-work/AGENTS.md` with the Agent Control Boundary
 path map. It tells the inner agent how to translate Research Workspace Root paths mentioned
 in Autoresearch skills into boundary mounts, for example `CONTEXT.md` to
-`/reference/CONTEXT.md`, `docs/` to `/docs/`, and prior `research-notes/` to
+`/reference/HARNESS_CONTEXT.md`, `docs/` to `/docs/`, and prior `research-notes/` to
 `/history/research-notes/`, while keeping new draft notes under the writable
 workspace `research-notes/` directory.
 
@@ -165,10 +165,12 @@ require an explicit `[research_problem]` provider in the Research Workspace
 Root `ml-autoresearch.toml`. Agent handoff/autonomy flows do not fall back to a
 built-in/default Research Problem, because the active provider is the source of
 agent-visible Research Problem Brief metadata. During setup the Harness loads
-that provider, validates its declared brief documents, mounts the provider
-package read-only at `/research-problem`, and writes a progressive-disclosure
-brief index into both `agent-work/AGENTS.md` and
-`agent-work/RESEARCH_PROBLEM_BRIEF_INDEX.md`. Each index entry includes the
+that provider, validates its declared brief documents and Dataset Profile
+Artifacts, generates an Agent Research Problem Snapshot containing only those
+declared files plus an index, mounts that snapshot read-only at
+`/research-problem`, and writes a progressive-disclosure brief index into
+`agent-work/AGENTS.md`, `agent-work/RESEARCH_PROBLEM_BRIEF_INDEX.md`, and
+`agent-research-problem/RESEARCH_PROBLEM_BRIEF_INDEX.md`. Each index entry includes the
 document name/role, optional summary, required marker, mounted path, and a
 simple read command such as `cat /research-problem/brief/overview.md`. The full
 brief documents are not embedded by default; the agent starts from the index and
@@ -185,8 +187,8 @@ active Pi skills inside the VM.
 The VM exposes these read-only paths:
 
 - `/reference` — the Agent Reference Snapshot generated at setup time.
-  - `/reference/CONTEXT.md` — canonical domain language snapshot.
-  - `/reference/EXPERIMENT_INDEX.md` — canonical experiment index snapshot.
+  - `/reference/HARNESS_CONTEXT.md` — canonical Harness language and constraints snapshot.
+  - `/reference/EXPERIMENT_INDEX.md` — canonical Experiment Index as Research Loop reference material.
 - `/history` — prior research material exposed for review.
   - `/history/research-ledger.jsonl` — Research Ledger snapshot.
   - `/history/candidates/` — prior Candidate Experiment sources, when
@@ -196,8 +198,10 @@ The VM exposes these read-only paths:
   - `/history/research-notes/` — prior Research Notes.
 - `/docs` — trusted project documentation, including the Candidate Experiment
   Contract, Run lifecycle, request/report formats, and agent skill docs.
-- `/research-problem` — the active configured Research Problem provider package,
-  including any declared Research Problem Brief documents.
+- `/research-problem` — the curated Agent Research Problem Snapshot for the
+  active Research Problem, containing only declared Research Problem Brief
+  documents, Dataset Profile Artifacts, and the generated index. It is not the
+  full Research Problem Repository.
 - `/data` — optional approved read-only Research Problem data mounts, only when
   an explicit bounded-exception policy permits a mount. Full training datasets
   are not part of the default Agent Control Boundary.
@@ -264,10 +268,11 @@ Harness or Research Problem policy, not by an agent searching the raw dataset fo
 private examples.
 
 Dataset profile artifacts are exposed inside the Agent Control Boundary as
-read-only Research Problem context. The preferred location is a profile directory
-inside the active Research Problem package mount, such as
-`/research-problem/profile/`; setup-generated instructions may also reference
-copied profile artifacts from `agent-work/AGENTS.md` or from the related
+read-only Research Problem context in the curated Agent Research Problem
+Snapshot. The preferred location is a profile directory preserving the declared
+provider-relative path, such as `/research-problem/profile/`; setup-generated
+instructions may also reference copied profile artifacts from
+`agent-work/AGENTS.md` or from the related
 `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Index entries should name each artifact,
 state its role and scope, and give a direct read command or path so the inner
 agent discovers the profile through the same progressive-disclosure flow used
@@ -379,7 +384,7 @@ mounts = [
   {path="../agent-history/batches", target="/history/batches", readonly=true},
   {path="../agent-history/research-notes", target="/history/research-notes", readonly=true},
   {path="../docs", target="/docs", readonly=true},
-  {path="/path/to/research-problem-package", target="/research-problem", readonly=true},
+  {path="../agent-research-problem", target="/research-problem", readonly=true},
 ]
 ```
 
@@ -407,9 +412,10 @@ for the PyTorch/CUDA stack used by Candidate Execution Boundary training.
 
 ## Setup
 
-The host-side Harness prepares the Agent Reference Snapshot, Research History
-snapshot, Agent Workspace directory layout, and managed pi-fort configuration
-from root `ml-autoresearch.toml`. Operators must first point the Harness at a
+The host-side Harness prepares the Agent Reference Snapshot, Agent Research
+Problem Snapshot, Research History snapshot, Agent Workspace directory layout,
+and managed pi-fort configuration from root `ml-autoresearch.toml`. Operators
+must first point the Harness at a
 local checkout of the pi-fort Pi extension:
 
 ```shell

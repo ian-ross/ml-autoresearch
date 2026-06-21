@@ -24,7 +24,7 @@ def test_agent_control_boundary_docs_describe_workspace_and_reference_layout() -
         "/history",
         "/docs",
         "/data",
-        "/reference/CONTEXT.md",
+        "/reference/HARNESS_CONTEXT.md",
         "/reference/EXPERIMENT_INDEX.md",
         "/history/research-ledger.jsonl",
     ]:
@@ -35,6 +35,8 @@ def test_agent_control_boundary_docs_describe_workspace_and_reference_layout() -
     assert "Autoresearch Skill Set" in text
     assert "`agent-work/.pi/skills/`" in text
     assert "`agent-work/AGENTS.md`" in text
+    assert "Agent Research Problem Snapshot" in text
+    assert "not the\n  full Research Problem Repository" in text
     assert "path map" in text
 
 

@@ -44,7 +44,8 @@ class AgentBoundaryConfig:
     research_problem_provider: Any
 
 
-REFERENCE_FILES = ("CONTEXT.md", "EXPERIMENT_INDEX.md")
+REFERENCE_FILES = {"CONTEXT.md": "HARNESS_CONTEXT.md", "EXPERIMENT_INDEX.md": "EXPERIMENT_INDEX.md"}
+RESEARCH_PROBLEM_INDEX = "RESEARCH_PROBLEM_BRIEF_INDEX.md"
 HISTORY_DIRS = ("candidates", "runs", "batches", "research-notes")
 WORKSPACE_DIRS = (
     "drafts/candidates",
@@ -163,9 +164,11 @@ def prepare_agent_boundary(project_root: Path = Path(".")) -> dict[str, str]:
     reference_dir = project_root / "agent-reference"
     history_dir = project_root / "agent-history"
     workspace_dir = project_root / "agent-work"
+    research_problem_dir = project_root / "agent-research-problem"
 
     _refresh_reference_snapshot(project_root, reference_dir)
     _refresh_history_snapshot(project_root, history_dir, config.runs_root)
+    _refresh_research_problem_snapshot(research_problem_dir, config.research_problem)
     _ensure_workspace(workspace_dir)
     _write_research_problem_brief_index(workspace_dir, config.research_problem)
     _write_agent_workspace_instructions(workspace_dir, config.research_problem)
@@ -178,17 +181,18 @@ def prepare_agent_boundary(project_root: Path = Path(".")) -> dict[str, str]:
         "agent_reference": str(reference_dir),
         "agent_history": str(history_dir),
         "agent_workspace": str(workspace_dir),
+        "agent_research_problem": str(research_problem_dir),
         "fort_config": str(workspace_dir / ".pi" / "fort.toml"),
     }
 
 
 def _refresh_reference_snapshot(project_root: Path, reference_dir: Path) -> None:
     _clear_snapshot_contents(reference_dir)
-    for filename in REFERENCE_FILES:
-        source = project_root / filename
+    for source_name, destination_name in REFERENCE_FILES.items():
+        source = project_root / source_name
         if not source.is_file():
             raise AgentBoundaryError(f"missing reference file: {source}")
-        shutil.copy2(source, reference_dir / filename)
+        shutil.copy2(source, reference_dir / destination_name)
 
 
 def _refresh_history_snapshot(project_root: Path, history_dir: Path, runs_root: Path) -> None:
@@ -217,8 +221,47 @@ def _ensure_workspace(workspace_dir: Path) -> None:
         (workspace_dir / dirname).mkdir(parents=True, exist_ok=True)
 
 
+def _refresh_research_problem_snapshot(snapshot_dir: Path, research_problem: LoadedResearchProblemSpec) -> None:
+    _clear_snapshot_contents(snapshot_dir)
+    reserved_paths = {RESEARCH_PROBLEM_INDEX}
+    copied_paths: set[Path] = set()
+    for source, relative_path, kind, name in _declared_research_problem_snapshot_files(research_problem):
+        if not source.is_file():
+            raise AgentBoundaryError(f"declared {kind} {name!r} does not exist: {relative_path.as_posix()}")
+        _reserve_snapshot_path(relative_path, copied_paths, reserved_paths)
+        destination = snapshot_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    (snapshot_dir / RESEARCH_PROBLEM_INDEX).write_text(
+        "# Research Problem Brief index\n\n" + _render_research_problem_brief_index(research_problem) + "\n"
+    )
+
+
+def _declared_research_problem_snapshot_files(research_problem: LoadedResearchProblemSpec):
+    for document in research_problem.brief_documents:
+        yield document.resolved_path, document.path, "Research Problem Brief document", document.name
+    for artifact in research_problem.dataset_profile_artifacts:
+        yield artifact.resolved_path, artifact.path, "Dataset Profile Artifact", artifact.name
+
+
+def _reserve_snapshot_path(relative_path: Path, copied_paths: set[Path], reserved_paths: set[str]) -> None:
+    path_text = relative_path.as_posix()
+    parent_texts = {parent.as_posix() for parent in relative_path.parents}
+    if path_text in reserved_paths or reserved_paths.intersection(parent_texts):
+        raise AgentBoundaryError(f"colliding Agent Research Problem Snapshot path: {path_text}")
+    if relative_path in copied_paths:
+        raise AgentBoundaryError(f"colliding Agent Research Problem Snapshot path: {path_text}")
+    for copied_path in copied_paths:
+        if copied_path in relative_path.parents or relative_path in copied_path.parents:
+            raise AgentBoundaryError(
+                "colliding Agent Research Problem Snapshot path: "
+                f"{path_text} conflicts with {copied_path.as_posix()}"
+            )
+    copied_paths.add(relative_path)
+
+
 def _write_research_problem_brief_index(workspace_dir: Path, research_problem: LoadedResearchProblemSpec) -> None:
-    (workspace_dir / "RESEARCH_PROBLEM_BRIEF_INDEX.md").write_text(
+    (workspace_dir / RESEARCH_PROBLEM_INDEX).write_text(
         "# Research Problem Brief index\n\n" + _render_research_problem_brief_index(research_problem) + "\n"
     )
 
@@ -316,8 +359,8 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "\n"
         "## Read-only reference and history\n"
         "\n"
-        "- `CONTEXT.md` -> `/reference/CONTEXT.md`\n"
-        "- `EXPERIMENT_INDEX.md` -> `/reference/EXPERIMENT_INDEX.md`\n"
+        "- `CONTEXT.md` -> `/reference/HARNESS_CONTEXT.md` for Harness language and constraints\n"
+        "- `EXPERIMENT_INDEX.md` -> `/reference/EXPERIMENT_INDEX.md` as Research Loop reference material\n"
         "- `docs/` -> `/docs/`\n"
         "- `research-ledger.jsonl` -> `/history/research-ledger.jsonl`\n"
         "- `candidates/` -> `/history/candidates/` for prior Candidate sources\n"
@@ -331,7 +374,7 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "\n"
         + brief_index
         + "\n\n"
-        "The same index is available at `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Read only the deeper `/research-problem/...` documents and dataset profile artifacts you need.\n"
+        "The same index is available at `RESEARCH_PROBLEM_BRIEF_INDEX.md` and `/research-problem/RESEARCH_PROBLEM_BRIEF_INDEX.md`. `/research-problem` is a curated Agent Research Problem Snapshot containing only declared brief documents, Dataset Profile Artifacts, and this index; it is not the full Research Problem Repository. Read only the deeper `/research-problem/...` documents and dataset profile artifacts you need.\n"
         "\n"
         "## Dataset profile artifacts\n"
         "\n"
@@ -339,6 +382,7 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "\n"
         "## Writable handoff locations\n"
         "\n"
+        "These paths are writable handoff/scratch locations in the Agent Workspace, not Research History or Research Problem context:\n"
         "- Draft Candidate Experiments: `drafts/candidates/`\n"
         "- Final Candidate Submission Queue entries: `submissions/`\n"
         "- Final Experiment Batch Submission Queue entries: `batch-submissions/`\n"
@@ -356,7 +400,7 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "and static Candidate preparation commands. Observation commands default to\n"
         "the `/history/runs` and `/history/batches` Research History roots; do not\n"
         "invent host-relative Runs root paths. Do not edit mounted read-only\n"
-        "reference, history, docs, Research Problem, or explicit bounded-exception data paths.\n"
+        "reference, history, docs, Research Problem Snapshot, or explicit bounded-exception data paths.\n"
     )
 
 
@@ -445,7 +489,7 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         (project_root / "agent-history" / "batches", "/history/batches"),
         (project_root / "agent-history" / "research-notes", "/history/research-notes"),
         (project_root / "docs", "/docs"),
-        (config.research_problem.provenance.resolved_package_root, "/research-problem"),
+        (project_root / "agent-research-problem", "/research-problem"),
         (project_root / "src" / "ml_autoresearch", "/usr/local/lib/python3.12/site-packages/ml_autoresearch"),
     ]
     mount_entries = [_format_mount(path, target) for path, target in mounts]
