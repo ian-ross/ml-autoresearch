@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ml_autoresearch.candidate_execution_config import CandidateExecutionConfig, load_candidate_execution_config
+from ml_autoresearch.package_resources import copy_autoresearch_skills
 from ml_autoresearch.workspace import WORKSPACE_CONFIG_FILENAME
 from ml_autoresearch.research_problems import (
     LoadedResearchProblemSpec,
@@ -416,24 +417,7 @@ def _write_managed_fort_config(project_root: Path, workspace_dir: Path, config: 
 
 
 def _install_autoresearch_skills(project_root: Path, workspace_dir: Path) -> None:
-    source_dir = project_root / "docs" / "autoresearch-skills"
-    if not source_dir.exists():
-        return
-    if not source_dir.is_dir():
-        raise AgentBoundaryError(f"Autoresearch Skill Set path is not a directory: {source_dir}")
-    skills_dir = workspace_dir / ".pi" / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-    for source_entry in source_dir.iterdir():
-        destination = skills_dir / source_entry.name
-        if destination.exists():
-            if destination.is_dir() and not destination.is_symlink():
-                shutil.rmtree(destination)
-            else:
-                destination.unlink()
-        if source_entry.is_dir():
-            shutil.copytree(source_entry, destination)
-        else:
-            shutil.copy2(source_entry, destination)
+    copy_autoresearch_skills(workspace_dir / ".pi" / "skills")
 
 
 def _install_pi_fort_extension(workspace_dir: Path) -> None:
@@ -490,7 +474,7 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         (project_root / "agent-history" / "research-notes", "/history/research-notes"),
         (project_root / "docs", "/docs"),
         (project_root / "agent-research-problem", "/research-problem"),
-        (project_root / "src" / "ml_autoresearch", "/usr/local/lib/python3.12/site-packages/ml_autoresearch"),
+        (_installed_package_source_dir(), "/usr/local/lib/python3.12/site-packages/ml_autoresearch"),
     ]
     mount_entries = [_format_mount(path, target) for path, target in mounts]
     mount_entries.extend(_format_mount(mount.path, mount.target) for mount in config.data_mounts)
@@ -504,6 +488,10 @@ def _render_fort_toml(project_root: Path, config: AgentBoundaryConfig) -> str:
         + "\n".join(f"  {entry}," for entry in mount_entries)
         + "\n]\n"
     )
+
+
+def _installed_package_source_dir() -> Path:
+    return Path(__file__).resolve().parent
 
 
 def _runs_history_mount_source(project_root: Path, runs_root: Path) -> Path:

@@ -1,0 +1,90 @@
+FROM python:3.12-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash ca-certificates curl git jq \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY docs ./docs
+COPY src ./src
+RUN python -m pip install --no-cache-dir \
+    "numpy>=2,<3" \
+    "pillow>=10,<12" \
+    "pydantic>=2,<3" \
+    "PyYAML>=6,<7" \
+    "typer>=0.12,<1"
+RUN python -m pip install --no-cache-dir --no-deps .
+RUN ml-autoresearch-agent --help >/dev/null \
+    && mkdir -p /tmp/agent-smoke/runs /tmp/agent-smoke/submissions /tmp/agent-smoke/candidate /tmp/agent-smoke/project/fake_research_problem \
+    && touch /tmp/agent-smoke/project/fake_research_problem/__init__.py \
+    && cat > /tmp/agent-smoke/project/fake_research_problem/research_problem.py <<'EOF'
+from ml_autoresearch.research_problems import ResearchProblemSpec
+
+class Adapter:
+    def validate_data_root(self, data_config): pass
+    def dataset_metadata(self, data_config): return {"kind": "smoke"}
+
+def build_spec(data_config=None):
+    return ResearchProblemSpec(
+        id="smoke_problem", version="smoke-v0", contract_version="v0",
+        input_modes=("single_frame_rgb",), input_specs={"single_frame_rgb": {"mode": "single_frame_rgb", "shape": [3, 16, 16]}},
+        output_forms=("mask_logits",), output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 16, 16]}},
+        losses=("bce_dice",), optimizers=("adamw",), sampling_policies=("sequential",),
+        frame_selection_policies=("all_target_frames",), augmentation_policies=("none",), primary_metric="val/dice",
+        training_adapter=Adapter(), auxiliary_targets=("boundary",), auxiliary_losses=("weighted_bce",), auxiliary_outputs={"boundary": "boundary_logits"},
+    )
+EOF
+RUN cat > /tmp/agent-smoke/project/candidate-execution.toml <<'EOF'
+[research_problem]
+id = "smoke_problem"
+package_root = "/tmp/agent-smoke/project"
+provider_target = "fake_research_problem.research_problem:build_spec"
+expected_contract_version = "v0"
+EOF
+RUN cat > /tmp/agent-smoke/candidate/manifest.yaml <<'EOF'
+name: candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+EOF
+RUN touch /tmp/agent-smoke/candidate/model.py \
+    && printf '%s\n' '# Smoke Candidate' > /tmp/agent-smoke/candidate/README.md \
+    && printf '%s\n' 'Hypothesis: smoke' 'Comparison Target: smoke' 'Expected Effect: smoke' 'Implementation Sketch: smoke' 'Contract Features Used: smoke' 'Budget Requested: smoke' 'Success Criteria: smoke' 'Fallback Next Decision: smoke' > /tmp/agent-smoke/candidate/PROPOSAL.md \
+    && ml-autoresearch-agent list-runs --runs-root /tmp/agent-smoke/runs >/dev/null \
+    && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-smoke/candidate --project-root /tmp/agent-smoke/project >/dev/null \
+    && ml-autoresearch-agent prepare-candidate-submission --candidate /tmp/agent-smoke/candidate --submissions-root /tmp/agent-smoke/submissions --project-root /tmp/agent-smoke/project >/dev/null \
+    && mkdir -p /tmp/agent-boundary-smoke/candidate \
+    && cat > /tmp/agent-boundary-smoke/candidate/manifest.yaml <<'EOF'
+name: boundary_aux_candidate
+input_mode: single_frame_rgb
+output_form: mask_logits
+auxiliary_targets:
+  - name: boundary
+    output: boundary_logits
+    loss: weighted_bce
+    weight: 0.05
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 2
+  max_epochs: 1
+EOF
+RUN touch /tmp/agent-boundary-smoke/candidate/model.py \
+    && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-boundary-smoke/candidate --project-root /tmp/agent-smoke/project --no-require-proposal >/dev/null \
+    && rm -rf /tmp/agent-smoke /tmp/agent-boundary-smoke
+
+WORKDIR /workspace
+CMD ["bash"]

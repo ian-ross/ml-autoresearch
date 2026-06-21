@@ -115,9 +115,6 @@ path = "{data_root}"
     (tmp_path / "candidates" / "candidate_123" / "manifest.yaml").write_text("name: candidate_123\n")
     (tmp_path / "research-notes").mkdir()
     (tmp_path / "research-notes" / "note.md").write_text("# Note\n")
-    (tmp_path / "docs" / "autoresearch-skills" / "campaign-manager").mkdir(parents=True)
-    (tmp_path / "docs" / "autoresearch-skills" / "campaign-manager" / "SKILL.md").write_text("# Campaign Manager\n")
-
     preserved = tmp_path / "agent-work" / "scratch" / "keep.txt"
     preserved.parent.mkdir(parents=True)
     preserved.write_text("do not delete\n")
@@ -208,7 +205,9 @@ path = "{data_root}"
     assert 'data_config = { dataset_root = "/data/gvccs" }' in agent_candidate_config
 
     skill_path = tmp_path / "agent-work" / ".pi" / "skills" / "campaign-manager" / "SKILL.md"
-    assert skill_path.read_text() == "# Campaign Manager\n"
+    skill_text = skill_path.read_text()
+    assert "name: campaign-manager" in skill_text
+    assert "# Campaign Manager" in skill_text
     assert not stale_skill_file.exists()
     assert unrelated_skill_file.read_text() == "# Local Helper\n"
 
@@ -230,7 +229,8 @@ path = "{data_root}"
     assert f'path="{tmp_path}"' not in fort_toml
     assert 'target="/usr/local/lib/python3.12/dist-packages/ml_autoresearch"' not in fort_toml
     assert fort_toml.count('target="/usr/local/lib/python3.12/site-packages/ml_autoresearch"') == 1
-    assert f'path="{tmp_path / "src" / "ml_autoresearch"}"' in fort_toml
+    assert f'path="{tmp_path / "src" / "ml_autoresearch"}"' not in fort_toml
+    assert 'path="' in fort_toml and 'src/ml_autoresearch' in fort_toml
     assert f'path="{data_root}"' in fort_toml
     assert 'target="/data/gvccs", readonly=true' in fort_toml
     assert not old_dropin.exists()

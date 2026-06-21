@@ -45,6 +45,7 @@ from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigE
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
+from ml_autoresearch.package_resources import PackageResourceError, stage_workspace_container_build_recipes
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs
 from ml_autoresearch.batches import get_batch_summary, list_batches
@@ -280,6 +281,19 @@ def prepare_agent_boundary_command(
     except (AgentBoundaryError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
+
+
+@app.command("stage-runtime-build-recipes")
+def stage_runtime_build_recipes_command(
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root for hidden runtime build state.")] = Path("."),
+) -> None:
+    """Stage packaged runtime build recipes into hidden workspace operational state."""
+
+    try:
+        result = stage_workspace_container_build_recipes(workspace_root.resolve())
+    except (PackageResourceError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json({"destination": str(result.destination), "copied": [str(path) for path in result.copied]})
 
 
 @app.command("autonomy-step")
