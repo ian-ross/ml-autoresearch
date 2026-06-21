@@ -133,12 +133,55 @@ def validate_runtime_images(workspace_root: str | Path = Path(".")) -> dict[str,
             "agent": {"path": str(agent_path), "metadata_path": str(agent_path / "runtime-image.json")},
         },
         "dev_override": _dev_override_state(root),
+        "workspace_config": _workspace_config_identity(root),
         "validated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     stamp_path = root / VALIDATION_STAMP_RELATIVE
     stamp_path.parent.mkdir(parents=True, exist_ok=True)
     stamp_path.write_text(json.dumps(stamp, indent=2, sort_keys=True) + "\n")
     return stamp
+
+
+def require_runtime_image_validation(workspace_root: str | Path = Path(".")) -> dict[str, object]:
+    """Require a fresh Runtime Image Validation Stamp for runtime-image operations."""
+
+    root = Path(workspace_root).resolve()
+    _require_workspace_config(root)
+    stamp_path = root / VALIDATION_STAMP_RELATIVE
+    if not stamp_path.is_file():
+        raise RuntimeImageError(_validation_failure_message(root, "Runtime Image Validation Stamp is missing"))
+    try:
+        stamp = json.loads(stamp_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise RuntimeImageError(_validation_failure_message(root, f"Runtime Image Validation Stamp is invalid JSON: {exc}")) from exc
+    if not isinstance(stamp, dict):
+        raise RuntimeImageError(_validation_failure_message(root, "Runtime Image Validation Stamp must be a JSON object"))
+
+    config = _load_workspace_toml(root)
+    identity = current_harness_identity(root)
+    runner_tag = _configured_runner_tag(config) or default_runner_image_tag(root, identity)
+    agent_path = _configured_agent_path(config, root) or root / AGENT_IMAGE_RELATIVE
+    expected = {
+        "harness_identity": identity,
+        "image_identity": {
+            "runner": {"tag": runner_tag, "metadata_path": str(root / RUNNER_IMAGE_RELATIVE / "runtime-image.json")},
+            "agent": {"path": str(agent_path), "metadata_path": str(agent_path / "runtime-image.json")},
+        },
+        "dev_override": _dev_override_state(root),
+        "workspace_config": _workspace_config_identity(root),
+    }
+    for key, expected_value in expected.items():
+        if stamp.get(key) != expected_value:
+            raise RuntimeImageError(_validation_failure_message(root, f"Runtime Image Validation Stamp is stale or mismatched for {key}"))
+    return stamp
+
+
+def runtime_image_validation_skip_warning(command_name: str, workspace_root: str | Path = Path(".")) -> str:
+    root = Path(workspace_root).resolve()
+    return (
+        f"WARNING: --skip-runtime-image-validation used for {command_name}; "
+        f"runtime images were not checked against {root / WORKSPACE_CONFIG_FILENAME}, Harness identity, image identity, or development source override."
+    )
 
 
 def current_harness_identity(workspace_root: str | Path = Path(".")) -> dict[str, object]:
@@ -187,6 +230,19 @@ def _load_workspace_toml(root: Path) -> dict[str, object]:
         return tomllib.loads(path.read_text())
     except tomllib.TOMLDecodeError as exc:
         raise RuntimeImageError(f"invalid Workspace Configuration {path}: {exc}") from exc
+
+
+def _workspace_config_identity(root: Path) -> dict[str, object]:
+    path = root / WORKSPACE_CONFIG_FILENAME
+    return {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def _validation_failure_message(root: Path, reason: str) -> str:
+    return (
+        f"{reason}. Run `ml-autoresearch build-runtime-images --workspace-root {root} --update-config` "
+        f"if needed, then `ml-autoresearch validate-runtime-images --workspace-root {root}`. "
+        "Advanced operators may bypass with --skip-runtime-image-validation."
+    )
 
 
 def _configured_runner_tag(config: dict[str, object]) -> str | None:

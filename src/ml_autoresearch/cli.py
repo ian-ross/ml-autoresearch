@@ -47,7 +47,13 @@ from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
 from ml_autoresearch.package_resources import PackageResourceError, stage_workspace_container_build_recipes
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
-from ml_autoresearch.runtime_images import RuntimeImageError, build_runtime_images, validate_runtime_images
+from ml_autoresearch.runtime_images import (
+    RuntimeImageError,
+    build_runtime_images,
+    require_runtime_image_validation,
+    runtime_image_validation_skip_warning,
+    validate_runtime_images,
+)
 from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs
 from ml_autoresearch.batches import get_batch_summary, list_batches
 from ml_autoresearch.setup import (
@@ -70,6 +76,17 @@ def root() -> None:
 
 def _echo_json(payload: object) -> None:
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def _enforce_runtime_image_validation(command_name: str, workspace_root: Path, *, skip: bool) -> None:
+    if skip:
+        typer.echo(runtime_image_validation_skip_warning(command_name, workspace_root), err=True)
+        return
+    require_runtime_image_validation(workspace_root)
+
+
+def _workspace_config_exists(workspace_root: Path) -> bool:
+    return (Path(workspace_root).resolve() / "ml-autoresearch.toml").is_file()
 
 
 def _select_backend(
@@ -274,12 +291,17 @@ def setup_command(
 @app.command("prepare-agent-boundary")
 def prepare_agent_boundary_command(
     workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml.")] = Path("."),
+    skip_runtime_image_validation: Annotated[
+        bool,
+        typer.Option("--skip-runtime-image-validation", help="Bypass the Runtime Image Validation Stamp check with a prominent warning."),
+    ] = False,
 ) -> None:
     """Prepare Agent Control Boundary snapshots, workspace directories, and pi-fort config."""
 
     try:
+        _enforce_runtime_image_validation("prepare-agent-boundary", workspace_root, skip=skip_runtime_image_validation)
         result = prepare_agent_boundary(workspace_root)
-    except (AgentBoundaryError, OSError) as exc:
+    except (RuntimeImageError, AgentBoundaryError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
 
@@ -363,6 +385,10 @@ def autonomy_step_command(
 @app.command("run-autonomous-iteration")
 def run_autonomous_iteration_command(
     workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml.")] = Path("."),
+    skip_runtime_image_validation: Annotated[
+        bool,
+        typer.Option("--skip-runtime-image-validation", help="Bypass the Runtime Image Validation Stamp check with a prominent warning."),
+    ] = False,
     agent_command: Annotated[
         str | None,
         typer.Option(
@@ -380,6 +406,7 @@ def run_autonomous_iteration_command(
     """Run a bounded autonomous iteration loop and send a completion email."""
 
     try:
+        _enforce_runtime_image_validation("run-autonomous-iteration", workspace_root, skip=skip_runtime_image_validation)
         max_duration_seconds = parse_duration_seconds(max_duration) if max_duration is not None else None
         result = run_autonomous_iteration(
             workspace_root,
@@ -388,7 +415,7 @@ def run_autonomous_iteration_command(
             max_duration_seconds=max_duration_seconds,
             notify_email=notify_email,
         )
-    except (AutonomousIterationError, AutonomyStepError, AgentBoundaryError, ResearchLedgerError, OSError) as exc:
+    except (RuntimeImageError, AutonomousIterationError, AutonomyStepError, AgentBoundaryError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     typer.echo(format_autonomous_iteration_summary(result))
 
@@ -524,6 +551,14 @@ def create_capability_request_command(
 def run_post_run_evaluation_command(
     request: Annotated[Path, typer.Option(help="Path to a YAML Evaluation Request file.")],
     runs_root: Annotated[Path, typer.Option(help="Directory containing local Harness Run directories.")],
+    workspace_root: Annotated[
+        Path | None,
+        typer.Option("--workspace-root", help="Research Workspace Root containing ml-autoresearch.toml; defaults to runs_root parent when present."),
+    ] = None,
+    skip_runtime_image_validation: Annotated[
+        bool,
+        typer.Option("--skip-runtime-image-validation", help="Bypass the Runtime Image Validation Stamp check with a prominent warning."),
+    ] = False,
     ledger_path: Annotated[
         Path,
         typer.Option(help="Append-only Research Ledger JSONL path."),
@@ -532,8 +567,11 @@ def run_post_run_evaluation_command(
     """Validate an Evaluation Request and run a bounded Post-Run Evaluation."""
 
     try:
+        validation_root = workspace_root if workspace_root is not None else runs_root.resolve().parent
+        if _workspace_config_exists(validation_root):
+            _enforce_runtime_image_validation("run-post-run-evaluation", validation_root, skip=skip_runtime_image_validation)
         result = run_post_run_evaluation(request, runs_root=runs_root, ledger_path=ledger_path)
-    except (EvaluationRequestError, ResearchLedgerError, OSError) as exc:
+    except (RuntimeImageError, EvaluationRequestError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
 
@@ -871,6 +909,10 @@ def run_candidate_command(
         bool,
         typer.Option("--daemonize", help="Start the Candidate Experiment Run in a detached background process and return immediately."),
     ] = False,
+    skip_runtime_image_validation: Annotated[
+        bool,
+        typer.Option("--skip-runtime-image-validation", help="Bypass the Runtime Image Validation Stamp check with a prominent warning."),
+    ] = False,
     ledger_path: Annotated[
         Path | None,
         typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Overrides ml-autoresearch.toml."),
@@ -882,6 +924,8 @@ def run_candidate_command(
     from ml_autoresearch.runs import run_candidate_with_research_problem
 
     try:
+        if backend == "docker":
+            _enforce_runtime_image_validation("run-candidate", workspace_root, skip=skip_runtime_image_validation)
         config, provider_config = _load_configured_provider(workspace_root, label="run-candidate")
         effective_runs_root = config.runs_root if runs_root is None else runs_root
         effective_ledger_path = _effective_ledger_path(config, override=ledger_path)
@@ -906,7 +950,7 @@ def run_candidate_command(
             ledger_path=effective_ledger_path,
             require_proposal=require_proposal,
         )
-    except (CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
+    except (RuntimeImageError, CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
     _echo_run(run)
     if run.status != RunStatus.COMPLETED:
@@ -964,6 +1008,14 @@ def evaluate_run_command(
         bool,
         typer.Option("--daemonize", help="Start the Post-Run Evaluation in a detached background process and return immediately."),
     ] = False,
+    workspace_root: Annotated[
+        Path | None,
+        typer.Option("--workspace-root", help="Research Workspace Root containing ml-autoresearch.toml; defaults to the Run's runs_root parent when present."),
+    ] = None,
+    skip_runtime_image_validation: Annotated[
+        bool,
+        typer.Option("--skip-runtime-image-validation", help="Bypass the Runtime Image Validation Stamp check with a prominent warning."),
+    ] = False,
     ledger_path: Annotated[
         Path | None,
         typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Defaults to runs_root sibling research-ledger.jsonl."),
@@ -978,6 +1030,10 @@ def evaluate_run_command(
 
     selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
+        if backend == "docker":
+            validation_root = workspace_root if workspace_root is not None else run.resolve().parent.parent
+            if _workspace_config_exists(validation_root):
+                _enforce_runtime_image_validation("evaluate-run", validation_root, skip=skip_runtime_image_validation)
         resolved_ledger_path = ledger_path if ledger_path is not None else default_evaluation_ledger_path(run)
         if backend == "native":
             result = evaluate_run(
@@ -992,7 +1048,7 @@ def evaluate_run_command(
             return
         selected_backend.evaluate_run(run, data_root=data_root, max_artifact_samples=max_artifact_samples)
         ledger_events = _record_latest_docker_evaluation(run, resolved_ledger_path)
-    except (EvaluationError, RuntimeError, ResearchLedgerError, OSError) as exc:
+    except (RuntimeImageError, EvaluationError, RuntimeError, ResearchLedgerError, OSError) as exc:
         _echo_json({"status": "failed", "failure_reason": str(exc)})
         raise typer.Exit(1) from exc
     _echo_json({"status": "completed", "backend": "docker", "run_dir": str(run), "ledger_events": ledger_events})

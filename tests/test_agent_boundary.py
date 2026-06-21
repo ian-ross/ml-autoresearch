@@ -6,7 +6,10 @@ from conftest import invoke_typer_cli
 
 
 def run_cli(cwd: Path, *args: str):
-    return invoke_typer_cli(app, args, cwd=cwd)
+    arg_list = list(args)
+    if arg_list and arg_list[0] == "prepare-agent-boundary" and "--skip-runtime-image-validation" not in arg_list:
+        arg_list.append("--skip-runtime-image-validation")
+    return invoke_typer_cli(app, arg_list, cwd=cwd)
 
 
 

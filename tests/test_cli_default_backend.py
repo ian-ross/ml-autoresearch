@@ -21,6 +21,7 @@ def test_run_candidate_defaults_to_docker_backend(tmp_path: Path):
         str(tmp_path / "runs"),
         "--workspace-root",
         str(tmp_path),
+        "--skip-runtime-image-validation",
     )
 
     assert completed.returncode == 1
