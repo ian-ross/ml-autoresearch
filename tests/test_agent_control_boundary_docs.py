@@ -24,7 +24,7 @@ def test_agent_control_boundary_docs_describe_workspace_and_reference_layout() -
         "/history",
         "/docs",
         "/data",
-        "/reference/HARNESS_CONTEXT.md",
+        "/reference/WORKSPACE_CONTEXT.md",
         "/reference/EXPERIMENT_INDEX.md",
         "/history/research-ledger.jsonl",
     ]:

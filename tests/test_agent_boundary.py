@@ -147,7 +147,7 @@ path = "{data_root}"
             "check": False,
         }
     ]
-    assert (tmp_path / "agent-reference" / "HARNESS_CONTEXT.md").read_text() == "context v1\n"
+    assert (tmp_path / "agent-reference" / "WORKSPACE_CONTEXT.md").read_text() == "context v1\n"
     assert not (tmp_path / "agent-reference" / "CONTEXT.md").exists()
     assert (tmp_path / "agent-reference" / "EXPERIMENT_INDEX.md").read_text() == "index v1\n"
     assert (tmp_path / "agent-research-problem" / "fake_research_problem" / "brief" / "overview.md").read_text() == "# Tiny overview\n"
@@ -186,7 +186,7 @@ path = "{data_root}"
     assert "Available Dataset Profile Artifacts:" in brief_index
     assert "**tiny_profile** (`deterministic_test_dataset_profile`)" in brief_index
     assert "# Tiny baselines" not in brief_index
-    assert "`CONTEXT.md` -> `/reference/HARNESS_CONTEXT.md`" in instructions
+    assert "`CONTEXT.md` -> `/reference/WORKSPACE_CONTEXT.md`" in instructions
     assert "`docs/` -> `/docs/`" in instructions
     assert "`research-notes/` -> `/history/research-notes/` for prior notes" in instructions
     assert "write new draft Research Notes under `research-notes/`" in instructions

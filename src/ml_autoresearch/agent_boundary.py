@@ -45,7 +45,7 @@ class AgentBoundaryConfig:
     research_problem_provider: Any
 
 
-REFERENCE_FILES = {"CONTEXT.md": "HARNESS_CONTEXT.md", "EXPERIMENT_INDEX.md": "EXPERIMENT_INDEX.md"}
+REFERENCE_FILES = {"CONTEXT.md": "WORKSPACE_CONTEXT.md", "EXPERIMENT_INDEX.md": "EXPERIMENT_INDEX.md"}
 RESEARCH_PROBLEM_INDEX = "RESEARCH_PROBLEM_BRIEF_INDEX.md"
 HISTORY_DIRS = ("candidates", "runs", "batches", "research-notes")
 WORKSPACE_DIRS = (
@@ -360,7 +360,7 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "\n"
         "## Read-only reference and history\n"
         "\n"
-        "- `CONTEXT.md` -> `/reference/HARNESS_CONTEXT.md` for Harness language and constraints\n"
+        "- `CONTEXT.md` -> `/reference/WORKSPACE_CONTEXT.md` for Research Workspace language and constraints\n"
         "- `EXPERIMENT_INDEX.md` -> `/reference/EXPERIMENT_INDEX.md` as Research Loop reference material\n"
         "- `docs/` -> `/docs/`\n"
         "- `research-ledger.jsonl` -> `/history/research-ledger.jsonl`\n"

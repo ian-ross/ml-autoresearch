@@ -109,7 +109,7 @@ assert 'exactly one primary research handoff outcome' in prompt
 assert Path('AGENTS.md').is_file()
 Path('research-notes').mkdir(exist_ok=True)
 Path('research-notes/2026-05-22-agent-note.md').write_text('# Agent Note\\n\\n## Summary\\nOne note.\\n\\n## Decision\\nContinue.\\n')
-Path('scratch/invocation.json').write_text(json.dumps({'cwd': os.getcwd(), 'reference': Path('../agent-reference/HARNESS_CONTEXT.md').read_text()}))
+Path('scratch/invocation.json').write_text(json.dumps({'cwd': os.getcwd(), 'reference': Path('../agent-reference/WORKSPACE_CONTEXT.md').read_text()}))
 """,
     )
 
@@ -139,7 +139,7 @@ def test_autonomy_step_refreshes_agent_control_boundary_before_invocation(tmp_pa
     (tmp_path / "CONTEXT.md").write_text("context v2\n")
     fake_command = write_fake_agent(
         tmp_path / "fake_agent.py",
-        "Path('scratch/reference.txt').write_text(Path('../agent-reference/HARNESS_CONTEXT.md').read_text())\n",
+        "Path('scratch/reference.txt').write_text(Path('../agent-reference/WORKSPACE_CONTEXT.md').read_text())\n",
     )
 
     completed = run_cli(tmp_path, "autonomy-step", "--workspace-root", str(tmp_path), "--agent-command", fake_command)

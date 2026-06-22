@@ -156,7 +156,7 @@ where validation, canonical ledger/index updates, and Run scheduling occur.
 The Harness also writes `agent-work/AGENTS.md` with the Agent Control Boundary
 path map. It tells the inner agent how to translate Research Workspace Root paths mentioned
 in Autoresearch skills into boundary mounts, for example `CONTEXT.md` to
-`/reference/HARNESS_CONTEXT.md`, `docs/` to `/docs/`, and prior `research-notes/` to
+`/reference/WORKSPACE_CONTEXT.md`, `docs/` to `/docs/`, and prior `research-notes/` to
 `/history/research-notes/`, while keeping new draft notes under the writable
 workspace `research-notes/` directory.
 
@@ -187,7 +187,7 @@ active Pi skills inside the VM.
 The VM exposes these read-only paths:
 
 - `/reference` — the Agent Reference Snapshot generated at setup time.
-  - `/reference/HARNESS_CONTEXT.md` — canonical Harness language and constraints snapshot.
+  - `/reference/WORKSPACE_CONTEXT.md` — canonical Research Workspace language and constraints snapshot.
   - `/reference/EXPERIMENT_INDEX.md` — canonical Experiment Index as Research Loop reference material.
 - `/history` — prior research material exposed for review.
   - `/history/research-ledger.jsonl` — Research Ledger snapshot.
