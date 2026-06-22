@@ -371,6 +371,10 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "- `/data/` is reserved for optional approved read-only Research Problem data mounts only when an explicit bounded-exception policy configures them\n"
         "- Full training datasets are not part of the default Agent Control Boundary; use Research Problem Briefs, Research History, Run artifacts, Post-Run Evaluation diagnostics, and Dataset Profile Artifacts instead\n"
         "\n"
+        "## Python and uv execution safety\n"
+        "\n"
+        "Do not run `uv run`, `uv sync`, or other virtual-environment-mutating commands from a mounted Research Problem Repository path that may contain a host `.venv/`. Host virtual environments are not portable across the Agent Control Boundary VM and uv may try to repair or recreate them, corrupting the host `.venv/` on the writable mount. If you need to run Harness commands, use `ml-autoresearch-agent` from the Agent Workspace. If an operator explicitly asks you to run `uv` against a mounted workspace, set a VM-local environment first, for example `UV_PROJECT_ENVIRONMENT=/tmp/ml-autoresearch-agent-venv uv run ...`, so uv does not touch the repository-local `.venv/`.\n"
+        "\n"
         "## Active Research Problem Brief\n"
         "\n"
         + brief_index

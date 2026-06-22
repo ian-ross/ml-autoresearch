@@ -193,6 +193,9 @@ path = "{data_root}"
     assert "One Autonomy Step means one primary handoff outcome, then stop." in instructions
     assert "Do not\nproduce a second Candidate Submission" in instructions
     assert "Use `ml-autoresearch-agent`, not `ml-autoresearch`" in instructions
+    assert "## Python and uv execution safety" in instructions
+    assert "UV_PROJECT_ENVIRONMENT=/tmp/ml-autoresearch-agent-venv uv run" in instructions
+    assert "so uv does not touch the repository-local `.venv/`" in instructions
     assert "## Dataset profile artifacts" in instructions
     assert "`/research-problem/profile/`" in instructions
     assert "not raw training data or authoritative Run Results" in instructions

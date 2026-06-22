@@ -17,6 +17,7 @@ Prompt the inner agent with these operational rules:
 
 - The Agent Workspace is the current writable directory inside the VM.
 - Use `ml-autoresearch-agent`, not `ml-autoresearch`, inside the VM.
+- Do not run `uv run` or `uv sync` from mounted Research Problem Repository paths that may contain host `.venv/` directories; if an operator explicitly asks for `uv`, set a VM-local environment such as `UV_PROJECT_ENVIRONMENT=/tmp/ml-autoresearch-agent-venv uv run ...`.
 - Draft Candidate Experiments and handoff artifacts only in the Agent Workspace.
 - Review read-only reference, history, docs, Research Problem Briefs, dataset
   profile artifacts, and approved data summaries before proposing work.
