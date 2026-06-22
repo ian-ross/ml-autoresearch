@@ -1,0 +1,27 @@
+request_id: eval_2026_06_20_temporal_eligible_control_failure_buckets
+target_run_id: run_20260620_092332_3ee9a1
+evaluation_mode: failure_bucket_review
+diagnostic_question: >-
+  On the temporal-eligible GVCCS Working Validation subset, does the matched
+  single-frame ASPP-context control differ from the centered three-frame temporal
+  ASPP-context Run in specific failure buckets such as false-positive-heavy
+  positive masks, false-negative-heavy positives, empty-mask false positives, or
+  fully missed small positive masks, or is the temporal model's remaining
+  approximately 0.002 Dice advantage mostly threshold/calibration noise?
+expected_decision_impact: >-
+  Use the aggregate metrics, threshold sweep, per-sample metrics, and bounded
+  deterministic diagnostic samples to compare this matched single-frame control
+  with the existing temporal failure-bucket evaluation for
+  run_20260618_204556_e6a60b. If the control has the same bucket profile and a
+  similar best threshold, treat temporal channels as a small marginal gain and
+  prefer simpler single-frame/data-policy refinements. If the control shows more
+  missed positives or false-positive-heavy errors on the same subset, prioritize
+  temporal architecture refinements that target the observed bucket difference.
+parameters:
+  primary_threshold: 0.5
+  batch_size: 8
+  artifact_count: 24
+  failure_bucket_count: 4
+artifact_budget:
+  max_artifacts: 24
+  max_runtime_seconds: 1800

@@ -1,0 +1,30 @@
+request_id: eval_2026_06_18_aspp_context_failure_buckets
+target_run_id: run_20260615_140810_2bee94
+evaluation_mode: failure_bucket_review
+diagnostic_question: >-
+  Does the ASPP-style bottleneck-context extra-wide Line Target U-Net preserve
+  its best-validation Dice and recall gains across the whole GVCCS Working
+  Validation Split, or is the aggregate improvement driven by a threshold-0.5
+  precision/recall tradeoff that worsens known failure buckets such as
+  empty-mask false positives, false-positive-heavy positive masks,
+  false-negative-heavy positive masks, or missed-positive masks relative to the
+  plateau/es comparison target?
+expected_decision_impact: >-
+  Compare the threshold sweep, aggregate whole-validation metrics, and
+  deterministic failure-bucket samples with the plateau/es evaluation
+  eval_eval_2026_06_15_plateau_es_failure_buckets for
+  run_20260614_124226_05e3eb. If run_20260615_140810_2bee94 reduces missed
+  positive masks or false-negative-heavy positives without broad empty-sky or
+  diffuse false-positive spread, promote the ASPP-context model as the next
+  primary Comparison Target. If its precision drop is explained by empty-mask
+  affected-sample growth, false-positive-heavy spread, or only threshold-local
+  behavior, abandon this context setting and prefer a smaller context variant or
+  a Harness-owned data-policy capability direction.
+parameters:
+  primary_threshold: 0.5
+  batch_size: 8
+  artifact_count: 24
+  failure_bucket_count: 4
+artifact_budget:
+  max_artifacts: 24
+  max_runtime_seconds: 1800

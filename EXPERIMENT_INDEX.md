@@ -73,6 +73,14 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 
 | `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context/README.md) — Extra-wide single-frame U-Net with Line Target auxiliary loss, p=0.075 bottleneck dropout, lightweight dilated bottleneck context, reduce-on-plateau scheduling, and early stopping with best-checkpoint restoration. | Pending full Research Note. | Pending Research Problem Run. | Pending Harness Run; ingested from Agent Workspace. |
 
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_mask_gate` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_mask_gate/README.md) — Extra-wide single-frame U-Net with Line Target auxiliary loss, p=0.075 bottleneck dropout, lightweight dilated bottleneck context, decoder-side mask gate, reduce-on-plateau scheduling, and early stopping with best-checkpoint restoration. | Pending full Research Note. | Pending Research Problem Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/temporal_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context` | [`README.md`](candidates/temporal_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context/README.md) — Centered temporal RGB clip U-Net with Line Target auxiliary loss, p=0.075 bottleneck dropout, lightweight dilated bottleneck context, reduce-on-plateau scheduling, and early stopping with best-checkpoint restoration. | Pending full Research Note. | Pending Research Problem Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context_temporal_eligible_control` | [`README.md`](candidates/single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context_temporal_eligible_control/README.md) — Matched single-frame ASPP-context extra-wide U-Net control using temporal-eligible center frame selection to isolate the data-policy effect from temporal clip input. | Pending full Research Note. | Pending Research Problem Run. | Pending Harness Run; ingested from Agent Workspace. |
+
+| `candidates/temporal_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_fine_refine` | [`README.md`](candidates/temporal_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_fine_refine/README.md) — Centered temporal RGB clip U-Net with Line Target auxiliary loss, p=0.075 bottleneck dropout, lightweight dilated bottleneck context, high-resolution fine-scale residual refinement, reduce-on-plateau scheduling, and early stopping with best-checkpoint restoration. | Pending full Research Note. | Pending Research Problem Run. | Pending Harness Run; ingested from Agent Workspace. |
+
 ## Chronological Research Notes
 
 - [`2026-05-04 baseline GVCCS tiny subset`](research-notes/2026-05-04-baseline-gvccs-tiny-subset.md)
@@ -113,3 +121,10 @@ This index links Candidate Experiment descriptions to the Research Notes that in
 - [`2026-06-03 detail-fusion architecture regression`](research-notes/2026-06-03-detail-fusion-regression.md)
 - [`2026-06-15 reduce-on-plateau early-stopping training-policy improvement`](research-notes/2026-06-15-plateau-es-training-policy-improvement.md)
 - [`2026-06-15 plateau/es failure-bucket evaluation`](research-notes/2026-06-15-plateau-es-failure-bucket-evaluation.md)
+- [`2026-06-16 ASPP-style bottleneck context aggregate improvement`](research-notes/2026-06-16-aspp-context-aggregate-improvement.md)
+- [`2026-06-18 ASPP-context failure-bucket evaluation`](research-notes/2026-06-18-aspp-context-failure-bucket-evaluation.md)
+- [`2026-06-18 ASPP mask-gate precision tradeoff`](research-notes/2026-06-18-mask-gate-precision-tradeoff.md)
+- [`2026-06-20 temporal ASPP-context improvement`](research-notes/2026-06-20-temporal-aspp-context-improvement.md)
+- [`2026-06-20 temporal ASPP-context failure-bucket evaluation`](research-notes/2026-06-20-temporal-aspp-context-failure-bucket-evaluation.md)
+- [`2026-06-20 temporal-eligible single-frame control`](research-notes/2026-06-20-temporal-eligible-single-frame-control.md)
+- [`2026-06-20 temporal-eligible single-frame control failure-bucket evaluation`](research-notes/2026-06-20-temporal-eligible-control-failure-bucket-evaluation.md)
