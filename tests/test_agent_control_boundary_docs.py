@@ -153,5 +153,5 @@ def test_agent_control_boundary_docs_define_root_config_schema() -> None:
     assert "does not copy unmapped raw dataset paths" in text
     assert "explicit bounded exception" in text
     assert "{path=\"/path/to/research-problem-data\", target=\"/data/example-research-problem-data\", readonly=true}" not in text
-    assert "pi install -l" in text
+    assert "pi install --approve -l" in text
     assert "fail before invoking the autonomy agent if pi-fort" in text

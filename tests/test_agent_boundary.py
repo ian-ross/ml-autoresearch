@@ -140,7 +140,7 @@ path = "{data_root}"
     assert completed.returncode == 0, completed.stderr
     assert pi_install_calls == [
         {
-            "command": ["pi", "install", "-l", str((tmp_path / "local-pi-fort").resolve(strict=True))],
+            "command": ["pi", "install", "--approve", "-l", str((tmp_path / "local-pi-fort").resolve(strict=True))],
             "cwd": tmp_path / "agent-work",
             "capture_output": True,
             "text": True,
@@ -405,7 +405,7 @@ def test_prepare_agent_boundary_surfaces_failed_pi_fort_install(tmp_path: Path, 
 
     assert completed.returncode == 1
     assert "failed to install pi-fort into Agent Workspace" in completed.stderr
-    assert "command: pi install -l" in completed.stderr
+    assert "command: pi install --approve -l" in completed.stderr
     assert f"cwd: {tmp_path / 'agent-work'}" in completed.stderr
     assert "stdout: out text" in completed.stderr
     assert "stderr: err text" in completed.stderr
@@ -426,7 +426,7 @@ def test_prepare_agent_boundary_surfaces_missing_pi_executable(tmp_path: Path, m
 
     assert completed.returncode == 1
     assert "`pi` executable was not found" in completed.stderr
-    assert "command: pi install -l" in completed.stderr
+    assert "command: pi install --approve -l" in completed.stderr
     assert f"cwd: {tmp_path / 'agent-work'}" in completed.stderr
 
 

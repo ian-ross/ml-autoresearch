@@ -426,7 +426,7 @@ def _install_autoresearch_skills(project_root: Path, workspace_dir: Path) -> Non
 
 def _install_pi_fort_extension(workspace_dir: Path) -> None:
     pi_fort_path = _resolve_pi_fort_path_from_environment()
-    command = ["pi", "install", "-l", str(pi_fort_path)]
+    command = ["pi", "install", "--approve", "-l", str(pi_fort_path)]
     try:
         completed = subprocess.run(command, cwd=workspace_dir, capture_output=True, text=True, check=False)
     except FileNotFoundError as exc:

@@ -430,7 +430,7 @@ Autoresearch Skill Set files under `agent-work/.pi/skills/`, rewrites the
 managed workspace instruction file `agent-work/AGENTS.md`, writes an
 Agent-Workspace-local `ml-autoresearch.toml` pointing at `/research-problem`
 and only explicit bounded-exception mounted `/data/...` paths for agent-safe static validation, and installs pi-fort
-into `agent-work` with `pi install -l "$ML_AUTORESEARCH_PI_FORT"`; it does not
+into `agent-work` with `pi install --approve -l "$ML_AUTORESEARCH_PI_FORT"`; it does not
 delete the whole `agent-work/.pi` directory or existing Agent Workspace outputs.
 The local pi-fort path must exist and resolve to an absolute path after `~`
 expansion. `prepare-agent-boundary`, `autonomy-step`, and
