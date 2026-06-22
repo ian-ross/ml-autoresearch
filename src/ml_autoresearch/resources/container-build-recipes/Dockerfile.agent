@@ -41,7 +41,7 @@ def build_spec(data_config=None):
         training_adapter=Adapter(), auxiliary_targets=("boundary",), auxiliary_losses=("weighted_bce",), auxiliary_outputs={"boundary": "boundary_logits"},
     )
 EOF
-RUN cat > /tmp/agent-smoke/project/candidate-execution.toml <<'EOF'
+RUN cat > /tmp/agent-smoke/project/ml-autoresearch.toml <<'EOF'
 [research_problem]
 id = "smoke_problem"
 package_root = "/tmp/agent-smoke/project"
@@ -63,8 +63,8 @@ RUN touch /tmp/agent-smoke/candidate/model.py \
     && printf '%s\n' '# Smoke Candidate' > /tmp/agent-smoke/candidate/README.md \
     && printf '%s\n' 'Hypothesis: smoke' 'Comparison Target: smoke' 'Expected Effect: smoke' 'Implementation Sketch: smoke' 'Contract Features Used: smoke' 'Budget Requested: smoke' 'Success Criteria: smoke' 'Fallback Next Decision: smoke' > /tmp/agent-smoke/candidate/PROPOSAL.md \
     && ml-autoresearch-agent list-runs --runs-root /tmp/agent-smoke/runs >/dev/null \
-    && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-smoke/candidate --project-root /tmp/agent-smoke/project >/dev/null \
-    && ml-autoresearch-agent prepare-candidate-submission --candidate /tmp/agent-smoke/candidate --submissions-root /tmp/agent-smoke/submissions --project-root /tmp/agent-smoke/project >/dev/null \
+    && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-smoke/candidate --workspace-root /tmp/agent-smoke/project >/dev/null \
+    && ml-autoresearch-agent prepare-candidate-submission --candidate /tmp/agent-smoke/candidate --submissions-root /tmp/agent-smoke/submissions --workspace-root /tmp/agent-smoke/project >/dev/null \
     && mkdir -p /tmp/agent-boundary-smoke/candidate \
     && cat > /tmp/agent-boundary-smoke/candidate/manifest.yaml <<'EOF'
 name: boundary_aux_candidate
@@ -83,7 +83,7 @@ training:
   max_epochs: 1
 EOF
 RUN touch /tmp/agent-boundary-smoke/candidate/model.py \
-    && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-boundary-smoke/candidate --project-root /tmp/agent-smoke/project --no-require-proposal >/dev/null \
+    && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-boundary-smoke/candidate --workspace-root /tmp/agent-smoke/project --no-require-proposal >/dev/null \
     && rm -rf /tmp/agent-smoke /tmp/agent-boundary-smoke
 
 WORKDIR /workspace

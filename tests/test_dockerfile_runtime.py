@@ -67,6 +67,10 @@ def test_agent_dockerfile_smoke_checks_allowed_static_commands() -> None:
     assert "ml-autoresearch-agent list-runs" in dockerfile
     assert "ml-autoresearch-agent validate-candidate" in dockerfile
     assert "ml-autoresearch-agent prepare-candidate-submission" in dockerfile
+    assert "--workspace-root /tmp/agent-smoke/project" in dockerfile
+    assert "--project-root" not in dockerfile
+    assert "ml-autoresearch.toml" in dockerfile
+    assert "candidate-execution.toml" not in dockerfile
 
 
 def test_agent_dockerfile_smoke_checks_boundary_auxiliary_contract() -> None:

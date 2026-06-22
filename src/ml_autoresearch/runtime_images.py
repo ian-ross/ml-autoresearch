@@ -68,10 +68,11 @@ def build_runtime_images(
     runner_tag = default_runner_image_tag(root, identity)
     agent_path = root / AGENT_IMAGE_RELATIVE
     recipes = stage_workspace_container_build_recipes(root).destination
+    docker_build_context = _docker_build_context(root, identity)
 
     commands = [
-        ["docker", "build", "-f", str(recipes / "Dockerfile.runner"), "-t", runner_tag, str(root)],
-        ["docker", "build", "-f", str(recipes / "Dockerfile.agent"), "-t", default_agent_oci_image_tag(root, identity), str(root)],
+        ["docker", "build", "-f", str(recipes / "Dockerfile.runner"), "-t", runner_tag, str(docker_build_context)],
+        ["docker", "build", "-f", str(recipes / "Dockerfile.agent"), "-t", default_agent_oci_image_tag(root, identity), str(docker_build_context)],
         [
             "gondolin",
             "build",
@@ -212,6 +213,14 @@ def default_agent_oci_image_tag(workspace_root: str | Path, identity: dict[str, 
     identity = identity or current_harness_identity(root)
     identity_part = str(identity.get("version") or identity.get("fingerprint") or "unknown")
     return f"ml-autoresearch-agent:{_slug(f'{root.name}-{identity_part}', max_length=120)}"
+
+
+def _docker_build_context(workspace_root: Path, identity: dict[str, object]) -> Path:
+    if identity.get("kind") == "source":
+        path = identity.get("path")
+        if isinstance(path, str) and path:
+            return Path(path)
+    return workspace_root
 
 
 def _run_command(command: list[str]) -> None:

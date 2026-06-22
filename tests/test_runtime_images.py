@@ -150,6 +150,21 @@ def test_dev_source_override_changes_identity_and_validation_metadata(tmp_path: 
     assert require_runtime_image_validation(tmp_path)["harness_identity"] == stamp["harness_identity"]
 
 
+def test_dev_source_override_uses_harness_source_as_docker_build_context(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "harness-src"
+    source.mkdir()
+    _workspace_config(tmp_path)
+    monkeypatch.setenv("ML_AUTORESEARCH_RUNTIME_IMAGE_SOURCE_OVERRIDE", str(source))
+    commands: list[list[str]] = []
+
+    build_runtime_images(tmp_path, execute=True, command_runner=lambda command: commands.append(command))
+
+    docker_builds = [command for command in commands if command[:2] == ["docker", "build"]]
+    assert len(docker_builds) == 2
+    assert all(command[-1] == str(source.resolve()) for command in docker_builds)
+    assert all(str(tmp_path / ".ml-autoresearch" / "container-build-recipes") in command[3] for command in docker_builds)
+
+
 def test_require_runtime_image_validation_rejects_changed_dev_source_override(tmp_path: Path, monkeypatch) -> None:
     original_source = tmp_path / "harness-src-original"
     changed_source = tmp_path / "harness-src-changed"
