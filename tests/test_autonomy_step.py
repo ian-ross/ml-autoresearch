@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ml_autoresearch.autonomy_step import run_autonomy_step
+from ml_autoresearch.autonomy_step import render_autonomy_step_prompt, run_autonomy_step
 from ml_autoresearch.cli import app
 from ml_autoresearch.execution import OperationResult
 from conftest import invoke_typer_cli
@@ -149,6 +149,46 @@ def test_autonomy_step_refreshes_agent_control_boundary_before_invocation(tmp_pa
     result = json.loads((tmp_path / "agent-work" / "autonomy-step-result.json").read_text())
     assert result["status"] == "no_handoff"
     assert result["ingestion"]["next_action"] == "stop_for_human"
+
+
+def test_autonomy_step_prompt_does_not_treat_punctuated_none_pause_report_as_active_pause(tmp_path: Path):
+    from ml_autoresearch.campaign_controls import record_campaign_report_written
+
+    write_project(tmp_path)
+    report = tmp_path / "campaign-reports" / "2026-06-24-status.md"
+    report.parent.mkdir()
+    report.write_text(
+        """# Campaign Report: Test
+
+## Pause recommendation
+- Pause condition: none.
+- Human decision needed: no.
+"""
+    )
+    record_campaign_report_written("campaign-reports/2026-06-24-status.md", ledger_path=tmp_path / "research-ledger.jsonl")
+
+    prompt = render_autonomy_step_prompt(tmp_path)
+
+    assert "Campaign pause state:" not in prompt
+    assert "recommends pause for `none.`" not in prompt
+
+
+def test_autonomy_step_prompt_includes_campaign_report_schema_when_reports_are_allowed() -> None:
+    prompt = render_autonomy_step_prompt()
+
+    assert "If you write a Campaign Report" in prompt
+    for heading in [
+        "## Current best Result",
+        "## Recent Runs",
+        "## Failures",
+        "## Pending Capability Requests",
+        "## Budget use",
+        "## Next hypothesis",
+        "## Pause recommendation",
+    ]:
+        assert heading in prompt
+    assert "- Pause condition: none" in prompt
+    assert "Do not add punctuation or prose" in prompt
 
 
 def test_autonomy_step_prompt_tells_agent_when_human_resumed_after_pause_report(tmp_path: Path):

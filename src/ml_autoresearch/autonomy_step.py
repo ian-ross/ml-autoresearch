@@ -167,6 +167,16 @@ def render_autonomy_step_prompt(project_root: Path | None = None) -> str:
         "\n"
         "Multiple primary handoff outcomes are forbidden in one Autonomy Step. If blocked, write one Campaign Report "
         "or one Capability Request, not both. If no useful handoff is safe, stop without fabricating artifacts.\n"
+        "If you write a Campaign Report, it must include these exact machine-readable headings:\n"
+        "- ## Current best Result\n"
+        "- ## Recent Runs\n"
+        "- ## Failures\n"
+        "- ## Pending Capability Requests\n"
+        "- ## Budget use\n"
+        "- ## Next hypothesis\n"
+        "- ## Pause recommendation\n"
+        "The Campaign Report Pause recommendation must include exactly `- Pause condition: none` or "
+        "`- Pause condition: <approved_value>`. Do not add punctuation or prose to the Pause condition line.\n"
         "Use ml-autoresearch-agent, not ml-autoresearch, for allowed inner-boundary commands.\n"
     )
 
@@ -234,12 +244,17 @@ def _campaign_report_pause_reason(project_root: Path, report_path: str) -> str |
         path = project_root / path
     if not path.is_file():
         return None
-    prefix = "- Pause condition:"
+    prefix = "Pause condition:"
     for line in path.read_text().splitlines():
         normalized = line.strip()
-        if normalized.startswith(prefix):
-            return normalized[len(prefix) :].strip().strip("`")
+        candidate = normalized[1:].strip() if normalized.startswith("-") else normalized
+        if candidate.startswith(prefix):
+            return _normalize_campaign_report_pause_reason(candidate[len(prefix) :])
     return None
+
+
+def _normalize_campaign_report_pause_reason(raw_value: str) -> str:
+    return raw_value.strip().strip("`").strip().rstrip(".").strip().strip("`")
 
 
 def write_result_file(workspace: Path, result: AutonomyStepResult) -> Path:
