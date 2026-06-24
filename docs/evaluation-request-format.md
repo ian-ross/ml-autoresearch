@@ -22,7 +22,7 @@ Required fields:
 
 `request_id` is optional. If omitted, the Harness uses the request filename stem as the stable request identifier.
 
-Run a Post-Run Evaluation with:
+Run a Post-Run Evaluation with the CLI. In a Research Workspace configured with `candidate_execution.backend = "docker"`, this command dispatches through the configured Docker Candidate Execution Boundary:
 
 ```bash
 ml-autoresearch run-post-run-evaluation \

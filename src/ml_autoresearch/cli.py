@@ -569,9 +569,41 @@ def run_post_run_evaluation_command(
     try:
         validation_root = workspace_root if workspace_root is not None else runs_root.resolve().parent
         if _workspace_config_exists(validation_root):
-            _enforce_runtime_image_validation("run-post-run-evaluation", validation_root, skip=skip_runtime_image_validation)
+            from ml_autoresearch.candidate_execution_config import execution_backend_from_config, load_candidate_execution_config
+            from ml_autoresearch.evaluation_requests import _evaluation_id, validate_evaluation_request_file
+
+            config = load_candidate_execution_config(validation_root)
+            if config.backend == "docker":
+                _enforce_runtime_image_validation("run-post-run-evaluation", validation_root, skip=skip_runtime_image_validation)
+                effective_ledger_path = config.ledger_path or ledger_path
+                operation = execution_backend_from_config(config).run_post_run_evaluation(
+                    request,
+                    runs_root=config.runs_root,
+                    ledger_path=effective_ledger_path,
+                )
+                evaluation_request = validate_evaluation_request_file(request)
+                assert evaluation_request.request_id is not None
+                evaluation_id = _evaluation_id(evaluation_request.request_id)
+                metadata_path = (
+                    config.runs_root
+                    / evaluation_request.target_run_id
+                    / "outputs"
+                    / "evaluations"
+                    / evaluation_id
+                    / "evaluation_metadata.json"
+                )
+                evaluation = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
+                _echo_json(
+                    {
+                        "status": "completed",
+                        "backend": operation.backend,
+                        "evaluation_id": evaluation_id,
+                        "evaluation": evaluation,
+                    }
+                )
+                return
         result = run_post_run_evaluation(request, runs_root=runs_root, ledger_path=ledger_path)
-    except (RuntimeImageError, EvaluationRequestError, ResearchLedgerError, OSError) as exc:
+    except (RuntimeImageError, CandidateExecutionConfigError, EvaluationRequestError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(result)
 

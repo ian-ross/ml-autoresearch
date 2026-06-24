@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 from ml_autoresearch.cli import app
+from ml_autoresearch.execution import OperationResult
 from ml_autoresearch.evaluation_requests import (
     EvaluationRequestError,
     run_post_run_evaluation,
@@ -261,6 +262,49 @@ def test_run_post_run_evaluation_cli_requires_request(tmp_path: Path) -> None:
     assert "request" in completed.stderr
 
 
+class FakeDockerBackend:
+    name = "docker"
+    calls: list[dict[str, Path]] = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def run_post_run_evaluation(self, request_path: str | Path, *, runs_root: str | Path, ledger_path: str | Path) -> OperationResult:
+        from ml_autoresearch.evaluation_requests import _evaluation_id, validate_evaluation_request_file
+        from ml_autoresearch.research_ledger import record_research_event
+
+        request = validate_evaluation_request_file(request_path)
+        assert request.request_id is not None
+        evaluation_id = _evaluation_id(request.request_id)
+        evaluation_dir = Path(runs_root) / request.target_run_id / "outputs" / "evaluations" / evaluation_id
+        evaluation_dir.mkdir(parents=True)
+        metadata = {"evaluation_id": evaluation_id, "request_id": request.request_id, "parent_run_id": request.target_run_id}
+        (evaluation_dir / "evaluation_metadata.json").write_text(json.dumps(metadata) + "\n")
+        record_research_event(
+            "evaluation_requested",
+            {
+                "evaluation_request_id": request.request_id,
+                "request_path": str(request_path),
+                "run_id": request.target_run_id,
+                "evaluation_mode": request.evaluation_mode,
+            },
+            ledger_path=ledger_path,
+        )
+        record_research_event(
+            "evaluation_completed",
+            {
+                "evaluation_id": evaluation_id,
+                "evaluation_request_id": request.request_id,
+                "run_id": request.target_run_id,
+                "evaluation_mode": request.evaluation_mode,
+                "artifact_metadata_path": str((evaluation_dir / "evaluation_metadata.json").resolve()),
+            },
+            ledger_path=ledger_path,
+        )
+        self.calls.append({"request_path": Path(request_path), "runs_root": Path(runs_root), "ledger_path": Path(ledger_path)})
+        return OperationResult(backend=self.name, operation="run_post_run_evaluation")
+
+
 def test_run_post_run_evaluation_cli_validates_request_and_records_linkage(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     write_run(runs_root)
@@ -285,6 +329,52 @@ def test_run_post_run_evaluation_cli_validates_request_and_records_linkage(tmp_p
     assert payload["request"]["target_run_id"] == "run_123"
     assert payload["evaluation"]["parent_run_id"] == "run_123"
     assert read_jsonl(ledger)[1]["evaluation_id"] == payload["evaluation"]["evaluation_id"]
+
+
+def test_run_post_run_evaluation_cli_uses_configured_docker_backend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import ml_autoresearch.cli as cli
+    import ml_autoresearch.execution as execution
+
+    runs_root = tmp_path / "runs"
+    write_run(runs_root)
+    request_path = write_request(tmp_path / "request.yaml")
+    ledger = tmp_path / "research-ledger.jsonl"
+    (tmp_path / "ml-autoresearch.toml").write_text(
+        "[candidate_execution]\n"
+        "backend = \"docker\"\n"
+        "docker_image = \"custom:tag\"\n"
+        f"runs_root = \"{runs_root}\"\n"
+        f"ledger_path = \"{ledger}\"\n"
+    )
+    FakeDockerBackend.calls = []
+    monkeypatch.setattr(execution, "DockerBackend", FakeDockerBackend)
+    monkeypatch.setattr(
+        cli,
+        "run_post_run_evaluation",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("host native evaluation must not run")),
+    )
+
+    completed = invoke_typer_cli(
+        app,
+        [
+            "run-post-run-evaluation",
+            "--request",
+            str(request_path),
+            "--runs-root",
+            str(runs_root),
+            "--workspace-root",
+            str(tmp_path),
+            "--skip-runtime-image-validation",
+        ],
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "completed"
+    assert payload["backend"] == "docker"
+    assert payload["evaluation_id"] == "eval_eval-threshold-sweep-run-123"
+    assert FakeDockerBackend.calls == [{"request_path": request_path, "runs_root": runs_root, "ledger_path": ledger}]
+    assert [row["event_type"] for row in read_jsonl(ledger)] == ["evaluation_requested", "evaluation_completed"]
 
 
 def test_run_post_run_evaluation_cli_reports_ledger_write_failure_without_traceback(tmp_path: Path) -> None:
