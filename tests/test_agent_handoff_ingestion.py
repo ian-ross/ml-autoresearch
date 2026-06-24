@@ -571,6 +571,21 @@ def test_ingest_campaign_report_copies_records_events_and_selects_next_action(tm
     assert events[1]["report_path"] == "campaign-reports/2026-05-10-status.md"
 
 
+def test_ingest_campaign_report_accepts_minor_pause_condition_formatting_variants(tmp_path: Path) -> None:
+    write_project(tmp_path)
+    source = write_campaign_report(tmp_path, pause_condition="none")
+    text = source.read_text().replace("- Pause condition: none", " Pause condition: none.")
+    source.write_text(text)
+
+    result = ingest_campaign_report(tmp_path)
+
+    assert result["handoff_type"] == "campaign_report"
+    assert result["next_action"] == "stop_for_human"
+    assert (tmp_path / "campaign-reports" / source.name).read_text() == source.read_text()
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert [event["event_type"] for event in events] == ["agent_handoff_ingested", "campaign_report_written"]
+
+
 def test_request_and_report_ingestion_create_canonical_directories_lazily(tmp_path: Path) -> None:
     write_project(tmp_path)
     (tmp_path / "capability-requests").rmdir() if (tmp_path / "capability-requests").exists() else None

@@ -19,6 +19,8 @@ Use at scheduled checks, before pauses, or when humans need a compact campaign s
 
 Summarize current best Result, recent Runs, failures, pending Capability Requests, budget use, next hypothesis, and pause recommendation. Do not let the report replace per-Run Research Notes.
 
+The `## Pause recommendation` section must include one machine-readable line written exactly as either `- Pause condition: none` or `- Pause condition: <approved_value>`, where `<approved_value>` is one of `budget_exhausted`, `repeated_failures`, `repeated_resource_failures`, `stalled_research_progress`, `too_many_pending_capability_requests`, `storage_risk`, or `scheduled_check_in`. Do not add punctuation or prose to that line; put explanation on the `- Human decision needed:` line.
+
 ## Guardrails
 
 - No covert workarounds: if the Candidate Experiment Contract blocks an idea, create a Capability Request instead of bypassing it.

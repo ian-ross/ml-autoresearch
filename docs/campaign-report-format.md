@@ -47,6 +47,8 @@ Use these headings so later automation can parse and extend the scaffold:
 - Human decision needed: <yes/no and details>
 ```
 
+The `Pause condition` line is machine-read. Write it exactly as `- Pause condition: none` or `- Pause condition: <approved_value>` using one of the approved values below. Do not add prose, punctuation, or explanation to that line; put explanation under `Human decision needed` or elsewhere in the section.
+
 The required summary areas are: current best Result, recent Runs, failures, pending Capability Requests, budget use, and next hypothesis.
 
 ## Recording a Campaign Report

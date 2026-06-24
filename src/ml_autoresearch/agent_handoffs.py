@@ -532,9 +532,10 @@ def _validate_campaign_report(report_path: Path) -> str:
 def _campaign_report_pause_condition(report_text: str) -> str | None:
     for line in report_text.splitlines():
         normalized = line.strip()
-        prefix = "- Pause condition:"
-        if normalized.startswith(prefix):
-            value = normalized[len(prefix) :].strip().strip("`")
+        candidate = normalized[1:].strip() if normalized.startswith("-") else normalized
+        prefix = "Pause condition:"
+        if candidate.startswith(prefix):
+            value = _normalize_campaign_report_pause_condition(candidate[len(prefix) :])
             if value in {"", "none"}:
                 return None
             if value not in PAUSE_CONDITIONS:
@@ -544,6 +545,10 @@ def _campaign_report_pause_condition(report_text: str) -> str | None:
                 )
             return value
     raise AgentHandoffIngestionError("Campaign Report missing Pause condition line")
+
+
+def _normalize_campaign_report_pause_condition(raw_value: str) -> str:
+    return raw_value.strip().strip("`").strip().rstrip(".").strip().strip("`")
 
 
 def _validate_research_note(note_path: Path) -> str:
