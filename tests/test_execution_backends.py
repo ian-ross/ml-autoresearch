@@ -314,6 +314,80 @@ def test_docker_backend_constructs_contained_evaluate_run_command_with_readonly_
     ]
 
 
+def test_docker_backend_constructs_request_gated_post_run_evaluation_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runs_root = tmp_path / "runs"
+    run_dir = runs_root / "run_1"
+    data_root = tmp_path / "gvccs"
+    data_root.mkdir(parents=True)
+    (run_dir / "outputs" / "evaluations").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run_1",
+                "status": "completed",
+                "dataset": {"host_data_path": str(data_root)},
+                "research_problem": {
+                    "id": "tiny_problem",
+                    "contract_version": "v0",
+                    "provider": {"target": "fake:build", "resolved_package_root": str(tmp_path)},
+                },
+            }
+        )
+        + "\n"
+    )
+    request_path = tmp_path / "request.yaml"
+    request_path.write_text(
+        "request_id: eval-threshold-sweep-run-1\n"
+        "target_run_id: run_1\n"
+        "evaluation_mode: threshold_sweep\n"
+        "diagnostic_question: Which threshold is best?\n"
+        "expected_decision_impact: Choose threshold.\n"
+        "parameters:\n"
+        "  threshold_sweep:\n"
+        "    min: 0.1\n"
+        "    max: 0.9\n"
+        "    steps: 9\n"
+        "artifact_budget:\n"
+        "  max_artifacts: 2\n"
+        "  max_runtime_seconds: 120\n"
+    )
+    ledger_path = tmp_path / "research-ledger.jsonl"
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        if command[:2] == ["docker", "info"]:
+            return subprocess.CompletedProcess(command, 0, '["name=seccomp,profile=builtin"]', "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = DockerBackend("custom:tag").run_post_run_evaluation(request_path, runs_root=runs_root, ledger_path=ledger_path)
+
+    assert result.backend == "docker"
+    assert result.operation == "run_post_run_evaluation"
+    docker_run = calls[2]
+    joined = "\n".join(docker_run)
+    assert f"{run_dir.resolve(strict=True)}:{run_dir.resolve(strict=True)}:ro,z" in joined
+    assert f"{run_dir.resolve(strict=True) / 'outputs' / 'evaluations'}:{run_dir.resolve(strict=True) / 'outputs' / 'evaluations'}:rw,z" in joined
+    assert f"{request_path.resolve(strict=True)}:{request_path.resolve(strict=True)}:ro,z" in joined
+    assert f"{ledger_path.resolve()}:{ledger_path.resolve()}:rw,z" in joined
+    assert f"{data_root.resolve(strict=True)}:{data_root.resolve(strict=True)}:ro,z" in joined
+    assert docker_run[-7:] == [
+        "custom:tag",
+        "-m",
+        "ml_autoresearch.container_runner",
+        "run-post-run-evaluation",
+        f"--request={request_path.resolve(strict=True)}",
+        f"--runs-root={runs_root.resolve(strict=True)}",
+        f"--ledger-path={ledger_path.resolve()}",
+    ]
+
+
 def test_docker_backend_evaluate_run_data_root_override_is_validated_and_mounted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

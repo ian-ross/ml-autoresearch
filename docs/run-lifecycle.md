@@ -136,7 +136,7 @@ The implemented `evaluate-run` diagnostic is **Whole-Validation Failure Analysis
 There are currently two Harness-owned evaluation surfaces:
 
 - `evaluate-run` is the manual/operator convenience surface for Whole-Validation Failure Analysis. It writes metric/diagnostic artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`, creates an implicit manual `evaluation_request.json` in that directory, and records `evaluation_requested` / `evaluation_completed` ledger events by default.
-- `run-post-run-evaluation` validates an explicit Evaluation Request first, then writes request-linked artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/` and records `evaluation_requested` / `evaluation_completed` ledger events. Its current request modes, `threshold_sweep` and `failure_bucket_review`, are bounded request-gated parts of Whole-Validation Failure Analysis.
+- `run-post-run-evaluation` validates an explicit Evaluation Request first, then writes request-linked artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/` and records `evaluation_requested` / `evaluation_completed` ledger events. Its current request modes, `threshold_sweep` and `failure_bucket_review`, are bounded request-gated parts of Whole-Validation Failure Analysis. When Docker is the configured Candidate Execution Boundary, request-gated Post-Run Evaluation uses that Docker boundary.
 
 `run-summary` observes completed evaluation artifacts under `outputs/evaluations/`.
 

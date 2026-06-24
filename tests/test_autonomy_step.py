@@ -267,6 +267,50 @@ def test_autonomy_step_default_pi_command_records_sessions_beside_agent_workspac
     assert (tmp_path / "agent-sessions").is_dir()
 
 
+class FakeDockerBackend:
+    name = "docker"
+    calls: list[dict[str, Path]] = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def run_post_run_evaluation(self, request_path: str | Path, *, runs_root: str | Path, ledger_path: str | Path) -> OperationResult:
+        from ml_autoresearch.evaluation_requests import _evaluation_id, validate_evaluation_request_file
+        from ml_autoresearch.research_ledger import record_research_event
+
+        request = validate_evaluation_request_file(request_path)
+        assert request.request_id is not None
+        evaluation_id = _evaluation_id(request.request_id)
+        evaluation_dir = Path(runs_root) / request.target_run_id / "outputs" / "evaluations" / evaluation_id
+        evaluation_dir.mkdir(parents=True)
+        (evaluation_dir / "summary.json").write_text(json.dumps({"evaluation_id": evaluation_id}) + "\n")
+        metadata = {"evaluation_id": evaluation_id, "request_id": request.request_id, "parent_run_id": request.target_run_id}
+        (evaluation_dir / "evaluation_metadata.json").write_text(json.dumps(metadata) + "\n")
+        record_research_event(
+            "evaluation_requested",
+            {
+                "evaluation_request_id": request.request_id,
+                "request_path": str(request_path),
+                "run_id": request.target_run_id,
+                "evaluation_mode": request.evaluation_mode,
+            },
+            ledger_path=ledger_path,
+        )
+        record_research_event(
+            "evaluation_completed",
+            {
+                "evaluation_id": evaluation_id,
+                "evaluation_request_id": request.request_id,
+                "run_id": request.target_run_id,
+                "evaluation_mode": request.evaluation_mode,
+                "artifact_metadata_path": str((evaluation_dir / "evaluation_metadata.json").resolve()),
+            },
+            ledger_path=ledger_path,
+        )
+        self.calls.append({"request_path": Path(request_path), "runs_root": Path(runs_root), "ledger_path": Path(ledger_path)})
+        return OperationResult(backend=self.name, operation="run_post_run_evaluation")
+
+
 class FakeNativeBackend:
     name = "fake-native"
     provider_ids: list[str] = []
@@ -404,6 +448,50 @@ def test_autonomy_step_execute_evaluation_request_runs_post_run_evaluation_once(
     assert result.ingestion["executed_next_action"] is True
     assert result.ingestion["next_action_result"]["action"] == "run_post_run_evaluation"
     assert (tmp_path / "runs" / "run_123" / "outputs" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "summary.json").is_file()
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert [event["event_type"] for event in events] == [
+        "agent_handoff_ingested",
+        "evaluation_requested",
+        "evaluation_completed",
+    ]
+
+
+def test_autonomy_step_execute_evaluation_request_uses_docker_backend_when_configured(tmp_path: Path, monkeypatch):
+    import ml_autoresearch.execution as execution
+    import ml_autoresearch.evaluation_requests as evaluation_requests
+
+    write_project(tmp_path)
+    config_path = tmp_path / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            '[candidate_execution]\nledger_path = "research-ledger.jsonl"\n',
+            '[candidate_execution]\nledger_path = "research-ledger.jsonl"\nbackend = "docker"\ndocker_image = "custom:tag"\n',
+        )
+    )
+    _write_completed_run(tmp_path, "run_123")
+    FakeDockerBackend.calls = []
+    monkeypatch.setattr(execution, "DockerBackend", FakeDockerBackend)
+    monkeypatch.setattr(
+        evaluation_requests,
+        "run_post_run_evaluation",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("host native evaluation must not run")),
+    )
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _evaluation_request_agent_body())
+
+    result = run_autonomy_step(tmp_path, agent_command=fake_command, execute_next_action=True)
+
+    assert result.ingestion is not None
+    next_action = result.ingestion["next_action_result"]
+    assert next_action["action"] == "run_post_run_evaluation"
+    assert next_action["backend"] == "docker"
+    assert next_action["evaluation_id"] == "eval_eval-threshold-sweep-run-123"
+    assert FakeDockerBackend.calls == [
+        {
+            "request_path": tmp_path / "evaluation-requests" / "eval-threshold-sweep-run-123.yaml",
+            "runs_root": tmp_path / "runs",
+            "ledger_path": tmp_path / "research-ledger.jsonl",
+        }
+    ]
     events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
     assert [event["event_type"] for event in events] == [
         "agent_handoff_ingested",

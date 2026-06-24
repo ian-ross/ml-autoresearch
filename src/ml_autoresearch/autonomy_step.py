@@ -481,21 +481,30 @@ def execute_ingested_next_action(root: Path, ingestion: dict[str, object]) -> di
         }
     if handoff_type == "evaluation_request" and next_action == "run_post_run_evaluation":
         request_path = _required_relative_path(root, ingestion, "canonical_path")
-        from ml_autoresearch.evaluation_requests import run_post_run_evaluation
+        from ml_autoresearch.candidate_execution_config import execution_backend_from_config, load_candidate_execution_config
+        from ml_autoresearch.evaluation_requests import _evaluation_id, validate_evaluation_request_file
 
-        ledger_path = _configured_ledger_path(root)
-        evaluation = run_post_run_evaluation(
+        config = load_candidate_execution_config(root)
+        ledger_path = config.ledger_path or _configured_ledger_path(root)
+        runs_root = config.runs_root
+        backend = execution_backend_from_config(config)
+        operation = backend.run_post_run_evaluation(
             request_path,
-            runs_root=_configured_runs_root(root),
+            runs_root=runs_root,
             ledger_path=ledger_path,
         )
+        request = validate_evaluation_request_file(request_path)
+        assert request.request_id is not None
+        evaluation_id = _evaluation_id(request.request_id)
+        metadata_path = runs_root / request.target_run_id / "outputs" / "evaluations" / evaluation_id / "evaluation_metadata.json"
+        evaluation = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
         return {
             "status": "completed",
             "executed": True,
             "action": "run_post_run_evaluation",
-            "evaluation_id": evaluation["evaluation_id"],
-            "evaluation": evaluation["evaluation"],
-            "ledger_events": evaluation["ledger_events"],
+            "backend": operation.backend,
+            "evaluation_id": evaluation_id,
+            "evaluation": evaluation,
         }
     return {"status": "skipped", "executed": False, "reason": f"no executable Harness action for {handoff_type!r}"}
 

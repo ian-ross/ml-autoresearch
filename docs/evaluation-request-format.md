@@ -9,7 +9,7 @@ Evaluation Requests authorize bounded, Harness-owned autonomous Post-Run Evaluat
 There are two current surfaces for this diagnostic:
 
 - `evaluate-run` is the manual/operator convenience command. It runs the implemented Whole-Validation Failure Analysis directly and creates an implicit JSON Evaluation Request artifact from the CLI/API parameters under `outputs/evaluations/<evaluation_id>/evaluation_request.json` so the durable artifacts have ledger linkage.
-- `run-post-run-evaluation` is the autonomous request-gated surface. Its approved `evaluation_mode` values, currently `threshold_sweep` and `failure_bucket_review`, select bounded parts of Whole-Validation Failure Analysis after validating an explicit Evaluation Request.
+- `run-post-run-evaluation` is the autonomous request-gated surface. Its approved `evaluation_mode` values, currently `threshold_sweep` and `failure_bucket_review`, select bounded parts of Whole-Validation Failure Analysis after validating an explicit Evaluation Request. When `[candidate_execution] backend = "docker"`, request-gated Post-Run Evaluation runs inside the configured Candidate Execution Boundary instead of requiring Torch in the Research Workspace host environment.
 
 Required fields:
 

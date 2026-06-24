@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from ml_autoresearch.evaluations import DEFAULT_MAX_ARTIFACT_SAMPLES, evaluate_run
+from ml_autoresearch.evaluation_requests import run_post_run_evaluation
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig
 from ml_autoresearch.training import train_research_problem_run, train_synthetic_fixture
 
@@ -27,6 +28,10 @@ def main() -> None:
     evaluate_run_parser.add_argument("--data-root", type=Path, default=Path("/data"))
     evaluate_run_parser.add_argument("--max-artifact-samples", type=int, default=DEFAULT_MAX_ARTIFACT_SAMPLES)
     evaluate_run_parser.add_argument("--backend", choices=["native"], default="native")
+    post_run_parser = subparsers.add_parser("run-post-run-evaluation")
+    post_run_parser.add_argument("--request", type=Path, required=True)
+    post_run_parser.add_argument("--runs-root", type=Path, required=True)
+    post_run_parser.add_argument("--ledger-path", type=Path, required=True)
     args = parser.parse_args()
 
     if args.operation == "train-synthetic":
@@ -54,6 +59,8 @@ def main() -> None:
             data_root=args.data_root,
             max_artifact_samples=args.max_artifact_samples,
         )
+    elif args.operation == "run-post-run-evaluation":
+        run_post_run_evaluation(args.request, runs_root=args.runs_root, ledger_path=args.ledger_path)
 
 
 if __name__ == "__main__":

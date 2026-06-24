@@ -92,6 +92,15 @@ class ExecutionBackend(Protocol):
     ) -> OperationResult:
         """Evaluate a completed Run without retraining."""
 
+    def run_post_run_evaluation(
+        self,
+        request_path: str | Path,
+        *,
+        runs_root: str | Path,
+        ledger_path: str | Path,
+    ) -> OperationResult:
+        """Run a request-gated Post-Run Evaluation."""
+
 
 @dataclass(frozen=True)
 class NativeBackend:
@@ -153,6 +162,18 @@ class NativeBackend:
 
         evaluate_run(run_dir, backend="native", data_root=data_root, max_artifact_samples=max_artifact_samples)
         return OperationResult(backend=self.name, operation="evaluate_run")
+
+    def run_post_run_evaluation(
+        self,
+        request_path: str | Path,
+        *,
+        runs_root: str | Path,
+        ledger_path: str | Path,
+    ) -> OperationResult:
+        from ml_autoresearch.evaluation_requests import run_post_run_evaluation
+
+        run_post_run_evaluation(request_path, runs_root=runs_root, ledger_path=ledger_path)
+        return OperationResult(backend=self.name, operation="run_post_run_evaluation")
 
 
 @dataclass(frozen=True)
@@ -264,6 +285,43 @@ class DockerBackend:
             os.chmod(outputs, 0o777)
             os.chmod(logs, 0o777)
 
+    def run_post_run_evaluation(
+        self,
+        request_path: str | Path,
+        *,
+        runs_root: str | Path,
+        ledger_path: str | Path,
+    ) -> OperationResult:
+        from ml_autoresearch.evaluation_requests import validate_evaluation_request_file
+
+        request_file = Path(request_path).resolve(strict=True)
+        request = validate_evaluation_request_file(request_file)
+        assert request.request_id is not None
+        root = Path(runs_root).resolve(strict=True)
+        run_dir = root / request.target_run_id
+        if not run_dir.is_dir():
+            raise RuntimeError(f"target Run does not exist: {request.target_run_id}")
+        data_path = self._request_evaluation_data_root(
+            run_dir,
+            required=request.evaluation_mode == "failure_bucket_review",
+        )
+        provider_package_root = self._research_problem_package_root_from_run_metadata(run_dir)
+        self._prepare_evaluation_writable_paths(run_dir)
+        ledger = Path(ledger_path).resolve()
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.touch(exist_ok=True)
+        self._ensure_image_available()
+        command = self._post_run_evaluation_command(
+            run_dir,
+            request_path=request_file,
+            runs_root=root,
+            ledger_path=ledger,
+            data_root=data_path,
+            provider_package_root=provider_package_root,
+        )
+        self._run_operation(command, "Docker request-gated Post-Run Evaluation failed")
+        return OperationResult(backend=self.name, operation="run_post_run_evaluation", docker_image=self.docker_image)
+
     def _prepare_evaluation_writable_paths(self, path: Path) -> None:
         evaluations = path / "outputs" / "evaluations"
         evaluations.mkdir(parents=True, exist_ok=True)
@@ -362,9 +420,92 @@ class DockerBackend:
         provider_package_root: Path | None = None,
         provider_package_container_path: str = CONTAINER_RESEARCH_PROBLEM_ROOT,
     ) -> list[str]:
-        container_name = f"ml-autoresearch-{run_dir.name}-{uuid.uuid4().hex[:12]}"
+        command = self._base_docker_command(run_dir.name)
+        command.extend(
+            [
+                "--volume",
+                f"{run_dir / 'candidate'}:/candidate:ro,z",
+                "--volume",
+                f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z",
+                "--volume",
+                f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z",
+                "--volume",
+                f"{run_dir / 'outputs'}:/outputs:{'ro' if outputs_read_only else 'rw'},z",
+                "--mount",
+                f"type=tmpfs,destination=/scratch,tmpfs-size={self.scratch_size},tmpfs-mode=1777",
+            ]
+        )
+        if evaluations_writable:
+            command.extend(["--volume", f"{run_dir / 'outputs' / 'evaluations'}:/outputs/evaluations:rw,z"])
+        if self.enable_gpu:
+            command.extend(["--gpus", "all"])
+        if data_root is not None:
+            command.extend(["--volume", f"{data_root}:/data:ro,z"])
+        if provider_package_root is not None:
+            command.extend([
+                "--env",
+                f"ML_AUTORESEARCH_RESEARCH_PROBLEM_ROOT={provider_package_container_path}",
+                "--volume",
+                f"{provider_package_root}:{provider_package_container_path}:ro,z",
+            ])
+        command.extend(["--entrypoint", "python", self.docker_image, "-m", module, *args])
+        return command
+
+    def _post_run_evaluation_command(
+        self,
+        run_dir: Path,
+        *,
+        request_path: Path,
+        runs_root: Path,
+        ledger_path: Path,
+        data_root: Path | None,
+        provider_package_root: Path | None,
+    ) -> list[str]:
+        command = self._base_docker_command(run_dir.name)
+        command.extend(
+            [
+                "--volume",
+                f"{run_dir}:{run_dir}:ro,z",
+                "--volume",
+                f"{run_dir / 'outputs' / 'evaluations'}:{run_dir / 'outputs' / 'evaluations'}:rw,z",
+                "--volume",
+                f"{request_path}:{request_path}:ro,z",
+                "--volume",
+                f"{ledger_path}:{ledger_path}:rw,z",
+                "--mount",
+                f"type=tmpfs,destination=/scratch,tmpfs-size={self.scratch_size},tmpfs-mode=1777",
+            ]
+        )
+        if data_root is not None:
+            command.extend(["--volume", f"{data_root}:{data_root}:ro,z"])
+        if self.enable_gpu:
+            command.extend(["--gpus", "all"])
+        if provider_package_root is not None:
+            command.extend([
+                "--env",
+                f"ML_AUTORESEARCH_RESEARCH_PROBLEM_ROOT={CONTAINER_RESEARCH_PROBLEM_ROOT}",
+                "--volume",
+                f"{provider_package_root}:{CONTAINER_RESEARCH_PROBLEM_ROOT}:ro,z",
+            ])
+        command.extend(
+            [
+                "--entrypoint",
+                "python",
+                self.docker_image,
+                "-m",
+                "ml_autoresearch.container_runner",
+                "run-post-run-evaluation",
+                f"--request={request_path}",
+                f"--runs-root={runs_root}",
+                f"--ledger-path={ledger_path}",
+            ]
+        )
+        return command
+
+    def _base_docker_command(self, operation_name: str) -> list[str]:
+        container_name = f"ml-autoresearch-{operation_name}-{uuid.uuid4().hex[:12]}"
         docker_is_rootless = self._docker_is_rootless() if self.container_user is None and not self.rootless_container_root else False
-        command = [
+        return [
             "docker",
             "run",
             "--rm",
@@ -398,32 +539,7 @@ class DockerBackend:
             "TORCHINDUCTOR_CACHE_DIR=/scratch/torchinductor",
             "--env",
             "ML_AUTORESEARCH_TIMEOUT_SENTINEL=/scratch/ml_autoresearch_timeout_requested",
-            "--volume",
-            f"{run_dir / 'candidate'}:/candidate:ro,z",
-            "--volume",
-            f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z",
-            "--volume",
-            f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z",
-            "--volume",
-            f"{run_dir / 'outputs'}:/outputs:{'ro' if outputs_read_only else 'rw'},z",
-            "--mount",
-            f"type=tmpfs,destination=/scratch,tmpfs-size={self.scratch_size},tmpfs-mode=1777",
         ]
-        if evaluations_writable:
-            command.extend(["--volume", f"{run_dir / 'outputs' / 'evaluations'}:/outputs/evaluations:rw,z"])
-        if self.enable_gpu:
-            command.extend(["--gpus", "all"])
-        if data_root is not None:
-            command.extend(["--volume", f"{data_root}:/data:ro,z"])
-        if provider_package_root is not None:
-            command.extend([
-                "--env",
-                f"ML_AUTORESEARCH_RESEARCH_PROBLEM_ROOT={provider_package_container_path}",
-                "--volume",
-                f"{provider_package_root}:{provider_package_container_path}:ro,z",
-            ])
-        command.extend(["--entrypoint", "python", self.docker_image, "-m", module, *args])
-        return command
 
     def _container_user(self, *, docker_is_rootless: bool = False) -> str:
         if self.rootless_container_root or (docker_is_rootless and self.container_user is None):
@@ -452,15 +568,24 @@ class DockerBackend:
         return f"{os.getuid()}:{os.getgid()}"
 
     def _evaluate_data_root(self, run_dir: Path, data_root: str | Path | None) -> Path:
-        if data_root is not None:
-            return self._validate_research_problem_data_root(data_root)
+        path = (
+            self._request_evaluation_data_root(run_dir, required=True)
+            if data_root is None
+            else self._validate_research_problem_data_root(data_root)
+        )
+        assert path is not None
+        return path
+
+    def _request_evaluation_data_root(self, run_dir: Path, *, required: bool) -> Path | None:
         try:
             metadata = json.loads((run_dir / "run_metadata.json").read_text())
         except Exception as exc:  # noqa: BLE001 - Docker launch should fail clearly before importing candidate code.
             raise RuntimeError(f"cannot read Run metadata for evaluation data root: {exc}") from exc
         dataset = metadata.get("dataset")
         if not isinstance(dataset, dict) or not isinstance(dataset.get("host_data_path"), str):
-            raise RuntimeError("Run metadata does not contain a Research Problem data root; pass --data-root")
+            if required:
+                raise RuntimeError("Run metadata does not contain a Research Problem data root; pass --data-root")
+            return None
         return self._validate_research_problem_data_root(str(dataset["host_data_path"]))
 
     def _validate_research_problem_data_root(self, data_root: str | Path) -> Path:
