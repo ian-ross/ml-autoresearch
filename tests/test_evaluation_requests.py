@@ -362,10 +362,9 @@ def test_run_post_run_evaluation_cli_uses_configured_docker_backend(tmp_path: Pa
             str(request_path),
             "--runs-root",
             str(runs_root),
-            "--workspace-root",
-            str(tmp_path),
             "--skip-runtime-image-validation",
         ],
+        cwd=tmp_path,
     )
 
     assert completed.returncode == 0, completed.stderr

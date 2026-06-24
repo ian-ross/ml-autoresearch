@@ -89,6 +89,15 @@ def _workspace_config_exists(workspace_root: Path) -> bool:
     return (Path(workspace_root).resolve() / "ml-autoresearch.toml").is_file()
 
 
+def _workspace_root_for_evaluation_request(workspace_root: Path | None, runs_root: Path) -> Path:
+    if workspace_root is not None:
+        return workspace_root
+    cwd = Path.cwd()
+    if _workspace_config_exists(cwd):
+        return cwd
+    return runs_root.resolve().parent
+
+
 def _select_backend(
     name: str,
     docker_image: str,
@@ -567,7 +576,7 @@ def run_post_run_evaluation_command(
     """Validate an Evaluation Request and run a bounded Post-Run Evaluation."""
 
     try:
-        validation_root = workspace_root if workspace_root is not None else runs_root.resolve().parent
+        validation_root = _workspace_root_for_evaluation_request(workspace_root, runs_root)
         if _workspace_config_exists(validation_root):
             from ml_autoresearch.candidate_execution_config import execution_backend_from_config, load_candidate_execution_config
             from ml_autoresearch.evaluation_requests import _evaluation_id, validate_evaluation_request_file
