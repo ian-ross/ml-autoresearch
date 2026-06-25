@@ -123,19 +123,20 @@ def test_docker_backend_constructs_structurally_contained_synthetic_training_com
     assert docker_run[docker_run.index("--cpus") + 1] == "2"
     assert "--privileged" not in docker_run
     assert "--gpus" not in docker_run
-    provider_json_arg = next(arg for arg in docker_run if arg.startswith("--provider-config-json="))
-    payload = json.loads(provider_json_arg.split("=", 1)[1])
-    assert payload["id"] == "gvccs_like"
-    assert docker_run[-6:] == [
+    request_json_arg = next(arg for arg in docker_run if arg.startswith("--request-json="))
+    request_payload = json.loads(request_json_arg.split("=", 1)[1])
+    assert request_payload["operation"] == "train_research_problem"
+    assert request_payload["provider_config"]["id"] == "gvccs_like"
+    assert request_payload["max_prediction_samples"] == 3
+    assert request_payload["prediction_sample_policy"] == "first_n"
+    assert docker_run[-4:] == [
         "-m",
         "ml_autoresearch.container_runner",
-        "train-research-problem",
-        provider_json_arg,
-        "--max-prediction-samples=3",
-        "--prediction-sample-policy=first_n",
+        "run-operation",
+        request_json_arg,
     ]
     joined = "\n".join(docker_run)
-    assert "--provider-config-json=" in joined
+    assert "--request-json=" in joined
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
     assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined
     assert f"{run_dir / 'run_metadata.json'}:/run_metadata.json:ro,z" in joined
@@ -211,11 +212,13 @@ def test_docker_backend_constructs_research_problem_training_command_with_read_o
     assert calls[1] == ["docker", "info", "--format", "{{json .SecurityOptions}}"]
     docker_run = calls[2]
     assert "ml_autoresearch.container_runner" in docker_run
-    assert "train-research-problem" in docker_run
-    assert any(arg.startswith("--provider-config-json=") for arg in docker_run)
-    assert "--max-samples=4" in docker_run
-    assert "--max-prediction-samples=1" in docker_run
-    assert "--prediction-sample-policy=adjacent_and_scattered" in docker_run
+    assert "run-operation" in docker_run
+    request_json_arg = next(arg for arg in docker_run if arg.startswith("--request-json="))
+    request_payload = json.loads(request_json_arg.split("=", 1)[1])
+    assert request_payload["operation"] == "train_research_problem"
+    assert request_payload["max_samples"] == 4
+    assert request_payload["max_prediction_samples"] == 1
+    assert request_payload["prediction_sample_policy"] == "adjacent_and_scattered"
     joined = "\n".join(docker_run)
     assert f"{data_root.resolve() }:/data:ro,z" in joined
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
@@ -370,16 +373,16 @@ def test_docker_backend_constructs_generic_research_problem_training_command_wit
     assert f"{data_root.resolve(strict=True)}:/data:ro,z" in joined
     assert f"{provider_root.resolve(strict=True)}:/research-problem:ro,z" in joined
     assert "train-gvccs" not in docker_run
-    assert docker_run[-6] == "ml_autoresearch.container_runner"
-    assert docker_run[-5] == "train-research-problem"
-    provider_arg = docker_run[-4]
-    assert provider_arg.startswith("--provider-config-json=")
-    payload = json.loads(provider_arg.split("=", 1)[1])
+    assert docker_run[-3] == "ml_autoresearch.container_runner"
+    assert docker_run[-2] == "run-operation"
+    request_json_arg = docker_run[-1]
+    assert request_json_arg.startswith("--request-json=")
+    request_payload = json.loads(request_json_arg.split("=", 1)[1])
+    payload = request_payload["provider_config"]
+    assert request_payload["operation"] == "train_research_problem"
     assert payload["id"] == "other_problem"
     assert payload["package_root"] == "/research-problem"
     assert payload["data_config"]["dataset_root"] == "/data"
-    assert docker_run[-3:] == [
-        "--max-samples=4",
-        "--max-prediction-samples=1",
-        "--prediction-sample-policy=adjacent_and_scattered",
-    ]
+    assert request_payload["max_samples"] == 4
+    assert request_payload["max_prediction_samples"] == 1
+    assert request_payload["prediction_sample_policy"] == "adjacent_and_scattered"

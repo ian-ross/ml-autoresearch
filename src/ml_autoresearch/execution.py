@@ -12,6 +12,7 @@ from typing import Protocol
 
 import yaml
 
+from ml_autoresearch.operations import OperationRequest, execute_operation_request
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig
 
 DEFAULT_DOCKER_IMAGE = "ml-autoresearch-runner:local"
@@ -110,26 +111,27 @@ class NativeBackend:
     developer_unsafe: bool = True
 
     def smoke_test(self, run_dir: str | Path) -> OperationResult:
-        from ml_autoresearch.smoke import smoke_test_run
-
-        result = smoke_test_run(run_dir)
+        response = execute_operation_request(OperationRequest(operation="smoke_test", run_dir=Path(run_dir)))
         return OperationResult(
             backend=self.name,
-            operation="smoke_test",
-            parameter_count=result.parameter_count,
-            input_spec=result.input_spec,
-            output_spec=result.output_spec,
+            operation=response.operation,
+            parameter_count=response.parameter_count,
+            input_spec=response.input_spec,
+            output_spec=response.output_spec,
         )
 
     def train_synthetic(
         self, run_dir: str | Path, *, max_prediction_samples: int = 2, prediction_sample_policy: str = "first_n"
     ) -> OperationResult:
-        from ml_autoresearch.training import train_synthetic_fixture_run
-
-        train_synthetic_fixture_run(
-            run_dir, max_prediction_samples=max_prediction_samples, prediction_sample_policy=prediction_sample_policy
+        response = execute_operation_request(
+            OperationRequest(
+                operation="train_synthetic",
+                run_dir=Path(run_dir),
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+            )
         )
-        return OperationResult(backend=self.name, operation="train_synthetic")
+        return OperationResult(backend=self.name, operation=response.operation)
 
     def train_research_problem(
         self,
@@ -140,16 +142,17 @@ class NativeBackend:
         max_prediction_samples: int = 2,
         prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
-        from ml_autoresearch.training import train_research_problem_run
-
-        train_research_problem_run(
-            run_dir,
-            provider_config,
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
+        response = execute_operation_request(
+            OperationRequest(
+                operation="train_research_problem",
+                run_dir=Path(run_dir),
+                provider_config=provider_config,
+                max_samples=max_samples,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+            )
         )
-        return OperationResult(backend=self.name, operation="train_research_problem")
+        return OperationResult(backend=self.name, operation=response.operation)
 
     def evaluate_run(
         self,
@@ -158,10 +161,15 @@ class NativeBackend:
         data_root: str | Path | None = None,
         max_artifact_samples: int = 12,
     ) -> OperationResult:
-        from ml_autoresearch.evaluations import evaluate_run  # local import avoids a module cycle.
-
-        evaluate_run(run_dir, backend="native", data_root=data_root, max_artifact_samples=max_artifact_samples)
-        return OperationResult(backend=self.name, operation="evaluate_run")
+        response = execute_operation_request(
+            OperationRequest(
+                operation="evaluate_run",
+                run_dir=Path(run_dir),
+                data_root=Path(data_root) if data_root is not None else None,
+                max_artifact_samples=max_artifact_samples,
+            )
+        )
+        return OperationResult(backend=self.name, operation=response.operation)
 
     def run_post_run_evaluation(
         self,
@@ -170,10 +178,15 @@ class NativeBackend:
         runs_root: str | Path,
         ledger_path: str | Path,
     ) -> OperationResult:
-        from ml_autoresearch.evaluation_requests import run_post_run_evaluation
-
-        run_post_run_evaluation(request_path, runs_root=runs_root, ledger_path=ledger_path)
-        return OperationResult(backend=self.name, operation="run_post_run_evaluation")
+        response = execute_operation_request(
+            OperationRequest(
+                operation="run_post_run_evaluation",
+                request_path=Path(request_path),
+                runs_root=Path(runs_root),
+                ledger_path=Path(ledger_path),
+            )
+        )
+        return OperationResult(backend=self.name, operation=response.operation)
 
 
 @dataclass(frozen=True)
@@ -197,11 +210,8 @@ class DockerBackend:
         self._prepare_writable_paths(path)
         self._ensure_image_available()
         provider_package_root = self._research_problem_package_root_from_resolved_manifest(path)
-        command = self._operation_command(
-            path,
-            "ml_autoresearch.container_smoke",
-            provider_package_root=provider_package_root,
-        )
+        request = OperationRequest(operation="smoke_test", run_dir=Path("/"))
+        command = self._operation_request_command(path, request, provider_package_root=provider_package_root)
         self._run_operation(command, "Docker smoke test failed")
         return OperationResult(backend=self.name, operation="smoke_test", docker_image=self.docker_image)
 
@@ -211,13 +221,13 @@ class DockerBackend:
         path = Path(run_dir)
         self._prepare_writable_paths(path)
         self._ensure_image_available()
-        command = self._operation_command(
-            path,
-            "ml_autoresearch.container_runner",
-            "train-synthetic",
-            f"--max-prediction-samples={max_prediction_samples}",
-            f"--prediction-sample-policy={prediction_sample_policy}",
+        request = OperationRequest(
+            operation="train_synthetic",
+            run_dir=Path("/"),
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
         )
+        command = self._operation_request_command(path, request)
         return self._run_training_operation(command, path, "Docker synthetic training failed", "train_synthetic")
 
     def train_research_problem(
@@ -235,15 +245,17 @@ class DockerBackend:
         container_config = self._container_research_problem_config(provider_config, data_root_mounted=data_path is not None)
         self._prepare_writable_paths(path)
         self._ensure_image_available()
-        args = ["train-research-problem", f"--provider-config-json={container_config.model_dump_json()}"]
-        if max_samples is not None:
-            args.append(f"--max-samples={max_samples}")
-        args.append(f"--max-prediction-samples={max_prediction_samples}")
-        args.append(f"--prediction-sample-policy={prediction_sample_policy}")
-        command = self._operation_command(
+        request = OperationRequest(
+            operation="train_research_problem",
+            run_dir=Path("/"),
+            provider_config=container_config,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
+        command = self._operation_request_command(
             path,
-            "ml_autoresearch.container_runner",
-            *args,
+            request,
             data_root=data_path,
             provider_package_root=provider_package_root,
         )
@@ -261,13 +273,15 @@ class DockerBackend:
         self._prepare_evaluation_writable_paths(path)
         self._ensure_image_available()
         provider_package_root = self._research_problem_package_root_from_run_metadata(path)
-        command = self._operation_command(
+        request = OperationRequest(
+            operation="evaluate_run",
+            run_dir=Path("/"),
+            data_root=Path("/data"),
+            max_artifact_samples=max_artifact_samples,
+        )
+        command = self._operation_request_command(
             path,
-            "ml_autoresearch.container_runner",
-            "evaluate-run",
-            "--data-root=/data",
-            f"--max-artifact-samples={max_artifact_samples}",
-            "--backend=native",
+            request,
             data_root=data_path,
             outputs_read_only=True,
             evaluations_writable=True,
@@ -409,6 +423,29 @@ class DockerBackend:
                 f"Docker image '{self.docker_image}' is not available. Build it with: {MANUAL_DOCKER_BUILD_COMMAND}"
             ) from exc
 
+    def _operation_request_command(
+        self,
+        run_dir: Path,
+        request: OperationRequest,
+        *,
+        data_root: Path | None = None,
+        outputs_read_only: bool = False,
+        evaluations_writable: bool = False,
+        provider_package_root: Path | None = None,
+        provider_package_container_path: str = CONTAINER_RESEARCH_PROBLEM_ROOT,
+    ) -> list[str]:
+        return self._operation_command(
+            run_dir,
+            "ml_autoresearch.container_runner",
+            "run-operation",
+            f"--request-json={request.to_json()}",
+            data_root=data_root,
+            outputs_read_only=outputs_read_only,
+            evaluations_writable=evaluations_writable,
+            provider_package_root=provider_package_root,
+            provider_package_container_path=provider_package_container_path,
+        )
+
     def _operation_command(
         self,
         run_dir: Path,
@@ -487,6 +524,12 @@ class DockerBackend:
                 "--volume",
                 f"{provider_package_root}:{CONTAINER_RESEARCH_PROBLEM_ROOT}:ro,z",
             ])
+        request = OperationRequest(
+            operation="run_post_run_evaluation",
+            request_path=request_path,
+            runs_root=runs_root,
+            ledger_path=ledger_path,
+        )
         command.extend(
             [
                 "--entrypoint",
@@ -494,10 +537,8 @@ class DockerBackend:
                 self.docker_image,
                 "-m",
                 "ml_autoresearch.container_runner",
-                "run-post-run-evaluation",
-                f"--request={request_path}",
-                f"--runs-root={runs_root}",
-                f"--ledger-path={ledger_path}",
+                "run-operation",
+                f"--request-json={request.to_json()}",
             ]
         )
         return command

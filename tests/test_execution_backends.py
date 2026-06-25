@@ -103,7 +103,9 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert "--gpus" not in docker_run
     assert "--entrypoint" in docker_run
     assert docker_run[docker_run.index("--entrypoint") + 1] == "python"
-    assert docker_run[-2:] == ["-m", "ml_autoresearch.container_smoke"]
+    assert docker_run[-4:-1] == ["-m", "ml_autoresearch.container_runner", "run-operation"]
+    request_payload = json.loads(docker_run[-1].split("=", 1)[1])
+    assert request_payload == {"operation": "smoke_test", "run_dir": "/", "max_prediction_samples": 2, "prediction_sample_policy": "first_n", "max_artifact_samples": 12}
     joined = "\n".join(docker_run)
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
     assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined
@@ -305,13 +307,12 @@ def test_docker_backend_constructs_contained_evaluate_run_command_with_readonly_
     assert f"{run_dir / 'outputs'}:/outputs:ro,z" in joined
     assert f"{run_dir / 'outputs' / 'evaluations'}:/outputs/evaluations:rw,z" in joined
     assert f"{data_root.resolve(strict=True)}:/data:ro,z" in joined
-    assert docker_run[-5:] == [
-        "ml_autoresearch.container_runner",
-        "evaluate-run",
-        "--data-root=/data",
-        "--max-artifact-samples=3",
-        "--backend=native",
-    ]
+    assert docker_run[-4:-1] == ["-m", "ml_autoresearch.container_runner", "run-operation"]
+    request_payload = json.loads(docker_run[-1].split("=", 1)[1])
+    assert request_payload["operation"] == "evaluate_run"
+    assert request_payload["run_dir"] == "/"
+    assert request_payload["data_root"] == "/data"
+    assert request_payload["max_artifact_samples"] == 3
 
 
 def test_docker_backend_constructs_request_gated_post_run_evaluation_command(
@@ -377,15 +378,12 @@ def test_docker_backend_constructs_request_gated_post_run_evaluation_command(
     assert f"{request_path.resolve(strict=True)}:{request_path.resolve(strict=True)}:ro,z" in joined
     assert f"{ledger_path.resolve()}:{ledger_path.resolve()}:rw,z" in joined
     assert f"{data_root.resolve(strict=True)}:{data_root.resolve(strict=True)}:ro,z" in joined
-    assert docker_run[-7:] == [
-        "custom:tag",
-        "-m",
-        "ml_autoresearch.container_runner",
-        "run-post-run-evaluation",
-        f"--request={request_path.resolve(strict=True)}",
-        f"--runs-root={runs_root.resolve(strict=True)}",
-        f"--ledger-path={ledger_path.resolve()}",
-    ]
+    assert docker_run[-4:-1] == ["-m", "ml_autoresearch.container_runner", "run-operation"]
+    request_payload = json.loads(docker_run[-1].split("=", 1)[1])
+    assert request_payload["operation"] == "run_post_run_evaluation"
+    assert request_payload["request_path"] == str(request_path.resolve(strict=True))
+    assert request_payload["runs_root"] == str(runs_root.resolve(strict=True))
+    assert request_payload["ledger_path"] == str(ledger_path.resolve())
 
 
 def test_docker_backend_evaluate_run_data_root_override_is_validated_and_mounted(
@@ -419,6 +417,34 @@ def test_docker_backend_evaluate_run_data_root_override_is_validated_and_mounted
     joined = "\n".join(docker_run)
     assert f"{override_root.resolve(strict=True)}:/data:ro,z" in joined
     assert f"{metadata_root.resolve(strict=True)}:/data:ro,z" not in joined
+
+
+def test_container_runner_run_operation_uses_shared_operation_request(monkeypatch: pytest.MonkeyPatch):
+    import sys
+    import ml_autoresearch.container_runner as container_runner
+
+    calls = []
+
+    def fake_execute(request):
+        calls.append(request)
+
+    monkeypatch.setattr(container_runner, "execute_operation_request", fake_execute)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "container_runner",
+            "run-operation",
+            '--request-json={"operation":"train_synthetic","run_dir":"/","max_prediction_samples":1}',
+        ],
+    )
+
+    container_runner.main()
+
+    assert len(calls) == 1
+    assert calls[0].operation == "train_synthetic"
+    assert calls[0].run_dir == Path("/")
+    assert calls[0].max_prediction_samples == 1
 
 
 def test_container_smoke_uses_mounted_resolved_manifest_for_smoke_specs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
