@@ -178,10 +178,12 @@ brief documents are not embedded by default; the agent starts from the index and
 selectively reads only the deeper documents needed for the current Candidate
 Experiment.
 
-The Harness installs the reviewed Autoresearch Skill Set from
-`docs/autoresearch-skills/` into `agent-work/.pi/skills/` during setup so the
-inner agent can use the campaign-manager and focused autoresearch skills as
-active Pi skills inside the VM.
+The Harness installs the reviewed Autoresearch Skill Set from packaged resources
+in `src/ml_autoresearch/resources/autoresearch-skills/` into
+`agent-work/.pi/skills/` during setup so the inner agent can use the
+campaign-manager and focused autoresearch skills as active Pi skills inside the
+VM. `docs/autoresearch-skills` is only a documentation-tree convenience symlink
+for human browsing.
 
 ### Read-only mounts
 
@@ -324,7 +326,7 @@ minimal Agent Control Boundary section is:
 ```toml
 [agent_control_boundary]
 distro = "debian"
-image = ".ml-autoresearch/images/agent"
+image = "../../containers/ml-autoresearch-agent"
 allow_egress = true
 ```
 
@@ -332,11 +334,12 @@ The `[agent_control_boundary]` table accepts:
 
 - `distro` — optional non-empty string; defaults to `"debian"`.
 - `image` — optional non-empty string naming the Gondolin Agent Runtime Image
-  asset directory prepared by `ml-autoresearch build-runtime-images`; setup
-  templates default to `.ml-autoresearch/images/agent`.
+  asset directory used by pi-fort; code defaults to
+  `../../containers/ml-autoresearch-agent`. Runtime image staging/validation
+  records workspace operational state under `.ml-autoresearch/`.
 - `allow_egress` — optional boolean; defaults to `true`.
 
-The `image` value is copied into the generated pi-fort configuration. It is the Agent Runtime Image asset directory, not the Docker runner image tag used by Candidate Execution Boundary training. Relative image paths are interpreted by pi-fort relative to the generated `agent-work/.pi/fort.toml` file, not relative to the Research Workspace Root or the `agent-work/` current working directory. Absolute paths are often clearer for live Research Workspace Roots because `.ml-autoresearch/images/agent/` is hidden workspace operational state.
+The `image` value is copied into the generated pi-fort configuration. It is the Agent Runtime Image asset directory or source/build reference for pi-fort, not the Docker runner image tag used by Candidate Execution Boundary training. Relative image paths are interpreted by pi-fort relative to the generated `agent-work/.pi/fort.toml` file, not relative to the Research Workspace Root or the `agent-work/` current working directory. Absolute paths are often clearer for live Research Workspace Roots because `.ml-autoresearch/` is hidden workspace operational state.
 
 The separate Docker runner image tag lives in `[candidate_execution].docker_image` and is validated alongside the Agent Runtime Image assets by `ml-autoresearch validate-runtime-images`. Rebuild and revalidate with `ml-autoresearch build-runtime-images --update-config` after Harness dependency, `[runtime_images].dev_source_path`, recipe, or image-affecting Workspace Configuration changes.
 
@@ -374,7 +377,7 @@ representative default generated configuration has no `/data` mount:
 enabled = true
 allow_egress = true
 distro = "debian"
-image = ".ml-autoresearch/images/agent"
+image = "../../containers/ml-autoresearch-agent"
 mounts = [
   {path="../agent-reference", target="/reference", readonly=true},
   {path="../agent-history", target="/history", readonly=true},
@@ -384,6 +387,9 @@ mounts = [
   {path="../agent-history/research-notes", target="/history/research-notes", readonly=true},
   {path="../docs", target="/docs", readonly=true},
   {path="../agent-research-problem", target="/research-problem", readonly=true},
+  {path="../agent-work", target="/workspace", readonly=false},
+  {path="../scratch", target="/scratch", readonly=false},
+  {path="../src/ml_autoresearch", target="/usr/local/lib/python3.12/site-packages/ml_autoresearch", readonly=true},
 ]
 ```
 

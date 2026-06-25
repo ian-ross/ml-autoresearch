@@ -1,10 +1,15 @@
 # Candidate Experiment Contract
 
-This document describes the currently implemented local Candidate Experiment source contract. A Candidate Experiment is submitted as a local directory, not as an archive.
+This document describes the implemented Candidate Experiment source contract. A Candidate Experiment is submitted as a local directory, not as an archive. The contract is generic: allowed input modes, output forms, losses, optimizers, data policies, metrics, and auxiliary targets come from the configured Research Problem Spec.
 
-The current tracer-bullet implementation supports Single-Frame RGB Input, mask-only primary output, optional Harness-derived per-pixel Line Target and Boundary Target auxiliary outputs, `bce_dice`, auxiliary `weighted_bce`, and `adamw`. Broader v1 contract surface such as temporal inputs, additional primary losses, and pretrained weight requests is documented as planned capability in `docs/harness-capabilities.md` and `docs/top-level-plan.md`.
+GVCCS-specific examples live temporarily in `docs/gvccs-features.md`.
 
-Per-pixel Auxiliary Target support is recorded in `docs/adr/0005-per-pixel-auxiliary-targets-in-the-candidate-experiment-contract.md`. The implemented public auxiliary-target surface includes Line Target (`line_logits`) and Boundary Target (`boundary_logits`).
+## Validation phases
+
+Candidate handling has two distinct phases:
+
+1. **Static contract validation** checks files, manifest fields, proposal sections, and spec allowlists without importing or executing candidate Python code.
+2. **Harness smoke test/training** later imports `model.py` in a controlled Harness path and calls `build_model(input_spec, output_spec)` to check the model interface before or during execution.
 
 ## Minimal layout
 
@@ -14,13 +19,13 @@ candidate/
 └── model.py
 ```
 
-`manifest.yaml` declares allowed Harness-owned contract choices. `model.py` must expose `build_model(input_spec, output_spec)`, but issue #1 validation does not import or execute candidate Python code.
+`manifest.yaml` declares allowed Harness-owned contract choices. `model.py` must expose `build_model(input_spec, output_spec)` and return a `torch.nn.Module`.
 
 ## Minimal manifest
 
 ```yaml
 name: single_frame_unet_baseline
-description: Tiny single-frame mask-only baseline for harness validation.
+description: Tiny baseline for harness validation.
 input_mode: single_frame_rgb
 output_form: mask_logits
 data:
@@ -34,7 +39,7 @@ training:
   max_epochs: 1
 ```
 
-Optional Harness-owned training policy controls may also be declared under `training.scheduler` and `training.early_stopping`; omitted values resolve to constant learning rate and disabled early stopping.
+The example values above are valid only when the configured Research Problem Spec advertises them.
 
 ## Allowed files
 
@@ -60,9 +65,28 @@ Rejected:
 - dataset files
 - arbitrary config blobs
 
+## Manifest authority
+
+Candidate manifests may select only schema-supported values allowed by the active Research Problem Spec. Candidate code must not implement custom data loading, custom target construction, custom losses, custom optimizers, schedulers, training loops, filesystem probes, network calls, runtime pretrained-weight downloads, Docker calls, or ledger writes.
+
+Implemented generic manifest surfaces include:
+
+- `input_mode`
+- `output_form`
+- `data.sampling_policy`
+- `data.frame_selection_policy`
+- `data.augmentation_policy`
+- `training.loss`
+- `training.optimizer`
+- bounded learning rate, batch size, and max epochs
+- `training.scheduler`
+- `training.early_stopping`
+- provider-declared `auxiliary_targets`
+- optional `repair` lineage
+
 ## Auxiliary targets
 
-Candidate manifests may request Harness-owned per-pixel Auxiliary Targets:
+Candidate manifests may request provider-declared per-pixel auxiliary targets:
 
 ```yaml
 auxiliary_targets:
@@ -70,22 +94,19 @@ auxiliary_targets:
     output: line_logits
     loss: weighted_bce
     weight: 0.10
-  - name: boundary
-    output: boundary_logits
-    loss: weighted_bce
-    weight: 0.05
 ```
 
-Rules for the implemented surface:
+Rules for the generic contract:
 
 - `auxiliary_targets` defaults to `[]`.
-- Allowed target names are `line` and `boundary`.
-- `line` requires `output: line_logits`; `boundary` requires `output: boundary_logits`.
-- The only implemented auxiliary loss is `weighted_bce`.
+- Target names, output names, losses, and output specs must be declared by the active Research Problem Spec.
 - `weight` must be between `0.0` and `1.0`.
-- Auxiliary-output models must return exactly `mask_logits` and requested auxiliary output keys; tensor shorthand remains valid only for mask-only candidates.
-- The Harness derives Line Target and Boundary Target tensors from the primary Contrail Mask; Candidate Experiment code must not derive targets or implement auxiliary losses.
-- Primary validation comparison remains based on Contrail Mask metrics, especially `val/dice`.
+- Auxiliary-output models must return exactly the primary output plus requested auxiliary output keys.
+- Tensor shorthand remains valid only for single-output candidates.
+- Target construction and auxiliary loss implementation are provider/Harness-owned; candidate code must not derive targets or implement auxiliary losses.
+- Primary validation comparison remains based on the Research Problem primary output and selection metric.
+
+GVCCS-specific Line/Boundary Target semantics are described in `docs/gvccs-features.md`.
 
 ## Training policy
 
@@ -100,9 +121,9 @@ training:
     min_lr: 0.00001
 ```
 
-Allowed scheduler policies are `constant_lr` (default), `cosine_decay`, and `reduce_on_plateau`. Scheduler scalar parameters are bounded by manifest validation; Candidate Experiment code must not implement schedulers or custom training-loop logic.
+Implemented scheduler policies are `constant_lr` (default), `cosine_decay`, and `reduce_on_plateau`. Scheduler scalar parameters are bounded by manifest validation.
 
-Candidate manifests may enable Harness-owned early stopping on the Research Problem's working-validation selection metric (for GVCCS, `val/dice`, maximized):
+Candidate manifests may enable Harness-owned early stopping on the Research Problem working-validation selection metric:
 
 ```yaml
 training:
@@ -114,7 +135,7 @@ training:
     restore_best_checkpoint: true
 ```
 
-When enabled, `patience` must be less than `max_epochs`; `min_delta` is the minimum selection-metric improvement needed to reset patience. The Harness records the resolved scheduler and early-stopping policy, stop reason, completed epochs, and whether the best-validation checkpoint was restored for the final in-memory model state used by post-training artifacts.
+When enabled, `patience` must be less than `max_epochs`; `min_delta` is the minimum selection-metric improvement needed to reset patience. The Harness records the resolved scheduler and early-stopping policy, stop reason, completed epochs, and best-checkpoint restoration status.
 
 ## Experiment Proposal contract
 
@@ -129,7 +150,7 @@ When enabled, `patience` must be less than `max_epochs`; `min_delta` is the mini
 - `Success Criteria`
 - `Fallback/Next Decision`
 
-A proposal copied with the Candidate Experiment can contain additional narrative and implementation detail.
+The validator also accepts documented normalized section synonyms. A proposal copied with the Candidate Experiment can contain additional narrative and implementation detail.
 
 ## Repair Candidate lineage
 
@@ -151,7 +172,7 @@ repair:
 
 ## Data policy
 
-Candidate manifests may select Harness-owned Sampling Policy and Augmentation Policy presets:
+Candidate manifests may select spec-allowed Harness/provider-owned data policies:
 
 ```yaml
 data:
@@ -160,14 +181,8 @@ data:
   augmentation_policy: light_combined
 ```
 
-Allowed Sampling Policy values are `sequential` and `deterministic_shuffle`. If omitted, `data.sampling_policy` resolves to `sequential` for compatibility with older manifests. `deterministic_shuffle` only affects training example order and is reproducible; validation order stays stable for reproducible metrics and qualitative diagnostics.
-
-Allowed Frame Selection Policy values are declared by the configured Research Problem Spec. In the GVCCS example package, `single_frame_rgb` defaults to `all_target_frames`, while `centered_temporal_rgb_clip` resolves to and requires `temporal_eligible_center`. That example policy selects only Target Frames with complete previous/next stride-1 neighbors inside one inferred Frame Sequence; it never pads, duplicates, or crosses gaps. Single-frame Candidate Experiments may explicitly request `temporal_eligible_center` as a matched control for temporal Candidate Experiments when the configured Spec allows it.
-
-Allowed Augmentation Policy presets are declared by the configured Research Problem Spec. In the GVCCS example package, supported presets are `none`, `light_geometric`, `light_photometric`, and `light_combined`; omitted `data.augmentation_policy` resolves to `none`. The Resolved Manifest records both the requested `augmentation_policy` and adapter-applied `augmentation_policy_effective` when supplied. The example presets apply trusted Research Problem package transforms to training examples only; validation examples remain unaugmented and stable.
-
-Composable augmentation policies or candidate-defined transform DSLs are deferred until justified by structured Capability Requests.
+Allowed values come from the configured Research Problem Spec. If omitted, `data.sampling_policy` resolves to `sequential` and `data.augmentation_policy` resolves to `none` when those defaults are supported. Frame-selection policies are provider-dependent; temporal modes such as `centered_temporal_rgb_clip` are implemented by providers that advertise them, not by the generic Harness universally.
 
 ## Dataset and mount authority
 
-Candidate manifests cannot request data roots, bind mounts, arbitrary filesystem paths, custom data loaders, custom samplers, custom transforms, or custom training loops. The Harness resolves dataset location through the configured Research Problem `data_config` (e.g., `dataset_root`) in `ml-autoresearch.toml`; for Docker execution, the Harness validates and mounts it read-only at `/data` for the in-container Research Problem adapter. Candidate code receives only the tensors supplied by the Harness.
+Candidate manifests cannot request data roots, bind mounts, arbitrary filesystem paths, custom data loaders, custom samplers, custom transforms, or custom training loops. The Harness resolves dataset location through the configured Research Problem `data_config` in `ml-autoresearch.toml`; for Docker execution, the Harness validates and mounts configured data read-only at `/data` for the in-container Research Problem adapter. Candidate code receives only tensors supplied by the Harness.

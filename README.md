@@ -1,6 +1,6 @@
 # ML Autoresearch
 
-Research campaign events are recorded in the canonical append-only `research-ledger.jsonl` file through the Harness-owned `record-research-event` CLI/API. See `docs/design/autonomous-research-campaign-plan.md`.
+Research campaign events are recorded in the canonical append-only `research-ledger.jsonl` file through the Harness-owned `record-research-event` CLI/API. See `docs/campaign-autonomy-architecture.md`.
 
 ML Autoresearch is a safe agent-assisted research system for proposing, running, evaluating, and iterating on ML model architecture experiments.
 
@@ -17,9 +17,9 @@ This repository currently contains the local tracer-bullet Harness with a Docker
 - for Docker Research Problem training, mount the trusted Research Problem package read-only and mount the host data root read-only at `/data` when configured
 - write local Run artifacts such as metrics, metadata, logs, model summaries, and prediction samples
 - record validated Research Ledger events for proposals, candidates, Runs, evaluations, capability requests, reports, and pauses
-- inspect local Runs without MLflow
+- inspect local Runs through Harness-owned metadata and artifacts
 
-The native backend remains available as an explicit developer-unsafe escape hatch. MLflow upload, async scheduling, and stronger production isolation are planned later layers around the same Research Loop.
+The native backend remains available as an explicit developer-unsafe escape hatch. Async scheduling and stronger production isolation are planned later layers around the same Research Loop.
 
 ## Core concepts
 
@@ -47,7 +47,7 @@ Important docs:
 - [`docs/top-level-plan.md`](docs/top-level-plan.md)
 - [`docs/candidate-experiment-contract.md`](docs/candidate-experiment-contract.md)
 - [`docs/run-lifecycle.md`](docs/run-lifecycle.md)
-- [`docs/gvccs-data.md`](docs/gvccs-data.md)
+- [`docs/gvccs-features.md`](docs/gvccs-features.md) — temporary GVCCS notes pending migration to the GVCCS Research Problem repository
 - [`docs/dependency-strategy.md`](docs/dependency-strategy.md)
 
 ## Development setup
@@ -141,7 +141,7 @@ def build_model(input_spec: dict, output_spec: dict):
     ...
 ```
 
-The Harness owns training loops, data loading, filesystem paths, artifact persistence, and run policy. Candidate Experiments may select only allowlisted Harness-owned data policy values such as `data.sampling_policy`; they must not provide arbitrary shell scripts, datasets, notebooks, checkpoints, Dockerfiles, custom data loaders, samplers, transforms, or MLflow logging code.
+The Harness owns training loops, data loading, filesystem paths, artifact persistence, and run policy. Candidate Experiments may select only allowlisted Harness/provider-owned data policy values such as `data.sampling_policy`; they must not provide arbitrary shell scripts, datasets, notebooks, checkpoints, Dockerfiles, custom data loaders, samplers, transforms, external persistence, or runtime weight-fetching code.
 
 A working fixture lives at:
 
@@ -206,7 +206,7 @@ uv run ml-autoresearch run-candidate \
 
 ## Inspecting local Runs
 
-Observation commands read only local `runs/` artifacts and do not require MLflow.
+Observation commands read only local `runs/` artifacts and do not require external tracking services.
 
 ```bash
 uv run ml-autoresearch list-runs --runs-root runs
@@ -249,6 +249,6 @@ The intended architecture separates authority:
 - agents propose Candidate Experiments through a narrow contract
 - the trusted Harness validates, runs, and records them
 - Docker execution forms the current Candidate Execution Boundary for smoke tests and training
-- future MLflow integration should be written by the trusted Harness, not candidate code
+- any future external tracking integration should be written by the trusted Harness, not candidate code
 
 The current Harness is still a development tracer bullet, not a production sandbox.

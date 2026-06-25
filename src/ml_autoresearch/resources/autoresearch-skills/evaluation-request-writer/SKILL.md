@@ -13,7 +13,7 @@ Use when a completed Run needs a bounded Harness-owned diagnostic before the nex
 
 - `CONTEXT.md` for Run, Result, and Research Loop terms.
 - `docs/evaluation-request-format.md` for schema, modes, parameters, and artifact locations.
-- `docs/design/autonomous-research-campaign-plan.md` for ledger events.
+- `docs/campaign-autonomy-architecture.md` for ledger events.
 
 ## Instructions
 

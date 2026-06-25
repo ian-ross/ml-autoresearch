@@ -13,7 +13,7 @@ Use before starting another Autonomous Research Iteration and whenever budget, f
 
 - `CONTEXT.md` for Research Loop and Human-Guided Research Iteration language.
 - `docs/campaign-report-format.md` for Campaign Pause Conditions and approved vocabulary.
-- `docs/design/autonomous-research-campaign-plan.md` for `campaign_paused` events.
+- `docs/campaign-autonomy-architecture.md` for `campaign_paused` events.
 
 ## Instructions
 

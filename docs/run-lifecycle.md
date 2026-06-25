@@ -10,7 +10,7 @@ uv run ml-autoresearch build-runtime-images --workspace-root . --update-config
 uv run ml-autoresearch validate-runtime-images --workspace-root .
 ```
 
-The Agent Runtime Image is a Gondolin/pi-fort asset directory under `.ml-autoresearch/images/agent/`; the Candidate Execution Boundary uses a Docker runner image tag recorded in `[candidate_execution].docker_image`. The validation stamp under `.ml-autoresearch/runtime-images.validated.json` must be refreshed after Harness dependency, development source override, image recipe, or relevant Workspace Configuration changes.
+The Agent Runtime Image is a Gondolin/pi-fort asset directory under `.ml-autoresearch/images/agent/`; the Candidate Execution Boundary uses a Docker runner image tag recorded in `[candidate_execution].docker_image`. The validation stamp under `.ml-autoresearch/runtime-images.validated.json` must be refreshed after Harness dependency, development source override, image recipe, or relevant Workspace Configuration changes. Commands that execute or prepare runtime boundaries (`prepare-agent-boundary`, `autonomy-step`, `run-candidate`, `evaluate-run`, and `run-post-run-evaluation`) require this validation unless explicitly skipped; static `submit-candidate` validation/submission does not.
 
 ## Submit command
 

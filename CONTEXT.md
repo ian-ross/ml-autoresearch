@@ -129,11 +129,11 @@ A distinct Candidate Experiment version created to fix a candidate bug in an ear
 _Avoid_: Overwritten candidate, silent resubmission
 
 **Candidate Experiment Contract**:
-The allowlisted interface through which a Candidate Experiment can express research variation without receiving unsafe authority over training, data loading, filesystem access, network access, Docker, or MLflow writes.
+The allowlisted interface through which a Candidate Experiment can express research variation without receiving unsafe authority over training, data loading, filesystem access, network access, Docker, or artifact persistence.
 _Avoid_: Free-form plugin API, arbitrary experiment code
 
 **Initial Flexibility Envelope**:
-The v1 set of research variations exposed by the Candidate Experiment Contract: model architecture, input mode, output form, loss selection, bounded training knobs, augmentation/data policy, and pretrained weight requests.
+The v1 set of research variations exposed by the Candidate Experiment Contract: model architecture, input mode, output form, loss selection, bounded training knobs, and augmentation/data policy. Approved pretrained weight use is future architecture, not current candidate authority.
 _Avoid_: Minimal contract when that implies low research expressiveness
 
 **Capability Slice**:
@@ -245,11 +245,11 @@ The boundary that contains untrusted Candidate Experiment code while it is impor
 _Avoid_: Agent boundary, static validation
 
 **Approved Weight Artifact**:
-An audited pretrained weight artifact made available to the Harness under a stable identifier for use by approved Candidate Experiments.
+Future architecture for an audited pretrained weight artifact made available to the Harness under a stable identifier for use by approved Candidate Experiments. Current code does not implement the registry/workflow.
 _Avoid_: Download URL, arbitrary checkpoint path, candidate-managed weights
 
 **Pretrained Weight Request**:
-A request from the agent to add a new Approved Weight Artifact, including source, license, intended use, and audit information.
+Future architecture for a request from the agent to add a new Approved Weight Artifact, including source, license, intended use, and audit information.
 _Avoid_: Runtime weight download, candidate-managed checkpoint fetch
 
 **Ground-Camera Contrail Detection**:
@@ -353,21 +353,21 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Research Workspace Setup** is the preferred way to create a new **Research Workspace Root**, rather than copying a static example workspace.
 - A **Runtime Image Build** writes Agent Runtime Image assets under hidden workspace operational state and tags Candidate Execution Boundary runner images with workspace- and Harness-version-specific identity.
 - A **Runtime Image Validation Stamp** is required by runtime operations after image build or dependency changes, while durable research memory remains in the Research Ledger and Experiment Index.
-- **Ground-Camera Contrail Detection** remains the only real registered **Research Problem** initially; other problems should wait until the GVCCS proving-ground loop justifies extraction.
-- Temporal input should be implemented after the **Research Problem Spec Registry** seam so GVCCS-specific **Frame Sequence**, **Target Frame**, sampling, augmentation, and reporting semantics are registered problem capabilities rather than ad hoc core **Harness** behavior.
+- **Ground-Camera Contrail Detection** / GVCCS is the initial example **Research Problem** package used to prove the provider seam; generic Harness behavior must remain Research Problem-independent.
+- Temporal input is implemented as a provider-advertised capability, not as ad hoc core **Harness** behavior.
 - **Ground-Camera Contrail Detection** uses the **GVCCS Dataset** for training.
 - **Camera Domain Shift** is a known limitation of using the **GVCCS Dataset** for models likely to be tried on conventional ground-camera imagery.
 - Evaluation on non-GVCCS camera data is a separate exercise outside the initial **ML Autoresearch** loop.
 - The prediction target for **Ground-Camera Contrail Detection** is a **Contrail Mask** for a **Target Frame**.
 - A **Frame Sequence** groups temporally adjacent GVCCS **Target Frames** for sampling and qualitative diagnostics without implying that a single-frame Candidate Experiment receives temporal input.
 - For the **GVCCS Dataset**, consecutive frames within a **Frame Sequence** are exactly 30 seconds apart; any larger timestamp gap starts a different **Frame Sequence**.
-- **Line Target** and **Boundary Target** are optional **Auxiliary Targets** derived from the **Contrail Mask** by the **Harness**.
+- **Line Target** and **Boundary Target** are GVCCS provider-declared optional **Auxiliary Targets** derived from the **Contrail Mask** by trusted provider/Harness code.
 - **Auxiliary Targets** are used for auxiliary training losses; primary evaluation remains based on the **Contrail Mask** prediction.
 - **Data Policy** includes **Frame Selection Policy**, **Sampling Policy**, **Augmentation Policy**, and qualitative **Prediction Sample Policy**.
 - **Frame Selection Policy**, **Sampling Policy**, and **Augmentation Policy** are candidate-selectable only through Harness-executed allowlists, not custom candidate data-loading or transform code.
 - **Frame Selection Policy** and **Augmentation Policy** choices are scoped to a **Research Problem** because valid frame eligibility and transforms depend on data modality and dataset semantics.
 - Candidate Experiments declare **Sampling Policy** under `data.sampling_policy` in the manifest; older manifests without it resolve to the previous sequential behavior for compatibility.
-- Candidate Experiments may declare **Frame Selection Policy** under `data.frame_selection_policy` in the manifest; `single_frame_rgb` defaults to `all_target_frames`, while `centered_temporal_rgb_clip` defaults to and requires `temporal_eligible_center`.
+- Candidate Experiments may declare **Frame Selection Policy** under `data.frame_selection_policy` in the manifest when the active **Research Problem Spec** advertises that policy; GVCCS examples include `all_target_frames` and `temporal_eligible_center`.
 - Initial **Sampling Policy** choices affect training example order; validation order remains stable for reproducible metrics and qualitative diagnostics.
 - **Temporal-eligible center** frame selection excludes sequence-boundary frames and never pads, duplicates, or crosses **Frame Sequence** gaps.
 - **Prediction Sample Policy** is Harness-owned, selected at Run time rather than by Candidate Experiments, and affects qualitative Result artifacts, not model training.
@@ -431,25 +431,24 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Locked Evaluation Split** Results may be summarized to the agent in Campaign Reports after human-triggered milestone checks, but access frequency remains limited to reduce overfitting risk.
 - Initial best-validation reporting persists a best-epoch model artifact; when an allowlisted early-stopping policy requests best-checkpoint restoration, the Harness restores that checkpoint for the final in-memory model state used by post-training artifacts and records the restoration status.
 - The **Initial Flexibility Envelope** is part of the **Candidate Experiment Contract** from the beginning.
-- The **Initial Flexibility Envelope** includes model architecture, input mode, output form, loss selection, bounded training knobs, candidate-selectable **Data Policy**, and pretrained weight requests.
+- The **Initial Flexibility Envelope** includes model architecture, input mode, output form, loss selection, bounded training knobs, and candidate-selectable **Data Policy**.
 - **Wall-Clock Budget Policy** is intentionally adjustable and may start small to encourage many cheap architecture-search Runs.
 - The **Harness** owns training loops, data loading, validation, execution policy, artifact persistence, and approved parameterized variations.
 - The **Candidate Experiment Contract** can expose Harness-owned parameters for model architecture, input modes, output forms, losses, optimizer choices, training budgets, augmentation/data policy, and pretrained weight availability.
 - The **Candidate Experiment Contract** should expand through **Capability Slices** that unlock meaningful experiment families while preserving Harness ownership.
-- Expected near-term **Capability Slice** priority is Augmentation Policy first, then additional losses, Temporal Input, and Approved Pretrained Encoders; the initial scheduler/early-stopping slice is now implemented as Harness-owned allowlisted training policy.
-- The **Candidate Experiment Contract** never grants arbitrary filesystem access, network access, Docker access, dataset-path control, MLflow write access, custom training-loop authority, or custom data-loading authority.
-- Candidate Experiments may reference **Approved Weight Artifacts** by stable identifier only.
-- A **Pretrained Weight Request** may produce an **Approved Weight Artifact** after manual audit.
+- Future **Capability Slices** may add additional losses, optimizers, approved pretrained encoders, or other provider/Harness-owned knobs after tests and contract updates.
+- The **Candidate Experiment Contract** never grants arbitrary filesystem access, network access, Docker access, dataset-path control, external persistence authority, custom training-loop authority, or custom data-loading authority.
+- Approved Weight Artifacts and Pretrained Weight Requests are future architecture; current Candidate Experiments must not include checkpoint files or fetch arbitrary pretrained weights.
 - Candidate Experiments must not download pretrained weights at runtime or reference arbitrary checkpoint paths.
 - Candidate Experiment code runs without network access inside the **Candidate Execution Boundary**.
-- Candidate Experiment code writes outputs only to the run-specific output directory; the **Harness** persists approved artifacts to MLflow.
+- Candidate Experiment code writes outputs only to the run-specific output directory; the **Harness** persists approved local run metadata and artifacts.
 - **Post-Run Evaluation** artifacts are stored under the original **Run** at `outputs/evaluations/` so their provenance remains attached to the completed **Run** they evaluate.
 - The first **Post-Run Evaluation** mode is Whole-Validation Failure Analysis: it runs inference over the validation split, writes per-sample metrics for all evaluated samples, and writes bounded diagnostic artifacts for selected best, worst, false-positive-heavy, and false-negative-heavy cases by default.
 - A **Post-Run Evaluation** uses the original **Run**'s **Resolved Manifest** as authoritative for model and data contract choices, while allowing Harness-owned diagnostic overrides such as thresholds, evaluation batch size, and artifact count.
 - Whole-Validation Failure Analysis uses a default threshold sweep from `0.05` to `0.95` in `0.05` increments, while keeping `0.5` as the default binary-mask threshold.
 - Whole-Validation Failure Analysis initially saves bounded diagnostic artifacts for `worst_by_dice`, `best_by_dice`, `false_positive_heavy`, `false_negative_heavy`, `empty_mask_false_positives`, and `missed_positive_masks` buckets.
-- A **Post-Run Evaluation** has an Evaluation ID of the form `eval_YYYYMMDD_HHMMSS_<suffix>` and records its own lifecycle status (`running`, `completed`, or `failed`) without changing the parent **Run** status.
-- The agent may have MLflow read access, explicitly configured read-only Research Problem data access, and normal pi-enclave network access constrained by Gondolin policy.
+- A request-gated **Post-Run Evaluation** has an Evaluation ID derived from the request ID, such as `eval_<request_id>`, and writes final run-scoped evaluation metadata/artifacts without changing the parent **Run** status.
+- The agent may have explicitly configured read-only Research Problem data access and normal pi-enclave network access constrained by Gondolin policy.
 - The **Agent Control Boundary** constrains infrastructure authority rather than serving as the primary mechanism for validation/test overfitting control.
 - The **Agent Runtime Image** is a Gondolin/pi-fort image asset directory, not a Docker image name.
 - The **Candidate Execution Boundary** constrains what Candidate Experiment code can do during a Run.
@@ -488,7 +487,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 > **Domain expert:** "No. The **Initial Flexibility Envelope** must be broad enough for effective research from the start, while still denying unsafe authority."
 >
 > **Dev:** "Can a Candidate Experiment include a URL to download pretrained weights?"
-> **Domain expert:** "No. It can reference an **Approved Weight Artifact** by ID, or the agent can make a **Pretrained Weight Request** for manual audit."
+> **Domain expert:** "No. Current Candidate Experiments may not include or fetch arbitrary pretrained weights. Approved Weight Artifacts and Pretrained Weight Requests are future architecture."
 >
 > **Dev:** "Is the contrail problem object detection?"
 > **Domain expert:** "No. **Ground-Camera Contrail Detection** predicts a **Contrail Mask**: binary semantic segmentation of contrail vs non-contrail pixels."
@@ -509,7 +508,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - `agent-boundary.toml`, `candidate-execution.toml`, and `notification.toml` split one operator concern across several files — resolved: use one **Workspace Configuration** file, `ml-autoresearch.toml`.
 - "minimal contract" could mean minimal expressiveness or minimal implementation — resolved: the **Candidate Experiment Contract** minimizes unsafe authority while preserving enough research expressiveness through Harness-owned parameters.
 - Wall-clock limits could prematurely bias architecture search or waste compute — resolved: keep **Wall-Clock Budget Policy** Harness-owned and explicitly adjustable, likely smaller during early exploration.
-- "pretrained weights" could mean runtime downloads, arbitrary checkpoint paths, or audited reusable artifacts — resolved: Candidate Experiments may only reference **Approved Weight Artifacts**, and new weights enter through **Pretrained Weight Requests**.
+- "pretrained weights" could mean runtime downloads, arbitrary checkpoint paths, or audited reusable artifacts — resolved: current Candidate Experiments may not include or fetch arbitrary pretrained weights; **Approved Weight Artifacts** and **Pretrained Weight Requests** are future architecture.
 - "detection" in **Ground-Camera Contrail Detection** could imply object detection — resolved: the prediction target is binary semantic segmentation producing a **Contrail Mask**.
 - GVCCS whole-sky-camera data may not match likely downstream conventional ground-camera imagery — resolved: track this as **Camera Domain Shift**, but keep non-GVCCS evaluation outside the initial ML Autoresearch loop.
 - "line logits" and "boundary logits" could imply non-image-space outputs — resolved: v1 auxiliary outputs are image-aligned per-pixel logits trained against Harness-derived **Auxiliary Targets**.

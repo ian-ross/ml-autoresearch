@@ -13,7 +13,7 @@ Use at scheduled checks, before pauses, or when humans need a compact campaign s
 
 - `CONTEXT.md` for Research Loop, Result, Run, and Capability Request terms.
 - `docs/campaign-report-format.md` for required headings and Campaign Pause Conditions.
-- `docs/design/autonomous-research-campaign-plan.md` for ledger recording.
+- `docs/campaign-autonomy-architecture.md` for ledger recording.
 
 ## Instructions
 

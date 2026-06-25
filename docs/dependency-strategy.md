@@ -60,7 +60,7 @@ uv run ml-autoresearch validate-runtime-images --workspace-root .
 - `[agent_control_boundary].image` points to the Agent Runtime Image asset directory used by pi-fort/Gondolin.
 - `[candidate_execution].docker_image` names the Docker runner image tag used for candidate smoke tests, training, and evaluation.
 
-`validate-runtime-images` verifies that the configured Agent image assets and Docker runner metadata match the current Harness identity, workspace config, and optional development source override. It writes `.ml-autoresearch/runtime-images.validated.json`. Runtime command families such as `prepare-agent-boundary`, `autonomy-step`, `run-candidate`, and `evaluate-run` require a fresh validation stamp unless the operator uses an explicit skip option.
+`validate-runtime-images` verifies that the configured Agent image assets and Docker runner metadata match the current Harness identity, workspace config, and optional development source override. It writes `.ml-autoresearch/runtime-images.validated.json`. Runtime command families that execute inside or prepare runtime boundaries, such as `prepare-agent-boundary`, `autonomy-step`, `run-candidate`, `evaluate-run`, and `run-post-run-evaluation`, require a fresh validation stamp unless the operator uses an explicit skip option. Static `submit-candidate` validation/submission does not require runtime image validation.
 
 ## Development source override
 

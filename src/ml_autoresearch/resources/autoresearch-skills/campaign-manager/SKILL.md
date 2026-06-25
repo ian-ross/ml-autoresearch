@@ -12,7 +12,7 @@ Use this top-level skill to run or review exactly one Autonomous Research Iterat
 ## Read first
 
 - `CONTEXT.md` for project vocabulary.
-- `docs/design/autonomous-research-campaign-plan.md` for Research Ledger events and loop state.
+- `docs/campaign-autonomy-architecture.md` for Research Ledger events and loop state.
 - `docs/campaign-report-format.md` for Campaign Pause Conditions and Campaign Reports.
 
 ## Autonomous Research Iteration
@@ -29,7 +29,7 @@ Use this top-level skill to run or review exactly one Autonomous Research Iterat
 10. If the contract blocks a hypothesis, delegate to `../capability-request-writer/SKILL.md`.
 11. At review intervals or before pausing, delegate to `../campaign-report-writer/SKILL.md` and then `../pause-decider/SKILL.md`.
 
-Do not continue automatically after a pause decision. Require human review before unattended use or before installing this review-only skill set.
+Do not continue automatically after a pause decision. Require human review before unattended use or before changing the installed Autoresearch Skill Set.
 
 ## Guardrails
 

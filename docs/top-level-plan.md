@@ -1,194 +1,58 @@
-# ML Autoresearch Top-Level Plan
+# ML Autoresearch status and roadmap
 
-ML Autoresearch is a safe agent-assisted research system for proposing, running, evaluating, and iterating on ML model architecture experiments. The first Research Problem is Ground-Camera Contrail Detection using the GVCCS Dataset, but the infrastructure is intended to support other Research Problems later.
+This document is the current high-level status and roadmap for the reusable ML Autoresearch Harness. `CONTEXT.md` defines the project language; ADRs record decision history; detailed contracts live in the focused docs linked below.
 
-The project should be driven by the Research Loop: propose Candidate Experiments, run them safely, evaluate Results, and use those Results to guide the next Candidate Experiment.
+## Current architecture
 
-## Shared vocabulary
+ML Autoresearch is a reusable Harness package plus one or more trusted filesystem Research Problem packages.
 
-- **ML Autoresearch** — the overall safe agent-assisted ML architecture exploration system.
-- **Research Problem** — a target ML problem explored through Candidate Experiments.
-- **Ground-Camera Contrail Detection** — the first Research Problem; binary semantic segmentation of contrail vs non-contrail pixels.
-- **GVCCS Dataset** — the whole-sky-camera training dataset for Ground-Camera Contrail Detection.
-- **Camera Domain Shift** — the known difference between GVCCS whole-sky-camera data and likely downstream conventional ground-camera imagery.
-- **Candidate Experiment** — an agent-proposed runnable ML research package.
-- **Candidate Experiment Contract** — the allowlisted interface for research variation without unsafe authority.
-- **Harness** — the trusted implementation that owns training loops, data loading, validation, execution policy, and artifact persistence.
-- **Candidate Experiment Runner** — the trusted subsystem that validates, executes, and records Candidate Experiments.
-- **Run** — one execution attempt of a Candidate Experiment.
-- **Result** — metrics and artifacts produced by a Run.
+- The **Harness** owns validation, execution policy, run/evaluation artifact layout, Research Ledger writes, runtime image workflow, Agent Control Boundary preparation, and autonomous handoff ingestion.
+- A **Research Problem package** owns domain semantics: input modes, output specs, allowed losses/optimizers/data policies, dataset adapters, training/evaluation adapters, brief documents, and dataset profile artifacts.
+- Candidate Experiments are untrusted research packages constrained by `docs/candidate-experiment-contract.md`; candidate code does not choose data paths, training loops, mounts, network access, Docker, or ledger writes.
+- A Research Workspace Root contains `ml-autoresearch.toml`, the canonical Research Ledger, candidates, runs, batches, notes, handoff directories, and generated agent/workspace state.
 
-See `CONTEXT.md` for canonical definitions and relationships. Where this plan differs from the older `docs/project-brief.md`, this plan is canonical for implementation sequencing.
+## Implemented workflows
 
-## Top-level approach
+Current implemented Harness workflows include:
 
-Use a Research Loop first approach:
+1. `setup` creates a Research Workspace Root skeleton and configuration.
+2. `submit-candidate` performs static source/manifest/proposal validation and records/copies accepted submissions.
+3. `run-candidate` validates, smoke-tests, and trains a candidate through the configured Research Problem provider, using Docker by default for execution.
+4. `evaluate-run` and request-gated `run-post-run-evaluation` produce run-scoped evaluation artifacts.
+5. Experiment Batches validate a small batch atomically before executing sibling runs independently.
+6. Campaign/report/capability/evaluation events are written to the append-only `research-ledger.jsonl` through Harness-owned APIs.
+7. `prepare-agent-boundary`, `autonomy-step`, and `run-autonomous-iteration` prepare bounded agent context, ingest exactly one handoff, and optionally execute the next Harness-owned action.
+8. Runtime image commands stage, build, validate, and stamp workspace-specific Agent Runtime Image assets and Docker runner image tags.
 
-1. Define Ground-Camera Contrail Detection as the first Research Problem.
-2. Define the v1 Candidate Experiment Contract.
-3. Build the simplest Harness capable of executing one useful baseline Candidate Experiment.
-4. Add enough artifacts and metrics for the agent to learn from Results.
-5. Run Human-Guided Research Iterations for Ground-Camera Contrail Detection with the current limited contract.
-6. Capture each iteration in a lightweight Markdown Research Note under `research-notes/`, and use Research Notes plus constraints as the input to later Experiment Proposals.
-7. Use those iterations to identify what the autonomous Pi-agent proposal loop actually needs.
-8. Expand the Candidate Experiment Contract only when Results show that a missing Harness-owned capability is blocking useful research.
-9. Keep Research Problem-specific code and artifacts coupled to the local Harness until Human-Guided Research Iterations reveal concrete seams worth extracting.
-10. Add Docker, MLflow, async orchestration, and security hardening around the loop as operational needs arise.
-11. Generalize to additional Research Problems after the contrail loop proves reusable seams.
+## Current generic contracts
 
-## Top-level workstreams
+- Candidate contract: `docs/candidate-experiment-contract.md`
+- Run lifecycle: `docs/run-lifecycle.md`
+- Harness capabilities and ownership: `docs/harness-capabilities.md`
+- Campaign/autonomy architecture: `docs/campaign-autonomy-architecture.md`
+- Agent Control Boundary: `docs/agent-control-boundary.md`
+- Dependency/runtime image strategy: `docs/dependency-strategy.md`
+- Experiment batches: `docs/experiment-batches.md`
+- Request/report formats:
+  - `docs/capability-request-format.md`
+  - `docs/evaluation-request-format.md`
+  - `docs/campaign-report-format.md`
 
-### 1. Research Problem Definition
+## Temporary GVCCS notes
 
-Formalize the first Research Problem:
+Ground-Camera Contrail Detection / GVCCS is the initial Research Problem package used to exercise the generic Harness seam. GVCCS-specific data layout, input modes, auxiliary targets, and candidate families are collected temporarily in `docs/gvccs-features.md`; those notes should move to the GVCCS Research Problem repository when that repository becomes the sole home for problem-specific documentation.
 
-- GVCCS dataset assumptions.
-- binary semantic segmentation target: Contrail Mask for a Target Frame.
-- v1 Input Modes: Single-Frame RGB Input and Centered Temporal RGB Clip Input.
-- dataset splits.
-- metrics.
-- Camera Domain Shift note.
+## Follow-on roadmap
 
-### 2. Candidate Experiment Contract
+Follow-on work should be described as future capability unless tests and code implement it. Current roadmap candidates include:
 
-Specify the v1 allowlisted contract:
+- Approved Weight Artifacts and Pretrained Weight Requests. Current code forbids candidate-supplied checkpoints and arbitrary runtime downloads; it does not yet implement an approved-weight registry/workflow.
+- Additional provider or Harness-supported candidate knobs such as extra losses, optimizers, augmentation DSLs, mixed precision controls, gradient clipping, and advanced sampling policies.
+- Async scheduling and richer production isolation beyond the current Docker-backed Candidate Execution Boundary.
+- Additional Research Problem packages that prove the provider seam is not GVCCS-specific.
 
-- `manifest.yaml` schema.
-- `model.py` interface.
-- input modes.
-- output forms.
-- primary and auxiliary losses.
-- augmentation/data-policy allowlist.
-- training knobs and resource bounds.
-- Approved Weight Artifact references and Pretrained Weight Request workflow.
+## Non-goals for the current Harness
 
-The contract minimizes unsafe authority, not research expressiveness.
-
-### 3. Harness Core
-
-Build the trusted core that owns:
-
-- Candidate Experiment validation.
-- Run directory lifecycle.
-- resolved manifest generation.
-- Run metadata.
-- Run status model.
-- artifact layout.
-- rejection/block reasons.
-
-### 4. Model Smoke Test
-
-Implement validation before real training:
-
-- import candidate model through the controlled interface.
-- call `build_model(input_spec, output_spec)`.
-- count parameters.
-- run synthetic forward/backward.
-- validate output names, shapes, and dtypes.
-
-### 5. Training Implementation
-
-Implement Harness-owned training:
-
-- GVCCS data loader.
-- fixed training loop.
-- v1 loss allowlist: `bce_dice`, `focal_dice`, `focal_tversky`, plus auxiliary `focal_bce` / `weighted_bce`.
-- v1 metrics: primary `val/dice`; secondary `val/iou`, `val/precision`, `val/recall`, `val/loss`.
-- prediction sample generation.
-
-### 6. Execution Boundary
-
-Add the Candidate Execution Boundary. Docker smoke testing, synthetic training, training through the GVCCS example Research Problem package, and the initial hardening pass are now implemented for the local tracer-bullet Harness; remaining work in this area focuses on follow-on capabilities such as image build workflow, async scheduling, and production isolation beyond Docker hardening.
-
-Policy decisions for the branch:
-
-- Docker is the default execution backend for `run-candidate`.
-- Native execution remains available as an explicit unsafe/developer backend.
-- Harness-owned files stay at the Run root; operation-produced artifacts move under `outputs/`.
-- In Docker, `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` are mounted read-only.
-- In Docker, only `/outputs` and `/scratch` are writable container paths; `/outputs` is a run-scoped artifact mount and `/scratch` is bounded tmpfs.
-- For Research Problem-backed training, a configured `dataset_root` (or legacy `data_root`) from `ml-autoresearch.toml` is mounted read-only at `/data`.
-- Candidate Experiments cannot request mounts or receive host dataset paths.
-- Containers run with no network, Harness-selected user policy (rootless Docker may use container `0:0` mapped to the invoking host user; rootful Docker uses the host Harness uid/gid), read-only root filesystems, dropped Linux capabilities, process/CPU/memory limits, and GPU disabled by default unless enabled by Harness configuration.
-- Wall-clock budget exhaustion should use a graceful shutdown protocol for training Runs: signal the training loop, allow a bounded grace period to write the best meaningful Result available, and force-terminate only if the grace period expires.
-- The agent has no Docker or host shell access.
-
-### 7. Observation Layer
-
-Persist and expose Results:
-
-- Current local observation reads Run artifacts from the local `runs/` tree through `list_runs`, `get_run_summary` / `run-summary`, and `get_best_runs`.
-- A future MLflow layer should have the Harness upload approved artifacts and metrics, with agent read-only MLflow access.
-
-### 8. Baseline Candidate Experiments
-
-Provide initial candidates to exercise the loop:
-
-- single-frame UNet baseline.
-- temporal stack UNet baseline.
-- optional auxiliary-head U-Net variants using implemented `line_logits` and `boundary_logits` Harness-derived auxiliary targets.
-
-## First tracer-bullet milestone — complete
-
-The first milestone was a tiny real-training vertical slice proving that the Candidate Experiment Contract and Harness can support the Research Loop. It is complete in the current codebase.
-
-Completion evidence:
-
-- local Candidate Experiment submission and validation are implemented;
-- Run creation, copied candidate source, resolved manifests, metadata, logs, and operation outputs are implemented;
-- PyTorch model smoke testing through `build_model(input_spec, output_spec)` is implemented;
-- deterministic synthetic contrail-like training is implemented;
-- local GVCCS-compatible data training is implemented for Single-Frame RGB Input;
-- metrics, prediction samples, and local observation commands are implemented;
-- Docker-backed execution and initial hardening have been added around the local loop;
-- the test suite passes for the implemented tracer-bullet behavior.
-
-The milestone remains intentionally narrower than the broader v1 contract. Temporal inputs, additional primary losses, pretrained-weight workflows, MLflow persistence, async orchestration, and production sandbox claims are follow-on work, not blockers for leaving the first tracer bullet. Boundary Target auxiliary heads have since been added to the implemented tracer-bullet contract.
-
-### Success criteria
-
-1. A sample Candidate Experiment with `manifest.yaml` and `model.py` is accepted.
-2. The Harness validates the manifest against the v1 contract.
-3. The Harness builds the model via `build_model(input_spec, output_spec)`.
-4. The Harness runs a synthetic forward/backward smoke test.
-5. The Harness trains on a deterministic synthetic contrail-like segmentation fixture for at least one epoch, then later swaps in a tiny GVCCS subset or fixture subset.
-6. The Harness computes:
-   - `val/dice`
-   - `val/iou`
-   - `val/precision`
-   - `val/recall`
-   - `val/loss`
-7. The Harness writes required Run artifacts:
-   - `final_metrics.json`
-   - `metrics.jsonl`
-   - `model_summary.json`
-   - `resolved_manifest.yaml`
-   - `run_metadata.json`
-   - `prediction_samples/`
-   - `logs/`
-
-   Operation-produced artifacts are written under `outputs/`; Harness-owned `candidate/`, `resolved_manifest.yaml`, and `run_metadata.json` remain at the Run root.
-8. A human or agent can inspect the Run and decide what Candidate Experiment to try next.
-
-### Explicit non-goals
-
-The first tracer bullet does not need:
-
-- MLflow persistence.
-- asynchronous queueing.
-- pretrained weight workflow.
-- production security claims.
-- full-scale training for the GVCCS example Research Problem package beyond local GVCCS-compatible roots.
-
-## Notes and constraints
-
-- Implementation language is Python.
-- ML implementation uses PyTorch.
-- Candidate Experiment manifest validation uses Pydantic v2.
-- The Harness always owns training loops and data loading.
-- Candidate Experiments must not access arbitrary filesystem paths, network, Docker, dataset paths, or MLflow writes.
-- Candidate Experiments may reference only Approved Weight Artifacts by stable ID.
-- Runtime pretrained weight downloads are forbidden.
-- Wall-Clock Budget Policy is Harness-owned and intentionally adjustable; early exploration may use small budgets to encourage many cheap architecture comparisons.
-- GVCCS is whole-sky-camera data; downstream conventional-camera evaluation is separate from the initial ML Autoresearch loop.
-- Real GVCCS data is not checked into this repository; tests use synthetic or GVCCS-like fixtures, and real training points at a local downloaded dataset path.
+- Candidate-owned dataset loading, arbitrary filesystem traversal, custom training loops, runtime weight downloads, Docker invocation, or network authority.
+- Generic Harness production code that imports or hard-codes GVCCS-specific types, provider targets, paths, or commands.
+- Treating Agent Control Boundary work as authoritative training/evaluation. Authoritative Results come from Harness-owned execution outside the inner agent VM.

@@ -133,6 +133,20 @@ ledger_path = "research-ledger.jsonl"
     assert config.ledger_path == tmp_path / "research-ledger.jsonl"
 
 
+def test_candidate_execution_config_rejects_external_ledger_path(tmp_path: Path) -> None:
+    external_ledger = tmp_path.parent / "external-ledger.jsonl"
+    (tmp_path / "ml-autoresearch.toml").write_text(
+        f'''
+[candidate_execution]
+runs_root = "{tmp_path.parent / 'external-runs'}"
+ledger_path = "{external_ledger}"
+'''.lstrip()
+    )
+
+    with pytest.raises(CandidateExecutionConfigError, match="ledger_path.*Research Workspace Root"):
+        load_candidate_execution_config(tmp_path)
+
+
 @pytest.mark.parametrize(
     "body, match",
     [

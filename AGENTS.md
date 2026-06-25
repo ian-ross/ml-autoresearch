@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues for `ian-ross/camera-gvccs-model`. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues for `ian-ross/ml-autoresearch`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

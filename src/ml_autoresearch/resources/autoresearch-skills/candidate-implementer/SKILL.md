@@ -18,7 +18,7 @@ Use after an Experiment Proposal is approved to create or repair a Candidate Exp
 
 ## Instructions
 
-Keep Candidate Experiment code narrow: model architecture only plus allowed manifest choices. Do not add custom data loaders, training loops, shell scripts, Dockerfiles, dataset paths, MLflow writes, or weight-fetching code. For Repair Candidate work, preserve the original hypothesis and Comparison Target or return to proposal writing.
+Keep Candidate Experiment code narrow: model architecture only plus allowed manifest choices. Do not add custom data loaders, training loops, shell scripts, Dockerfiles, dataset paths, external persistence writes, or weight-fetching code. For Repair Candidate work, preserve the original hypothesis and Comparison Target or return to proposal writing.
 
 ## Guardrails
 

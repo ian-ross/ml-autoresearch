@@ -29,14 +29,16 @@ FORBIDDEN_GUARDRAILS = [
 ]
 
 
-def test_autoresearch_skill_set_lives_in_review_directory() -> None:
+def test_autoresearch_skill_set_docs_symlink_to_packaged_source() -> None:
     readme = (SKILL_ROOT / "README.md").read_text()
 
-    assert SKILL_ROOT.is_dir()
-    assert not str(SKILL_ROOT).startswith(".pi/")
-    assert not str(SKILL_ROOT).startswith(".agents/")
-    assert "review-only" in readme
-    assert "Do not symlink, install, or use these skills unattended until human review approves them." in readme
+    assert SKILL_ROOT.is_symlink()
+    assert SKILL_ROOT.resolve() == Path("src/ml_autoresearch/resources/autoresearch-skills").resolve()
+    assert "single source of truth" in readme
+    assert "prepare-agent-boundary" in readme
+    assert "agent-work/.pi/skills/" in readme
+    assert "review-only" not in readme
+    assert "Do not symlink, install, or use these skills unattended" not in readme
     assert "Autonomy Smoke Loop" in readme
 
 

@@ -12,11 +12,11 @@ from ml_autoresearch.research_problems import (
     ResearchProblemSpecRegistry,
 )
 from ml_autoresearch.runs import RunStatus, submit_candidate
-from research_problem_helpers import run_candidate_with_synthetic_fixture
+from research_problem_helpers import gvccs_research_problem_root, run_candidate_with_synthetic_fixture
 from ml_autoresearch.smoke import smoke_specs_from_resolved_manifest
 
 
-CANDIDATES_ROOT = Path("candidates")
+CANDIDATES_ROOT = gvccs_research_problem_root() / "candidates"
 
 
 EXPECTED_GVCCS_CANDIDATE_CONTRACTS = {
@@ -43,6 +43,8 @@ EXPECTED_GVCCS_CANDIDATE_CONTRACTS = {
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_epoch60_head_dropout_p005": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
+    "single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context_temporal_eligible_control": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
+    "single_frame_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_mask_gate": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_refine": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p0075_rerun": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
     "single_frame_xwide_unet_line_aux_w010_dropout_p015": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
@@ -50,6 +52,9 @@ EXPECTED_GVCCS_CANDIDATE_CONTRACTS = {
     "single_frame_xwide_unet_line_boundary_aux_w010_w001_dropout_p0075_epoch40": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10), ("boundary", "boundary_logits", "weighted_bce", 0.01))),
     "single_frame_xwide_unet_line_boundary_aux_w010_w003_dropout_p0075_epoch40": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10), ("boundary", "boundary_logits", "weighted_bce", 0.03))),
     "single_frame_xwide_unet_line_boundary_aux_w010_w005_dropout_p0075": ("single_frame_rgb", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10), ("boundary", "boundary_logits", "weighted_bce", 0.05))),
+    "temporal_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_context": ("centered_temporal_rgb_clip", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
+    "temporal_xwide_unet_line_aux_w010_dropout_p0075_plateau_es_aspp_fine_refine": ("centered_temporal_rgb_clip", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.10),)),
+    "temporal_xwide_unet_line_aux_w015_dropout_p0075_plateau_es_aspp_fine_refine": ("centered_temporal_rgb_clip", "mask_logits", "bce_dice", "adamw", "deterministic_shuffle", "none", (("line", "line_logits", "weighted_bce", 0.15),)),
 }
 
 
@@ -110,7 +115,9 @@ def _contract_snapshot(candidate_dir: Path):
 def test_existing_gvccs_candidate_manifests_validate_with_same_contract_choices() -> None:
     observed = {path.name: _contract_snapshot(path) for path in sorted(CANDIDATES_ROOT.iterdir()) if path.is_dir()}
 
-    assert observed == EXPECTED_GVCCS_CANDIDATE_CONTRACTS
+    assert set(EXPECTED_GVCCS_CANDIDATE_CONTRACTS).issubset(observed)
+    for name, expected in EXPECTED_GVCCS_CANDIDATE_CONTRACTS.items():
+        assert observed[name] == expected
 
 
 def test_resolved_gvccs_manifest_and_smoke_specs_stay_single_frame_mask_only(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ Use whenever an autonomous step needs an auditable Research Ledger event.
 ## Read first
 
 - `CONTEXT.md` for Research Ledger-adjacent vocabulary.
-- `docs/design/autonomous-research-campaign-plan.md` for event types and `record-research-event`.
+- `docs/campaign-autonomy-architecture.md` for event types and `record-research-event`.
 - `docs/campaign-report-format.md` for report and pause commands.
 
 ## Instructions

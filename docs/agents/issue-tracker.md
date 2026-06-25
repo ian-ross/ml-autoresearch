@@ -1,22 +1,19 @@
 # Issue tracker: GitHub
 
-Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and PRDs for this repository live in GitHub issues for `ian-ross/ml-autoresearch`. Use the `gh` CLI for operations.
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+- Create: `gh issue create --repo ian-ross/ml-autoresearch --title "..." --body "..."`
+- Read: `gh issue view --repo ian-ross/ml-autoresearch <number> --comments`
+- List: `gh issue list --repo ian-ross/ml-autoresearch --state open --json number,title,body,labels,comments`
+- Comment: `gh issue comment --repo ian-ross/ml-autoresearch <number> --body "..."`
+- Apply/remove labels: `gh issue edit --repo ian-ross/ml-autoresearch <number> --add-label "..."` / `--remove-label "..."`
+- Close: `gh issue close --repo ian-ross/ml-autoresearch <number> --comment "..."`
 
-Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
+When run inside this clone, `gh` will usually infer the same repository from the git remote; the explicit `--repo` form avoids ambiguity.
 
-## When a skill says "publish to the issue tracker"
+## Skill wording
 
-Create a GitHub issue.
-
-## When a skill says "fetch the relevant ticket"
-
-Run `gh issue view <number> --comments`.
+- "Publish to the issue tracker" means create a GitHub issue in `ian-ross/ml-autoresearch`.
+- "Fetch the relevant ticket" means run `gh issue view --repo ian-ross/ml-autoresearch <number> --comments`.

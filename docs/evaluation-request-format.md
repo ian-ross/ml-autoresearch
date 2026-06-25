@@ -20,6 +20,8 @@ Required fields:
 - `parameters`: bounded diagnostic parameters, including optional `primary_threshold` in `[0, 1]`, `threshold_sweep` bounds (`min`, `max`, `steps`), `batch_size`, `artifact_count`, and `failure_bucket_count`.
 - `artifact_budget`: resource budget with `max_artifacts` and `max_runtime_seconds`.
 
+Implemented bounds include `batch_size <= 1024`, `artifact_count <= 100`, `failure_bucket_count <= 20`, and `max_runtime_seconds <= 3600`.
+
 `request_id` is optional. If omitted, the Harness uses the request filename stem as the stable request identifier.
 
 Run a Post-Run Evaluation with the CLI. In a Research Workspace configured with `candidate_execution.backend = "docker"`, this command dispatches through the configured Docker Candidate Execution Boundary:

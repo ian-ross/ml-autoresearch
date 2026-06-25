@@ -65,7 +65,7 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         runs_root = _path(settings, "runs_root", root, prefix="candidate_execution")
     else:
         runs_root = root / "runs"
-    ledger_path = _optional_path(settings, "ledger_path", root)
+    ledger_path = _optional_workspace_path(settings, "ledger_path", root)
     research_problem_provider = _research_problem_provider_config(data, root)
     max_samples = _optional_int(settings, "max_samples", minimum=1)
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
@@ -238,6 +238,17 @@ def _optional_path(settings: dict[str, object], key: str, workspace_root: Path) 
     if value is None:
         return None
     return _path(settings, key, workspace_root, prefix="candidate_execution")
+
+
+def _optional_workspace_path(settings: dict[str, object], key: str, workspace_root: Path) -> Path | None:
+    path = _optional_path(settings, key, workspace_root)
+    if path is None:
+        return None
+    resolved_root = workspace_root.resolve()
+    resolved_path = path.resolve(strict=False)
+    if resolved_path != resolved_root and not resolved_path.is_relative_to(resolved_root):
+        raise CandidateExecutionConfigError(f"candidate_execution.{key} must resolve inside the Research Workspace Root")
+    return path
 
 
 def _path(settings: dict[str, object], key: str, workspace_root: Path, *, prefix: str = "research_problem") -> Path:

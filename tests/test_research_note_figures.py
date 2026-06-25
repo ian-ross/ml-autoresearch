@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from ml_autoresearch.research_notes import ResearchNoteFigureError, validate_research_note_figure_provenance
+from research_problem_helpers import gvccs_research_problem_root
 
 
 SINGLE_RUN_NOTE = """
@@ -89,12 +90,12 @@ figures:
 
 
 def test_existing_research_notes_have_valid_figure_provenance_blocks() -> None:
-    for note_path in Path("research-notes").glob("*.md"):
+    for note_path in (gvccs_research_problem_root() / "research-notes").glob("*.md"):
         validate_research_note_figure_provenance(note_path.read_text())
 
 
 def test_research_note_documentation_describes_figure_provenance_format() -> None:
-    text = Path("research-notes/README.md").read_text()
+    text = (gvccs_research_problem_root() / "research-notes" / "README.md").read_text()
 
     assert "```research-figures" in text
     assert "source_run_id" in text
