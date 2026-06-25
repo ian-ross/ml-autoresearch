@@ -45,8 +45,18 @@ from ml_autoresearch.campaign_controls import (
 from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
-from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend, validate_docker_gpu
+from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend, validate_docker_gpu
 from ml_autoresearch.package_resources import PackageResourceError, stage_workspace_container_build_recipes
+from ml_autoresearch.research_loop_operations import (
+    effective_execution_options,
+    effective_ledger_path,
+    load_configured_provider,
+    resolve_research_problem_data_root,
+    run_candidate_from_workspace,
+    run_experiment_batch_from_workspace,
+    run_submission_payload,
+    select_execution_backend,
+)
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.runtime_images import (
     RuntimeImageError,
@@ -106,24 +116,16 @@ def _select_backend(
     docker_user: str | None = None,
     docker_rootless_container_root: bool = False,
 ) -> ExecutionBackend:
-    if name == "native":
-        if docker_enable_gpu:
-            raise typer.BadParameter("--docker-enable-gpu requires --backend docker")
-        if docker_user is not None:
-            raise typer.BadParameter("--docker-user requires --backend docker")
-        if docker_rootless_container_root:
-            raise typer.BadParameter("--docker-rootless-container-root requires --backend docker")
-        return NativeBackend()
-    if name == "docker":
-        if docker_user is not None and docker_rootless_container_root:
-            raise typer.BadParameter("choose either --docker-user or --docker-rootless-container-root, not both")
-        return DockerBackend(
+    try:
+        return select_execution_backend(
+            name,
             docker_image,
-            enable_gpu=docker_enable_gpu,
-            container_user=docker_user,
-            rootless_container_root=docker_rootless_container_root,
+            docker_enable_gpu=docker_enable_gpu,
+            docker_user=docker_user,
+            docker_rootless_container_root=docker_rootless_container_root,
         )
-    raise typer.BadParameter("backend must be native or docker")
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def _load_configured_provider(
@@ -131,49 +133,11 @@ def _load_configured_provider(
     *,
     label: str = "run",
 ):
-    from ml_autoresearch.candidate_execution_config import (
-        CONFIG_FILENAME,
-        CandidateExecutionConfigError,
-        load_candidate_execution_config,
-        resolve_configured_research_problem_provider,
-    )
-
-    root = Path(workspace_root).resolve()
-    if not root.is_dir():
-        raise CandidateExecutionConfigError(f"workspace-root does not exist or is not a directory: {root}")
-    config_path = root / CONFIG_FILENAME
-    if not config_path.is_file():
-        raise CandidateExecutionConfigError(
-            f"{config_path} not found; create a Research Problem execution config before {label}"
-        )
-
-    config = load_candidate_execution_config(root)
-    provider_config = resolve_configured_research_problem_provider(config)
-    if provider_config is None:
-        raise CandidateExecutionConfigError(f"configure [research_problem] in {config_path}")
-
-    resolved_data_root = _resolve_research_problem_data_root(provider_config.data_config, workspace_root=root)
-    if resolved_data_root is not None:
-        provider_config = resolve_configured_research_problem_provider(config, data_root_override=resolved_data_root)
-        if provider_config is None:
-            raise CandidateExecutionConfigError(f"configure [research_problem] in {config_path}")
-    return config, provider_config
+    return load_configured_provider(workspace_root, label=label)
 
 
 def _resolve_research_problem_data_root(configured_data_config: dict[str, object], *, workspace_root: Path) -> Path | None:
-    data_root = configured_data_config.get("dataset_root") or configured_data_config.get("data_root")
-    if data_root is None:
-        return None
-    if not isinstance(data_root, str):
-        raise CandidateExecutionConfigError("research_problem.data_config.dataset_root must be a string")
-    candidate_root = Path(data_root)
-    if not candidate_root.is_absolute():
-        candidate_root = Path(workspace_root) / candidate_root
-    if not candidate_root.exists():
-        raise CandidateExecutionConfigError(f"Research Problem data root does not exist: {candidate_root}")
-    if not candidate_root.is_dir():
-        raise CandidateExecutionConfigError(f"Research Problem data root is not a directory: {candidate_root}")
-    return candidate_root
+    return resolve_research_problem_data_root(configured_data_config, workspace_root=workspace_root)
 
 
 def _effective_execution_options(
@@ -183,33 +147,20 @@ def _effective_execution_options(
     max_prediction_samples: int | None,
     prediction_sample_policy: str | None,
 ) -> tuple[int | None, int, str]:
-    return (
-        config.max_samples if max_samples is None else max_samples,
-        config.max_prediction_samples if max_prediction_samples is None else max_prediction_samples,
-        config.prediction_sample_policy if prediction_sample_policy is None else prediction_sample_policy,
+    return effective_execution_options(
+        config,
+        max_samples=max_samples,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
     )
 
 
 def _effective_ledger_path(config, *, override: Path | None) -> Path:
-    if override is not None:
-        return override
-    if config.ledger_path is None:
-        raise CandidateExecutionConfigError(
-            "configure candidate_execution.ledger_path in ml-autoresearch.toml or pass --ledger-path"
-        )
-    return config.ledger_path
+    return effective_ledger_path(config, override=override)
 
 
 def _echo_run(run) -> None:
-    _echo_json(
-        {
-            "run_id": run.run_id,
-            "run_dir": str(run.run_dir),
-            "status": run.status.value,
-            "rejection_reason": run.rejection_reason,
-            "failure_classification": run.failure_classification.value if run.failure_classification is not None else None,
-        }
-    )
+    _echo_json(run_submission_payload(run))
 
 
 def _parse_event_fields(fields: list[str]) -> dict[str, str]:
@@ -881,33 +832,25 @@ def run_experiment_batch_command(
 ) -> None:
     """Validate and synchronously run a bounded Experiment Batch."""
 
-    from ml_autoresearch.batches import (
-        ExperimentBatchError,
-        run_experiment_batch_with_research_problem,
-    )
+    from ml_autoresearch.batches import ExperimentBatchError
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
 
-    selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
     try:
-        config, provider_config = _load_configured_provider(workspace_root, label="run-experiment-batch")
-        effective_ledger_path = _effective_ledger_path(config, override=ledger_path)
-        max_samples, max_prediction_samples, prediction_sample_policy = _effective_execution_options(
-            config,
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-        )
-        result = run_experiment_batch_with_research_problem(
+        result = run_experiment_batch_from_workspace(
             batch,
             batches_root=batches_root,
             runs_root=runs_root,
-            provider_config=provider_config,
-            backend=selected_backend,
+            workspace_root=workspace_root,
+            backend_name=backend,
+            docker_image=docker_image,
+            docker_enable_gpu=docker_enable_gpu,
+            docker_user=docker_user,
+            docker_rootless_container_root=docker_rootless_container_root,
             max_parallel_runs=max_parallel_runs,
             max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
-            ledger_path=effective_ledger_path,
+            ledger_path=ledger_path,
         )
     except (
         CandidateExecutionConfigError,
@@ -982,39 +925,34 @@ def run_candidate_command(
     """Validate, smoke-test, and synchronously run a Candidate Experiment."""
 
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
-    from ml_autoresearch.runs import run_candidate_with_research_problem
 
     try:
         if backend == "docker":
             _enforce_runtime_image_validation("run-candidate", workspace_root, skip=skip_runtime_image_validation)
-        config, provider_config = _load_configured_provider(workspace_root, label="run-candidate")
-        effective_runs_root = config.runs_root if runs_root is None else runs_root
-        effective_ledger_path = _effective_ledger_path(config, override=ledger_path)
         if daemonize:
+            config, _provider_config = _load_configured_provider(workspace_root, label="run-candidate")
+            effective_runs_root = config.runs_root if runs_root is None else runs_root
             _daemonize_current_run_candidate(effective_runs_root)
             return
-        selected_backend = _select_backend(backend, docker_image, docker_enable_gpu, docker_user, docker_rootless_container_root)
-        max_samples, max_prediction_samples, prediction_sample_policy = _effective_execution_options(
-            config,
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-        )
-        run = run_candidate_with_research_problem(
+        payload = run_candidate_from_workspace(
             candidate,
-            effective_runs_root,
-            provider_config,
+            workspace_root=workspace_root,
+            runs_root=runs_root,
+            backend_name=backend,
+            docker_image=docker_image,
+            docker_enable_gpu=docker_enable_gpu,
+            docker_user=docker_user,
+            docker_rootless_container_root=docker_rootless_container_root,
             max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
-            backend=selected_backend,
-            ledger_path=effective_ledger_path,
+            ledger_path=ledger_path,
             require_proposal=require_proposal,
         )
     except (RuntimeImageError, CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
-    _echo_run(run)
-    if run.status != RunStatus.COMPLETED:
+    _echo_json(payload)
+    if payload.get("status") != RunStatus.COMPLETED.value:
         raise typer.Exit(1)
 
 

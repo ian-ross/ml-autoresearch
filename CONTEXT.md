@@ -68,6 +68,10 @@ _Avoid_: Research Ledger event, warning-only image check, source-controlled rese
 The closed cycle in which Candidate Experiments are proposed, the system runs them, Results are evaluated, and the next Candidate Experiment is informed by prior Results. In early Human-Guided Research Iterations, humans may make proposal decisions before the Pi-agent proposal loop is automated.
 _Avoid_: Pipeline when referring to the iterative research cycle
 
+**Research Loop Operation**:
+A reusable Harness-owned application action that performs one Research Loop step, such as running a Candidate Experiment, running an Experiment Batch, or executing an Evaluation Request, independent of whether it was invoked by the human CLI, agent-safe CLI, or Autonomy Step orchestration.
+_Avoid_: CLI command when referring to the underlying Harness action, Autonomy Step branch when the action is reusable
+
 **Human-Guided Research Iteration**:
 An early Research Loop iteration where a human chooses or edits the next Candidate Experiment, uses the Harness to run it, and inspects Results before deciding the next step. This bridges the completed tracer-bullet Harness and a later autonomous Pi-agent proposal loop.
 _Avoid_: Manual testing when referring to learning-oriented research iteration
@@ -381,6 +385,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - **Single-Frame RGB Input** and **Centered Temporal RGB Clip Input** are v1 **Input Modes** for **Ground-Camera Contrail Detection**.
 - **ML Autoresearch** works by sustaining a **Research Loop**.
 - A **Research Loop** explores a **Research Problem** through many **Candidate Experiments**.
+- **Research Loop Operations** are reusable Harness-owned actions shared by human CLI commands, agent-safe CLI commands, and **Autonomy Step** orchestration.
 - **Human-Guided Research Iterations** are early **Research Loop** iterations used before **Autonomous Research Iterations** are implemented.
 - **Autonomous Research Iterations** allow the agent to conduct Candidate Experiment proposal, implementation, submission for Harness execution, observation, note-writing, and next-step selection within fixed Harness and Research Problem boundaries.
 - An **Autoresearch Skill Set** should use focused skills with progressive disclosure, orchestrated by a campaign-manager skill rather than one monolithic prompt.
