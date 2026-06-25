@@ -1,6 +1,6 @@
 # ML Autoresearch status and roadmap
 
-This document is the current high-level status and roadmap for the reusable ML Autoresearch Harness. `CONTEXT.md` defines the project language; ADRs record decision history; detailed contracts live in the focused docs linked below.
+This document is the current high-level status and roadmap for the reusable ML Autoresearch Harness. `CONTEXT.md` defines project language; ADRs record decisions; focused docs linked below hold detailed contracts.
 
 ## Current architecture
 
@@ -17,10 +17,10 @@ Current implemented Harness workflows include:
 
 1. `setup` creates a Research Workspace Root skeleton and configuration.
 2. `submit-candidate` performs static source/manifest/proposal validation and records/copies accepted submissions.
-3. `run-candidate` validates, smoke-tests, and trains a candidate through the configured Research Problem provider, using Docker by default for execution.
+3. `run-candidate` validates, smoke-tests, and trains a candidate through the configured Research Problem provider, using Docker by default.
 4. `evaluate-run` and request-gated `run-post-run-evaluation` produce run-scoped evaluation artifacts.
 5. Experiment Batches validate a small batch atomically before executing sibling runs independently.
-6. Campaign/report/capability/evaluation events are written to the append-only `research-ledger.jsonl` through Harness-owned APIs.
+6. Campaign/report/capability/evaluation events are written to append-only `research-ledger.jsonl` through Harness-owned APIs.
 7. `prepare-agent-boundary`, `autonomy-step`, and `run-autonomous-iteration` prepare bounded agent context, ingest exactly one handoff, and optionally execute the next Harness-owned action.
 8. Runtime image commands stage, build, validate, and stamp workspace-specific Agent Runtime Image assets and Docker runner image tags.
 
@@ -40,7 +40,7 @@ Current implemented Harness workflows include:
 
 ## Temporary GVCCS notes
 
-Ground-Camera Contrail Detection / GVCCS is the initial Research Problem package used to exercise the generic Harness seam. GVCCS-specific data layout, input modes, auxiliary targets, and candidate families are collected temporarily in `docs/gvccs-features.md`; those notes should move to the GVCCS Research Problem repository when that repository becomes the sole home for problem-specific documentation.
+Ground-Camera Contrail Detection / GVCCS is the initial Research Problem package used to exercise the generic Harness seam. GVCCS-specific data layout, input modes, auxiliary targets, and candidate families are collected temporarily in `docs/gvccs-features.md`; those notes should move to the GVCCS Research Problem repository when it becomes the sole home for problem-specific documentation.
 
 ## Follow-on roadmap
 

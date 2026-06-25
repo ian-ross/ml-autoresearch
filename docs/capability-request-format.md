@@ -1,12 +1,12 @@
 # Capability Request format
 
-A Capability Request is a human-reviewable YAML document for asking that the trusted Harness expand a Harness-owned contract surface, approved resource set, operational policy, or agent-visible research context such as a dataset profile artifact.
+A Capability Request is a human-reviewable YAML document asking the trusted Harness to expand a Harness-owned contract surface, approved resource set, operational policy, or agent-visible research context such as a dataset profile artifact.
 
-Capability Requests are **not self-approving**. Recording a request only appends a `capability_request_created` Research Ledger event for auditability. Any Candidate Experiment Contract, Approved Weight Artifact, Data Policy, execution policy, dataset profile artifact, or other Harness change must happen later through a separate human-supervised process.
+Capability Requests are **not self-approving**. Recording a request only appends a `capability_request_created` Research Ledger event for audit. Any Candidate Experiment Contract, Approved Weight Artifact, Data Policy, execution policy, dataset profile artifact, or other Harness change must happen later through a separate human-supervised process.
 
 ## File format
 
-Capability Request files are YAML mappings validated by the Harness-owned API/CLI. Use `candidate_authority_requested: none` unless a human reviewer explicitly asks for a different description; requests should normally describe a minimal Harness change, not candidate self-permission.
+Capability Request files are YAML mappings validated by the Harness-owned API/CLI. Use `candidate_authority_requested: none` unless a human reviewer asks for a different description; requests should normally describe a minimal Harness change, not candidate self-permission.
 
 ```yaml
 request_id: capability-temporal-inputs
@@ -46,10 +46,10 @@ provenance_requirements: Record dataset version, split definition, generation co
 ## Required fields
 
 - `capability_type`: one of `contract_surface`, `approved_resource`, `operational_policy`, or `dataset_profile_artifact`.
-- `blocked_hypothesis`: the research hypothesis blocked by the current Harness-owned surface.
+- `blocked_hypothesis`: research hypothesis blocked by the current Harness-owned surface.
 - `current_contract_insufficiency`: why the current Candidate Experiment Contract, Harness policy, or exposed Research Problem context is insufficient.
-- `expected_research_value`: what learning value the request would unlock.
-- `safety_reproducibility_risks`: risks that human reviewers must consider.
+- `expected_research_value`: learning value the request unlocks.
+- `safety_reproducibility_risks`: risks for human reviewers.
 - `minimal_harness_change`: smallest Harness-owned change that could unblock the hypothesis. For new statistics requests, describe the dataset profile artifact or summary the Harness should generate, not raw training-data access for the agent.
 - `candidate_authority_requested`: one of `none`, `read_only_harness_metadata`, or `other`; prefer `none`.
 - `example_follow_up_experiments`: non-empty list of Candidate Experiments that would become possible.
@@ -57,13 +57,13 @@ provenance_requirements: Record dataset version, split definition, generation co
 
 For `capability_type: dataset_profile_artifact`, these additional fields are required:
 
-- `diagnostic_question`: the concrete dataset question the new statistic, subset summary, or qualitative view should answer.
-- `expected_research_decision_impact`: how the artifact will change the next research decision, such as choosing between a Candidate Experiment, stopping a line, or requesting a different capability.
-- `scope_split`: the dataset scope and split(s) to summarize; avoid broad raw-data access requests.
+- `diagnostic_question`: concrete dataset question the new statistic, subset summary, or qualitative view should answer.
+- `expected_research_decision_impact`: how the artifact will change the next research decision, such as choosing a Candidate Experiment, stopping a line, or requesting another capability.
+- `scope_split`: dataset scope and split(s) to summarize; avoid broad raw-data access requests.
 - `bounded_computation_artifact_budget`: limits on scan cost, generated tables/figures, sample counts, or storage.
 - `provenance_requirements`: dataset version, split definition, generation code/command, source identifiers/hashes, and other metadata needed to regenerate and audit the artifact.
 
-Use a dataset-profile Capability Request when the missing information is about the Research Problem data distribution itself. Use a Candidate Experiment when the next step can be tested within the existing Candidate Experiment Contract. Use an Evaluation Request when the question concerns an already-completed Run and can be answered by approved Post-Run Evaluation over that Run's artifacts.
+Use a dataset-profile Capability Request when the missing information concerns the Research Problem data distribution. Use a Candidate Experiment when the next step fits the existing Candidate Experiment Contract. Use an Evaluation Request when the question concerns an already-completed Run and can be answered by approved Post-Run Evaluation over that Run's artifacts.
 
 `request_id` is optional. If omitted, the Harness uses the request filename stem as the stable request identifier recorded in the Research Ledger.
 
@@ -75,4 +75,4 @@ python -m ml_autoresearch.cli create-capability-request \
   --ledger-path research-ledger.jsonl
 ```
 
-The command validates the file and records a `capability_request_created` event containing `request_id` and `request_path`. Invalid requests fail without appending a ledger event.
+The command validates the file and records a `capability_request_created` event with `request_id` and `request_path`. Invalid requests fail without appending a ledger event.

@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Issues and PRDs for this repository live in GitHub issues for `ian-ross/ml-autoresearch`. Use the `gh` CLI for operations.
+Issues and PRDs for this repository live in GitHub issues for `ian-ross/ml-autoresearch`. Use the `gh` CLI.
 
 ## Conventions
 
@@ -11,7 +11,7 @@ Issues and PRDs for this repository live in GitHub issues for `ian-ross/ml-autor
 - Apply/remove labels: `gh issue edit --repo ian-ross/ml-autoresearch <number> --add-label "..."` / `--remove-label "..."`
 - Close: `gh issue close --repo ian-ross/ml-autoresearch <number> --comment "..."`
 
-When run inside this clone, `gh` will usually infer the same repository from the git remote; the explicit `--repo` form avoids ambiguity.
+Inside this clone, `gh` usually infers the repository from the git remote; explicit `--repo` avoids ambiguity.
 
 ## Skill wording
 

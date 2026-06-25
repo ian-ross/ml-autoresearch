@@ -7,7 +7,7 @@ description: Orchestrate one Autonomous Research Iteration for ML Autoresearch c
 
 ## Use
 
-Use this top-level skill to run or review exactly one Autonomous Research Iteration. When invoked by an Autonomy Step, one Autonomy Step means one primary handoff outcome, then stop. It coordinates focused skills and stops when a Campaign Pause Conditions decision requires human review.
+Use this top-level skill to run or review exactly one Autonomous Research Iteration. When invoked by an Autonomy Step, one step means one primary handoff outcome, then stop. It coordinates focused skills and stops when Campaign Pause Conditions require human review.
 
 ## Read first
 
@@ -29,13 +29,13 @@ Use this top-level skill to run or review exactly one Autonomous Research Iterat
 10. If the contract blocks a hypothesis, delegate to `../capability-request-writer/SKILL.md`.
 11. At review intervals or before pausing, delegate to `../campaign-report-writer/SKILL.md` and then `../pause-decider/SKILL.md`.
 
-Do not continue automatically after a pause decision. Require human review before unattended use or before changing the installed Autoresearch Skill Set.
+Do not continue automatically after a pause decision. Require human review before unattended use or installed Autoresearch Skill Set changes.
 
 ## Guardrails
 
 - No covert workarounds: if the Candidate Experiment Contract blocks an idea, create a Capability Request instead of bypassing it.
-- No direct Harness modifications during autonomous operation; Harness changes require separate human-supervised work.
+- No direct Harness changes during autonomous operation; changes require separate human-supervised work.
 - No direct Research Ledger edits; use Harness-owned CLI/API commands.
-- No arbitrary filesystem access; use documented run, candidate, note, request, report, and artifact paths only.
+- No arbitrary filesystem access; use only documented run, candidate, note, request, report, and artifact paths.
 - No network access from Candidate Experiment code and no agent-driven runtime fetches for candidates.
 - No runtime weight downloads; use Approved Weight Artifacts or a reviewed Pretrained Weight Request path.

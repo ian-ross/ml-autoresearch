@@ -1,6 +1,6 @@
 # Experiment Batches
 
-An Experiment Batch is a synchronous, Harness-owned way to run a small set of related Candidate Experiments under one shared hypothesis and one shared comparison target.
+An Experiment Batch is a synchronous, Harness-owned way to run a small set of related Candidate Experiments under one shared hypothesis and comparison target.
 
 ## Constraints
 
@@ -27,13 +27,13 @@ experiment_batch/
         └── README.md
 ```
 
-`BATCH_PROPOSAL.md` records the shared hypothesis, shared comparison target, per-candidate variant rationale, decision criteria, success criteria, and requested budget/concurrency subject to Harness caps. The Harness validates these declarations before any Run is created.
+`BATCH_PROPOSAL.md` records the shared hypothesis, comparison target, per-candidate rationale, decision criteria, success criteria, and requested budget/concurrency subject to Harness caps. The Harness validates these declarations before any Run is created.
 
 Agents can package a batch as one primary handoff with `prepare-experiment-batch-submission`; the Harness ingests it with `ingest-experiment-batch-submission` or as part of an Autonomy Step. Ingested source batches are copied to `experiment-batches/<batch_submission_id>/`; execution artifacts are still created under `batches/<batch_id>/`.
 
 ## Execution
 
-`run-experiment-batch` executes each candidate through the configured Research Problem in the workspace-local `ml-autoresearch.toml`. Batch execution remains synchronous from the caller's perspective: the command returns only after all sibling Runs have completed or failed. The Harness records `experiment_batch_created`, `batch_candidate_created`, `batch_run_started`, and `experiment_batch_completed` Research Ledger events while preserving existing per-Run audit events.
+`run-experiment-batch` executes each candidate through the configured Research Problem in the workspace-local `ml-autoresearch.toml`. Batch execution is synchronous from the caller's perspective: the command returns only after all sibling Runs complete or fail. The Harness records `experiment_batch_created`, `batch_candidate_created`, `batch_run_started`, and `experiment_batch_completed` Research Ledger events while preserving existing per-Run audit events.
 
 ## Artifacts
 
@@ -41,4 +41,4 @@ Batch-level artifacts live under `batches/<batch_id>/` and include `batch_metada
 
 ## Observation
 
-Use `list-batches` to list batch artifacts and `batch-summary` to inspect per-candidate Run status, failure classification, and metrics where available.
+Use `list-batches` to list batch artifacts and `batch-summary` to inspect per-candidate Run status, failure classification, and available metrics.

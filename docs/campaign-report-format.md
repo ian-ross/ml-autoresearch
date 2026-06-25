@@ -1,6 +1,6 @@
 # Campaign Report format and Campaign Pause Conditions
 
-A Campaign Report is a human- and agent-readable status artifact for an autonomous Research Loop campaign. It summarizes campaign state at a review point; it does not replace per-Run Research Notes.
+A Campaign Report is a human- and agent-readable status artifact for an autonomous Research Loop campaign. It summarizes campaign state at review points; it does not replace per-Run Research Notes.
 
 Recommended path: `campaign-reports/YYYY-MM-DD-status.md`.
 
@@ -47,9 +47,9 @@ Use these headings so later automation can parse and extend the scaffold:
 - Human decision needed: <yes/no and details>
 ```
 
-The `Pause condition` line is machine-read. Write it exactly as `- Pause condition: none` or `- Pause condition: <approved_value>` using one of the approved values below. Do not add prose, punctuation, or explanation to that line; put explanation under `Human decision needed` or elsewhere in the section.
+The `Pause condition` line is machine-read. Write it exactly as `- Pause condition: none` or `- Pause condition: <approved_value>` using one approved value below. Do not add prose, punctuation, or explanation to that line; put explanation under `Human decision needed` or elsewhere in the section.
 
-The required summary areas are: current best Result, recent Runs, failures, pending Capability Requests, budget use, and next hypothesis.
+Required summary areas are: current best Result, recent Runs, failures, pending Capability Requests, budget use, and next hypothesis.
 
 ## Recording a Campaign Report
 
@@ -61,13 +61,13 @@ ml-autoresearch record-campaign-report \
   --ledger-path research-ledger.jsonl
 ```
 
-The command/API records a `campaign_report_written` event containing `report_path`.
+The command/API records a `campaign_report_written` event with `report_path`.
 
 ## Campaign Pause Conditions
 
 `campaign_paused` events must use this approved vocabulary in `reason`:
 
-- `budget_exhausted` — the Wall-Clock Budget Policy or campaign-level compute budget is spent.
+- `budget_exhausted` — the Wall-Clock Budget Policy or campaign compute budget is spent.
 - `repeated_failures` — multiple recent Runs failed for non-resource reasons and need review.
 - `repeated_resource_failures` — repeated Resource Failures suggest infrastructure or budget settings need review.
 - `stalled_research_progress` — recent Results are not improving enough to justify automatic continuation.
@@ -84,11 +84,11 @@ ml-autoresearch pause-campaign \
   --ledger-path research-ledger.jsonl
 ```
 
-The command/API records a `campaign_paused` event containing `reason` and, when available, `report_path`.
+The command/API records a `campaign_paused` event with `reason` and, when available, `report_path`.
 
 ## Resuming after human review
 
-After a human resolves the pause condition, record a resume event before starting another autonomous iteration:
+After a human resolves the pause condition, record a resume event before another autonomous iteration:
 
 ```bash
 ml-autoresearch resume-campaign \
@@ -97,4 +97,4 @@ ml-autoresearch resume-campaign \
   --ledger-path research-ledger.jsonl
 ```
 
-The command/API records a `campaign_resumed` event. New Autonomy Step prompts explicitly tell the agent not to treat earlier `scheduled_check_in` or resolved capability-request pause recommendations as active blockers when a newer resume event exists.
+The command/API records a `campaign_resumed` event. New Autonomy Step prompts tell the agent not to treat earlier `scheduled_check_in` or resolved capability-request pause recommendations as active blockers when a newer resume event exists.

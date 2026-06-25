@@ -2,7 +2,7 @@
 
 A local Candidate Experiment submission creates a Harness-owned **Run** directory under the configured runs root. In the target workflow, commands run from or point at a **Research Workspace Root**: a Research Problem Repository containing `ml-autoresearch.toml` plus durable research state such as `EXPERIMENT_INDEX.md`, `research-ledger.jsonl`, `candidates/`, `research-notes/`, and handoff directories.
 
-Before running candidates in a workspace, initialize and validate the runtime images:
+Before running workspace candidates, initialize and validate runtime images:
 
 ```bash
 uv run ml-autoresearch setup --workspace-root .
@@ -10,7 +10,7 @@ uv run ml-autoresearch build-runtime-images --workspace-root . --update-config
 uv run ml-autoresearch validate-runtime-images --workspace-root .
 ```
 
-The Agent Runtime Image is a Gondolin/pi-fort asset directory under `.ml-autoresearch/images/agent/`; the Candidate Execution Boundary uses a Docker runner image tag recorded in `[candidate_execution].docker_image`. The validation stamp under `.ml-autoresearch/runtime-images.validated.json` must be refreshed after Harness dependency, development source override, image recipe, or relevant Workspace Configuration changes. Commands that execute or prepare runtime boundaries (`prepare-agent-boundary`, `autonomy-step`, `run-candidate`, `evaluate-run`, and `run-post-run-evaluation`) require this validation unless explicitly skipped; static `submit-candidate` validation/submission does not.
+The Agent Runtime Image is a Gondolin/pi-fort asset directory under `.ml-autoresearch/images/agent/`; the Candidate Execution Boundary uses a Docker runner image tag from `[candidate_execution].docker_image`. Refresh `.ml-autoresearch/runtime-images.validated.json` after Harness dependency, development source override, image recipe, or relevant Workspace Configuration changes. Commands that execute or prepare runtime boundaries (`prepare-agent-boundary`, `autonomy-step`, `run-candidate`, `evaluate-run`, and `run-post-run-evaluation`) require this validation unless explicitly skipped; static `submit-candidate` validation/submission does not.
 
 ## Submit command
 
@@ -18,7 +18,7 @@ The Agent Runtime Image is a Gondolin/pi-fort asset directory under `.ml-autores
 ml-autoresearch submit-candidate --candidate path/to/candidate --runs-root runs --backend native
 ```
 
-The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`. It exits with status `0` for accepted submissions and non-zero for rejected or smoke-failed submissions. `--backend native|docker` selects the smoke-test Candidate Execution Boundary; Docker uses `--docker-image` or the workspace-local `[candidate_execution].docker_image` from `ml-autoresearch.toml`.
+The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`. It exits `0` for accepted submissions and non-zero for rejected or smoke-failed submissions. `--backend native|docker` selects the smoke-test Candidate Execution Boundary; Docker uses `--docker-image` or the workspace-local `[candidate_execution].docker_image` from `ml-autoresearch.toml`.
 
 `submit-candidate` defaults to `--require-proposal`; use `--no-require-proposal` only for manual compatibility submissions that intentionally omit candidate-local `PROPOSAL.md`.
 
@@ -64,11 +64,11 @@ runs/
             └── harness_timeout.log         # Docker training timeout events, when applicable
 ```
 
-The Harness copies accepted candidate source into the Run directory. Later phases execute the copied source, not the original source path. Submitted candidate source is never overwritten in place; Repair Candidates are submitted as distinct Candidate Experiments with their own Run-scoped source copy.
+The Harness copies accepted candidate source into the Run directory. Later phases execute the copy, not the original source path. Submitted source is never overwritten in place; Repair Candidates are distinct Candidate Experiments with their own Run-scoped source copy.
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
-Observation commands read metrics and summaries from the `outputs/` layout. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths inside the container. `/outputs` is a run-scoped writable bind mount and `/scratch` is bounded tmpfs. Docker Research Problem training mounts the configured trusted Research Problem package read-only at `/research_problem_package`; when the Research Problem has a configured data root, the host path is mounted read-only at `/data`. `/outputs` and `/scratch` remain the only writable paths.
+Observation commands read metrics and summaries from `outputs/`. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths. `/outputs` is a run-scoped writable bind mount and `/scratch` is bounded tmpfs. Docker Research Problem training mounts the trusted Research Problem package read-only at `/research_problem_package`; when configured, the data root is mounted read-only at `/data`. `/outputs` and `/scratch` remain the only writable paths.
 
 ## Run command
 
@@ -76,11 +76,11 @@ Observation commands read metrics and summaries from the `outputs/` layout. Dock
 ml-autoresearch run-candidate --candidate path/to/candidate --workspace-root /path/to/research-workspace
 ```
 
-`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Execution loads the configured trusted Research Problem provider from `ml-autoresearch.toml` when present, passes that package into native or Docker-backed operations, and records Research Problem and dataset metadata in `run_metadata.json`.
+`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only for manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Execution loads the configured trusted Research Problem provider from `ml-autoresearch.toml` when present, passes that package into native or Docker-backed operations, and records Research Problem and dataset metadata in `run_metadata.json`.
 
 Harness-owned autonomous next actions read the Research Workspace Root's `ml-autoresearch.toml` for Candidate Execution Boundary policy. This Workspace Configuration captures the backend, Docker image, GPU policy, rootless/user policy, active Research Problem id, provider package path/target, Research Problem data config, runs root, ledger path, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
 
-`execute-next-action` is conservative: before executing the latest Autonomy Step result, it reconciles `research-ledger.jsonl` for older unexecuted Harness-owned actions and refuses to proceed if any are found. Use `execute-open-actions --dry-run` to list such recovery work, or `execute-open-actions` to execute pending Candidate Submissions, Experiment Batch Submissions, and Evaluation Requests in ledger creation order. Non-executable handoffs such as Research Notes, Capability Requests, and non-pausing Campaign Reports are not treated as open executable actions.
+`execute-next-action` is conservative: before executing the latest Autonomy Step result, it reconciles `research-ledger.jsonl` for older unexecuted Harness-owned actions and refuses to proceed if any exist. Use `execute-open-actions --dry-run` to list recovery work, or `execute-open-actions` to execute pending Candidate Submissions, Experiment Batch Submissions, and Evaluation Requests in ledger creation order. Non-executable handoffs such as Research Notes, Capability Requests, and non-pausing Campaign Reports are not open executable actions.
 
 Configured provider example:
 
@@ -91,7 +91,7 @@ ml-autoresearch run-candidate \
   --max-samples 8
 ```
 
-Provider and dataset metadata are defined by the workspace-local `ml-autoresearch.toml` and are echoed in `run_metadata.json`.
+Provider and dataset metadata are defined by the workspace-local `ml-autoresearch.toml` and echoed in `run_metadata.json`.
 
 ## Rejected submissions
 
@@ -127,11 +127,11 @@ Approved values:
 
 Existing detailed fields (`rejection_reason`, `smoke_failure_reason`, and `training_failure_reason`) remain authoritative diagnostic text. Observation commands surface `failure_classification` when present so automation can distinguish Resource Failures from contract rejections, candidate bugs, Harness failures, and bad research results.
 
-For Resource Failures during Harness-owned training, the implementation may retry with a smaller effective batch size up to three times while preserving the originally requested batch size in `resolved_manifest.yaml` as `training.batch_size_requested`. The attempted effective batch size is recorded as `training.batch_size_effective` and reflected in `training.batch_size` for the retried operation. `run_metadata.json` stores `training_lifecycle.resource_retry` with attempt details, and `outputs/logs/resource_retry.log` records a human-readable retry trace.
+For Resource Failures during Harness-owned training, the implementation may retry with a smaller effective batch size up to three times while preserving the requested batch size in `resolved_manifest.yaml` as `training.batch_size_requested`. The attempted effective batch size is recorded as `training.batch_size_effective` and reflected in `training.batch_size` for the retried operation. `run_metadata.json` stores `training_lifecycle.resource_retry` with attempt details, and `outputs/logs/resource_retry.log` records a human-readable retry trace.
 
 ## Repair Candidate policy
 
-Repair Candidate lineage from the manifest is persisted in `run_metadata.json` as `repair_lineage` and in `candidate_created` Research Ledger events. The lineage records the original proposal, original candidate, motivating failed Run, and Run Failure Classification. Autonomous mode (`--require-proposal`) enforces the initial policy limit of at most two Repair Candidates per original proposal. Repairs are valid only when they preserve the original hypothesis and Comparison Target; scientific changes require a new Experiment Proposal and lineage.
+Repair Candidate lineage from the manifest is persisted in `run_metadata.json` as `repair_lineage` and in `candidate_created` Research Ledger events. The lineage records the original proposal, original candidate, motivating failed Run, and Run Failure Classification. Autonomous mode (`--require-proposal`) enforces the initial limit of at most two Repair Candidates per original proposal. Repairs are valid only when they preserve the original hypothesis and Comparison Target; scientific changes require a new Experiment Proposal and lineage.
 
 ## Post-Run Evaluation artifacts
 
@@ -146,14 +146,14 @@ The implemented `evaluate-run` diagnostic is **Whole-Validation Failure Analysis
 
 There are currently two Harness-owned evaluation surfaces:
 
-- `evaluate-run` is the manual/operator convenience surface for Whole-Validation Failure Analysis. It writes metric/diagnostic artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`, creates an implicit manual `evaluation_request.json` in that directory, and records `evaluation_requested` / `evaluation_completed` ledger events by default.
+- `evaluate-run` is the manual/operator convenience surface for Whole-Validation Failure Analysis. It writes metric/diagnostic artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/`, creates an implicit manual `evaluation_request.json` there, and records `evaluation_requested` / `evaluation_completed` ledger events by default.
 - `run-post-run-evaluation` validates an explicit Evaluation Request first, then writes request-linked artifacts under `runs/<run_id>/outputs/evaluations/<evaluation_id>/` and records `evaluation_requested` / `evaluation_completed` ledger events. Its current request modes, `threshold_sweep` and `failure_bucket_review`, are bounded request-gated parts of Whole-Validation Failure Analysis. When Docker is the configured Candidate Execution Boundary, request-gated Post-Run Evaluation uses that Docker boundary.
 
 `run-summary` observes completed evaluation artifacts under `outputs/evaluations/`.
 
 ## Candidate Execution Boundary hardening
 
-Docker-backed smoke tests, synthetic training, and configured Research Problem training launch containers with the following Harness-owned policy:
+Docker-backed smoke tests, synthetic training, and configured Research Problem training launch containers with this Harness-owned policy:
 
 - Docker user selection is automatic by default: rootless Docker uses container `0:0`, which maps back to the invoking unprivileged host user so output artifacts remain user-owned; rootful Docker uses `--userns=host` with the host Harness uid/gid;
 - no network (`--network none`);
@@ -171,4 +171,4 @@ Run metadata remains authoritative for lifecycle state. Candidate Experiment cod
 
 ### Remaining limitations and non-goals
 
-This local tracer-bullet boundary is Docker hardening, not a formal sandbox proof. It does not yet implement seccomp/AppArmor profile customization, user namespaces, per-GPU allowlists, cgroup tuning beyond the current defaults, artifact quota enforcement under `/outputs`, or distributed/multi-container training. Native backend execution remains a developer-unsafe escape hatch only.
+This local tracer-bullet boundary is Docker hardening, not a formal sandbox proof. It does not yet implement seccomp/AppArmor profile customization, user namespaces, per-GPU allowlists, cgroup tuning beyond current defaults, artifact quota enforcement under `/outputs`, or distributed/multi-container training. Native backend execution remains a developer-unsafe escape hatch only.

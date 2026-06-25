@@ -1,15 +1,15 @@
 # Agent Control Boundary
 
 The Agent Control Boundary is the permission boundary for an autonomous agent
-running inside the VM. It protects infrastructure authority: the agent cannot
-control host shell, Docker, GPUs, cluster schedulers, secrets, cloud credentials,
-or Harness-owned Run execution. It is not primarily a dataset hiding mechanism
-for overfitting control; validation authority and authoritative Results remain
-owned by the Harness. However, full training datasets should not be mounted into
-the Agent Control Boundary by default. The autonomous agent should normally learn
-from Harness-owned observations, Research Notes, Run artifacts, Post-Run
-Evaluation artifacts, Research Problem Briefs, and curated dataset profile
-artifacts rather than private, untracked exploratory scans of raw training data.
+inside the VM. It protects infrastructure authority: the agent cannot control
+the host shell, Docker, GPUs, cluster schedulers, secrets, cloud credentials, or
+Harness-owned Run execution. It is not primarily a dataset-hiding mechanism for
+overfitting control; validation authority and authoritative Results remain
+Harness-owned. Still, full training datasets should not be mounted by default.
+The agent should normally learn from Harness-owned observations, Research Notes,
+Run artifacts, Post-Run Evaluation artifacts, Research Problem Briefs, and
+curated dataset profiles rather than private, untracked scans of raw training
+data.
 
 ## Inner-agent prompt contract
 
@@ -17,7 +17,7 @@ Prompt the inner agent with these operational rules:
 
 - The Agent Workspace is the current writable directory inside the VM.
 - Use `ml-autoresearch-agent`, not `ml-autoresearch`, inside the VM.
-- Do not run `uv run` or `uv sync` from mounted Research Problem Repository paths that may contain host `.venv/` directories; if an operator explicitly asks for `uv`, set a VM-local environment such as `UV_PROJECT_ENVIRONMENT=/tmp/ml-autoresearch-agent-venv uv run ...`.
+- Do not run `uv run` or `uv sync` from mounted Research Problem Repository paths that may contain host `.venv/` directories; if an operator explicitly asks for `uv`, use a VM-local environment such as `UV_PROJECT_ENVIRONMENT=/tmp/ml-autoresearch-agent-venv uv run ...`.
 - Draft Candidate Experiments and handoff artifacts only in the Agent Workspace.
 - Review read-only reference, history, docs, Research Problem Briefs, dataset
   profile artifacts, and approved data summaries before proposing work.
@@ -31,19 +31,18 @@ Prompt the inner agent with these operational rules:
 
 `ml-autoresearch run-autonomous-iteration` is the bounded loop command built on
 Autonomy Steps. It requires `--notify-email` and at least one of `--max-steps`
-or `--max-duration`; if both limits are provided, the first reached limit stops
-the loop. The duration syntax is `N`, `Ns`, `Nm`, or `Nh`. Time limits are checked
-between steps: an in-flight agent step, Candidate Experiment Run, or Post-Run
-Evaluation is allowed to finish before the loop decides whether to start another
-step.
+or `--max-duration`; if both are set, the first limit reached stops the loop.
+Duration syntax is `N`, `Ns`, `Nm`, or `Nh`. Time limits are checked between
+steps, so an in-flight agent step, Candidate Experiment Run, or Post-Run
+Evaluation can finish before the loop decides whether to start another step.
 
-The loop always executes Harness-owned next actions for executable handoffs. It
+The loop executes Harness-owned next actions for executable handoffs. It
 continues after Research Notes, completed Candidate Runs, and completed
-Post-Run Evaluations. It stops for step/time limits, agent failure, ingestion
-failure, execution failure, no handoff, Capability Requests, Campaign Reports,
-campaign pauses, and other human-review outcomes. Before starting, it rejects a
-dirty Agent Workspace containing un-ingested primary handoff artifacts so stale
-manual outputs cannot be mistaken for new autonomous work.
+Post-Run Evaluations. It stops for step/time limits, agent, ingestion, or
+execution failure, no handoff, Capability Requests, Campaign Reports, campaign
+pauses, and other human-review outcomes. Before starting, it rejects a dirty
+Agent Workspace with un-ingested primary handoff artifacts so stale manual
+outputs cannot be mistaken for new work.
 
 On completion the loop writes `agent-work/autonomous-iteration-result.json` and
 sends a Mailjet plain-text completion email. Mailjet settings live in local
@@ -62,46 +61,44 @@ Real credentials should be kept local and out of version control.
 ## Autonomy Step operator workflow
 
 `ml-autoresearch autonomy-step` is the operator command for one Harness-owned
-Autonomy Step. As described by [ADR 0007](adr/0007-autonomy-steps-ingest-one-agent-handoff-before-execution.md), an
-Autonomy Step refreshes the Agent Control Boundary, invokes the agent once with
-a generated `prompt.txt`, performs Agent Handoff Ingestion for exactly one
-primary handoff outcome, writes `agent-work/autonomy-step-result.json`, and then
-stops unless the operator explicitly enables one bounded Harness-owned next
-action.
+Autonomy Step. As described by [ADR 0007](adr/0007-autonomy-steps-ingest-one-agent-handoff-before-execution.md), it
+refreshes the Agent Control Boundary, invokes the agent once with a generated
+`prompt.txt`, performs Agent Handoff Ingestion for exactly one primary handoff,
+writes `agent-work/autonomy-step-result.json`, and stops unless the operator
+enables one bounded Harness-owned next action.
 
 The generated `prompt.txt` tells the inner agent to read `AGENTS.md`, use the
 campaign-manager skill, choose exactly one primary research handoff outcome, and
-stop after the first primary outcome. The one-primary-handoff rule applies to
-Candidate Submissions, Research Notes, Capability Requests, Evaluation Requests,
-and Campaign Reports. If the agent is blocked, it writes either one Campaign
-Report or one Capability Request, not both. If no useful handoff is safe, it may
-stop without producing a handoff.
+stop after it. The one-primary-handoff rule applies to Candidate Submissions,
+Research Notes, Capability Requests, Evaluation Requests, and Campaign Reports.
+If blocked, the agent writes either one Campaign Report or one Capability
+Request, not both. If no useful handoff is safe, it may stop without one.
 
-Agent Handoff Ingestion is not Candidate Experiment Run execution and is not
-Post-Run Evaluation execution. Ingestion is the Harness-owned audit step that
-validates one artifact, copies it from the Agent Workspace to the canonical
-project location, rejects duplicate canonical destinations, records Research
-Ledger events, updates canonical indexes when applicable, and writes an
-`.INGESTED.json` marker beside the source artifact only after canonical state is
-updated. Candidate Experiment execution happens later through the Candidate
-Experiment Runner. Post-Run Evaluation execution happens later through the
-Post-Run Evaluation subsystem. `autonomy-step --execute-next-action` may execute
-one selected Harness-owned next action after successful ingestion: submit and
-run one Candidate Experiment Run for an ingested Candidate Submission, or run
-one Post-Run Evaluation for an ingested Evaluation Request. If the operator ran the
-Autonomy Step without `--execute-next-action`, `ml-autoresearch
-execute-next-action` reads the previous `agent-work/autonomy-step-result.json`
-and executes the same outstanding Harness-owned next action later. Candidate
-Run next actions use the Research Workspace Root `ml-autoresearch.toml` Candidate
-Execution Boundary policy rather than Agent Control Boundary settings.
+Agent Handoff Ingestion is neither Candidate Experiment Run execution nor
+Post-Run Evaluation execution. It is the Harness-owned audit step that validates
+one artifact, copies it from the Agent Workspace to the canonical project
+location, rejects duplicate canonical destinations, records Research Ledger
+events, updates canonical indexes when applicable, and writes an `.INGESTED.json`
+marker beside the source only after canonical state is updated. Candidate
+Experiment execution happens later through the Candidate Experiment Runner;
+Post-Run Evaluation execution happens later through that subsystem.
+`autonomy-step --execute-next-action` may execute one selected Harness-owned
+next action after successful ingestion: submit and run one Candidate Experiment
+Run for an ingested Candidate Submission, or run one Post-Run Evaluation for an
+ingested Evaluation Request. If the operator ran the Autonomy Step without
+`--execute-next-action`, `ml-autoresearch execute-next-action` reads the previous
+`agent-work/autonomy-step-result.json` and executes the same outstanding
+Harness-owned next action later. Candidate Run next actions use the Research
+Workspace Root `ml-autoresearch.toml` Candidate Execution Boundary policy rather
+than Agent Control Boundary settings.
 
 The result file, `agent-work/autonomy-step-result.json`, records the agent
 command, return code, ingestion status, handoff type, canonical path, next
-action, optional next-action execution result, and failure reason. The default
-Pi invocation stores Pi session JSONL files in `agent-sessions/`, a gitignored
-sibling of `agent-work/`. Inspect the result file, the source-side ingestion
-marker, and the matching Pi session record before starting another Autonomy Step
-or graduating the workflow into a future bounded autonomous iteration loop.
+action, optional next-action result, and failure reason. The default Pi
+invocation stores Pi session JSONL files in `agent-sessions/`, a gitignored
+sibling of `agent-work/`. Inspect the result file, source-side ingestion marker,
+and matching Pi session record before starting another Autonomy Step or moving
+to a future bounded autonomous iteration loop.
 
 ### Manual test checklist
 
@@ -128,7 +125,7 @@ Use a disposable workspace and run one case per Autonomy Step:
 - No handoff: agent exits successfully without creating primary handoff
   artifacts; `autonomy-step-result.json` reports `no_handoff` and
   `stop_for_human`.
-- Duplicate artifact: the canonical destination already exists; ingestion fails before copying, ledger updates, index updates, or marker creation.
+- Duplicate artifact: the canonical destination already exists; ingestion fails before copying, ledger/index updates, or marker creation.
 - Multi-handoff failure: the Agent Workspace contains more than one primary
   handoff outcome, or more than one artifact for a primary handoff type;
   ingestion fails and the operator must resolve the workspace before continuing.
@@ -155,35 +152,33 @@ entry. Submissions are ingested by the Harness outside the Agent Control Boundar
 where validation, canonical ledger/index updates, and Run scheduling occur.
 
 The Harness also writes `agent-work/AGENTS.md` with the Agent Control Boundary
-path map. It tells the inner agent how to translate Research Workspace Root paths mentioned
-in Autoresearch skills into boundary mounts, for example `CONTEXT.md` to
-`/reference/WORKSPACE_CONTEXT.md`, `docs/` to `/docs/`, and prior `research-notes/` to
-`/history/research-notes/`, while keeping new draft notes under the writable
-workspace `research-notes/` directory.
+path map. It tells the inner agent how to translate Research Workspace Root paths
+from Autoresearch skills into boundary mounts, for example `CONTEXT.md` to
+`/reference/WORKSPACE_CONTEXT.md`, `docs/` to `/docs/`, and prior
+`research-notes/` to `/history/research-notes/`, while keeping new draft notes in
+the writable workspace `research-notes/` directory.
 
 `prepare-agent-boundary`, `autonomy-step`, and `run-autonomous-iteration`
-require an explicit `[research_problem]` provider in the Research Workspace
-Root `ml-autoresearch.toml`. Agent handoff/autonomy flows do not fall back to a
-built-in/default Research Problem, because the active provider is the source of
-agent-visible Research Problem Brief metadata. During setup the Harness loads
-that provider, validates its declared brief documents and Dataset Profile
-Artifacts, generates an Agent Research Problem Snapshot containing only those
-declared files plus an index, mounts that snapshot read-only at
-`/research-problem`, and writes a progressive-disclosure brief index into
-`agent-work/AGENTS.md`, `agent-work/RESEARCH_PROBLEM_BRIEF_INDEX.md`, and
-`agent-research-problem/RESEARCH_PROBLEM_BRIEF_INDEX.md`. Each index entry includes the
-document name/role, optional summary, required marker, mounted path, and a
-simple read command such as `cat /research-problem/brief/overview.md`. The full
-brief documents are not embedded by default; the agent starts from the index and
-selectively reads only the deeper documents needed for the current Candidate
-Experiment.
+require an explicit `[research_problem]` provider in the Research Workspace Root
+`ml-autoresearch.toml`. Agent handoff/autonomy flows do not fall back to a
+built-in/default Research Problem because the active provider supplies
+agent-visible Research Problem Brief metadata. During setup the Harness loads the
+provider, validates declared brief documents and Dataset Profile Artifacts,
+generates an Agent Research Problem Snapshot with only those files plus an index,
+mounts it read-only at `/research-problem`, and writes a progressive-disclosure
+brief index into `agent-work/AGENTS.md`,
+`agent-work/RESEARCH_PROBLEM_BRIEF_INDEX.md`, and
+`agent-research-problem/RESEARCH_PROBLEM_BRIEF_INDEX.md`. Each entry includes the
+document name/role, optional summary, required marker, mounted path, and a read
+command such as `cat /research-problem/brief/overview.md`. Full brief documents
+are not embedded by default; the agent starts from the index and selectively
+reads only deeper documents needed for the current Candidate Experiment.
 
-The Harness installs the reviewed Autoresearch Skill Set from packaged resources
-in `src/ml_autoresearch/resources/autoresearch-skills/` into
-`agent-work/.pi/skills/` during setup so the inner agent can use the
-campaign-manager and focused autoresearch skills as active Pi skills inside the
-VM. `docs/autoresearch-skills` is only a documentation-tree convenience symlink
-for human browsing.
+During setup, the Harness installs the reviewed Autoresearch Skill Set from
+`src/ml_autoresearch/resources/autoresearch-skills/` into
+`agent-work/.pi/skills/` so the inner agent can use campaign-manager and focused
+autoresearch skills as active Pi skills inside the VM. `docs/autoresearch-skills`
+is only a documentation-tree convenience symlink for humans.
 
 ### Read-only mounts
 
@@ -224,7 +219,7 @@ wrapper:
 
 Agent-safe observation commands default to canonical Research History roots:
 `/history/runs` for Run observation and `/history/batches` for Experiment Batch
-observation. The root options remain available for tests and debugging, but
+observation. Root options remain available for tests and debugging, but
 autonomous agents should normally omit them instead of inventing host-relative
 paths such as `../agent-history/runs`.
 
@@ -233,18 +228,16 @@ are handoff artifacts written as files in the corresponding Agent Workspace
 subdirectories unless an agent-safe wrapper command is explicitly added later.
 
 The agent may run shell, Python, and common text/data tools for bounded
-agent-side work such as editing Candidate Experiment files, parsing exposed
-metrics, making Research Note figures, summarizing JSON/CSV artifacts,
-performing static source inspection, and checking tensor-shape ideas on
-synthetic toy inputs.
+agent-side work: editing Candidate Experiment files, parsing exposed metrics,
+making Research Note figures, summarizing JSON/CSV artifacts, inspecting static
+source, and checking tensor-shape ideas on synthetic toy inputs.
 
 The agent must not run Candidate Experiments inside the VM. It must not run
-Docker, GPU tools, cluster scheduler commands, direct training/evaluation scripts,
-Harness execution backends, or any command intended to submit or execute a Run
-outside the agent-safe wrapper. Authoritative Runs,
-authoritative Results, Post-Run Evaluations, ledger ingestion, resource use,
-and candidate execution happen only through Harness-owned processes outside the
-Agent Control Boundary.
+Docker, GPU tools, cluster scheduler commands, direct training/evaluation
+scripts, Harness execution backends, or any command meant to submit or execute a
+Run outside the agent-safe wrapper. Authoritative Runs, Results, Post-Run
+Evaluations, ledger ingestion, resource use, and candidate execution happen only
+through Harness-owned processes outside the Agent Control Boundary.
 
 ## Data access policy
 
@@ -254,45 +247,42 @@ Research Problem Brief documents, dataset profile artifacts, representative
 Harness-selected figures, prior Research Notes, Run artifacts, and Post-Run
 Evaluation diagnostics.
 
-A dataset profile artifact is trusted agent-visible context that is
-Harness-generated or trusted Research Problem package-generated. It summarizes
-reproducible facts, caveats, or representative examples about a Research Problem dataset so
-agents can propose Candidate Experiments without direct raw training-data
-traversal. It is not raw training data, does not grant candidate-owned data
-loading authority, and is not authoritative Run Results; Results remain the
-metrics and artifacts produced by Harness-executed Runs and Post-Run
-Evaluations.
+A dataset profile artifact is trusted agent-visible context generated by the
+Harness or a trusted Research Problem package. It summarizes reproducible facts,
+caveats, or representative examples about a Research Problem dataset so agents
+can propose Candidate Experiments without direct raw training-data traversal. It
+is not raw training data, does not grant candidate-owned data loading authority,
+and is not authoritative Run Results; Results remain the metrics and artifacts
+from Harness-executed Runs and Post-Run Evaluations.
 
-Initial dataset profile artifact examples include class balance,
-positive-pixel fraction, mask-area histogram, image/camera/source summaries,
-frame-sequence statistics, thin-structure summaries, known caveats, and
-Harness-selected qualitative examples. Qualitative examples are selected by
-Harness or Research Problem policy, not by an agent searching the raw dataset for
-private examples.
+Dataset profile artifact examples include class balance, positive-pixel
+fraction, mask-area histogram, image/camera/source summaries, frame-sequence
+statistics, thin-structure summaries, known caveats, and Harness-selected
+qualitative examples. Qualitative examples are selected by Harness or Research
+Problem policy, not by an agent searching the raw dataset for private examples.
 
 Dataset profile artifacts are exposed inside the Agent Control Boundary as
 read-only Research Problem context in the curated Agent Research Problem
-Snapshot. The preferred location is a profile directory preserving the declared
+Snapshot. Prefer a profile directory that preserves the declared
 provider-relative path, such as `/research-problem/profile/`; setup-generated
 instructions may also reference copied profile artifacts from
-`agent-work/AGENTS.md` or from the related
-`RESEARCH_PROBLEM_BRIEF_INDEX.md`. Index entries should name each artifact,
-state its role and scope, and give a direct read command or path so the inner
-agent discovers the profile through the same progressive-disclosure flow used
-for Research Problem Brief documents.
+`agent-work/AGENTS.md` or the related `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Index
+entries should name each artifact, state its role and scope, and give a read
+command or path so the inner agent discovers the profile through the same
+progressive-disclosure flow as Research Problem Brief documents.
 
 Each dataset profile artifact should carry enough provenance for regeneration
-and audit. Required provenance expectations are Research Problem id/version,
-dataset identity or data config, generation command/version, generation timestamp,
-source split/scope where applicable, and the source policy explaining whether it
-was Harness-generated or trusted Research Problem package-generated.
-When an artifact covers only a subset, camera, source, fold, Working Validation
-Split, or other scope, that source split/scope must be explicit.
+and audit: Research Problem id/version, dataset identity or data config,
+generation command/version, generation timestamp, source split/scope where
+applicable, and the source policy explaining whether it was Harness-generated or
+trusted Research Problem package-generated. If an artifact covers only a subset,
+camera, source, fold, Working Validation Split, or other scope, that scope must
+be explicit.
 
 Refresh is Harness-owned. Profile artifacts are regenerated or copied when the
 Research Problem package, dataset identity/data config, generator version, or
-source split/scope changes. Stale profiles should be replaced by setup before a
-new Autonomy Step rather than edited by the inner agent. The agent may cite a
+source split/scope changes. Setup should replace stale profiles before a new
+Autonomy Step rather than letting the inner agent edit them. The agent may cite a
 profile artifact in Experiment Proposals, Research Notes, Evaluation Requests,
 and Capability Requests, but must not mutate it or treat it as a Run-scoped
 Result.
@@ -301,15 +291,15 @@ This keeps the autonomous Research Loop auditable and reproducible. Raw dataset
 exploration can encourage slow filesystem scans, private untracked statistics,
 validation overfitting, ad hoc scripts, and data-dependent Candidate Experiment
 ideas that bypass the Candidate Experiment Contract. Candidate Experiment
-development should instead be driven by Harness-owned observations that can be
-recorded, reviewed, regenerated, and cited in Experiment Proposals, Research
-Notes, Evaluation Requests, and Capability Requests.
+development should instead use Harness-owned observations that can be recorded,
+reviewed, regenerated, and cited in Experiment Proposals, Research Notes,
+Evaluation Requests, and Capability Requests.
 
 Full or partial `/data` mounts remain possible only as an explicit
 Agent-Control-Boundary policy choice for bounded cases. If the agent needs a new
-dataset statistic, subset summary, or qualitative view to unblock a research
-hypothesis, it should create a Capability Request for a Harness-generated dataset
-profile artifact rather than probing raw training files directly.
+dataset statistic, subset summary, or qualitative view to unblock a hypothesis,
+it should create a Capability Request for a Harness-generated dataset profile
+artifact rather than probe raw training files directly.
 
 Candidate Experiment code must remain data-path agnostic. It must not hard-code
 `/data` paths, implement candidate-owned data loading, probe mounted data from
@@ -339,11 +329,11 @@ The `[agent_control_boundary]` table accepts:
   records workspace operational state under `.ml-autoresearch/`.
 - `allow_egress` — optional boolean; defaults to `true`.
 
-The `image` value is copied into the generated pi-fort configuration. It is the Agent Runtime Image asset directory or source/build reference for pi-fort, not the Docker runner image tag used by Candidate Execution Boundary training. Relative image paths are interpreted by pi-fort relative to the generated `agent-work/.pi/fort.toml` file, not relative to the Research Workspace Root or the `agent-work/` current working directory. Absolute paths are often clearer for live Research Workspace Roots because `.ml-autoresearch/` is hidden workspace operational state.
+The `image` value is copied into the generated pi-fort configuration. It is the Agent Runtime Image asset directory or source/build reference for pi-fort, not the Docker runner image tag used by Candidate Execution Boundary training. Pi-fort interprets relative image paths relative to `agent-work/.pi/fort.toml`, not the Research Workspace Root or `agent-work/` current directory. Absolute paths are often clearer for live Research Workspace Roots because `.ml-autoresearch/` is hidden workspace operational state.
 
-The separate Docker runner image tag lives in `[candidate_execution].docker_image` and is validated alongside the Agent Runtime Image assets by `ml-autoresearch validate-runtime-images`. Rebuild and revalidate with `ml-autoresearch build-runtime-images --update-config` after Harness dependency, `[runtime_images].dev_source_path`, recipe, or image-affecting Workspace Configuration changes.
+The separate Docker runner image tag lives in `[candidate_execution].docker_image` and is validated with Agent Runtime Image assets by `ml-autoresearch validate-runtime-images`. Rebuild and revalidate with `ml-autoresearch build-runtime-images --update-config` after Harness dependency, `[runtime_images].dev_source_path`, recipe, or image-affecting Workspace Configuration changes.
 
-Approved read-only Research Problem data mounts are optional explicit bounded exceptions, not the default path. Use them only when a narrowly scoped policy says the Agent Control Boundary needs direct raw-data visibility; prefer Research Problem Briefs, Research History, Run artifacts, Post-Run Evaluation diagnostics, and Dataset Profile Artifacts for normal autonomous work. Optional mounts use an array of tables:
+Approved read-only Research Problem data mounts are optional explicit bounded exceptions, not the default. Use them only when a narrow policy says the Agent Control Boundary needs direct raw-data visibility; prefer Research Problem Briefs, Research History, Run artifacts, Post-Run Evaluation diagnostics, and Dataset Profile Artifacts for normal autonomous work. Optional mounts use an array of tables:
 
 ```toml
 [[data_mounts]]
@@ -395,8 +385,10 @@ mounts = [
 
 If an operator configures an explicit bounded-exception `[[data_mounts]]` entry,
 `prepare-agent-boundary` appends that read-only mount and rewrites matching
-Agent-Workspace-local `ml-autoresearch.toml` data config values to the
-mounted `/data/...` target. Without a matching explicit data mount, setup does not copy unmapped raw dataset paths such as `dataset_root`/`data_root` into the Agent Workspace-local config.
+Agent-Workspace-local `ml-autoresearch.toml` data config values to the mounted
+`/data/...` target. Without a matching explicit data mount, setup does not copy
+unmapped raw dataset paths such as `dataset_root`/`data_root` into the Agent
+Workspace-local config.
 
 ## Agent image and dependency boundary
 
@@ -405,9 +397,10 @@ exposes the `ml-autoresearch-agent` console script for observation and static
 Candidate Experiment preparation. During boundary preparation, the current
 Harness `src/ml_autoresearch` tree is mounted read-only over the image package
 path so agent-safe validation commands use the same Candidate Experiment Contract
-implementation as the outer Harness. The image intentionally does not install PyTorch,
-NVIDIA/CUDA libraries, Docker tooling, GPU utilities, or Run-execution
-dependencies. These heavy ML/runtime dependencies belong to the outer Harness and Candidate Execution Boundary, where Candidate Experiments are validated,
+implementation as the outer Harness. The image intentionally omits PyTorch,
+NVIDIA/CUDA libraries, Docker tooling, GPU utilities, and Run-execution
+dependencies. Those heavy ML/runtime dependencies belong to the outer Harness
+and Candidate Execution Boundary, where Candidate Experiments are validated,
 smoke-tested, trained, and evaluated under Harness-owned policy.
 
 The agent image build smoke-checks `ml-autoresearch-agent --help` plus allowed
@@ -418,10 +411,9 @@ for the PyTorch/CUDA stack used by Candidate Execution Boundary training.
 ## Setup
 
 The host-side Harness prepares the Agent Reference Snapshot, Agent Research
-Problem Snapshot, Research History snapshot, Agent Workspace directory layout,
-and managed pi-fort configuration from root `ml-autoresearch.toml`. Operators
-must first point the Harness at a
-local checkout of the pi-fort Pi extension:
+Problem Snapshot, Research History snapshot, Agent Workspace layout, and managed
+pi-fort configuration from root `ml-autoresearch.toml`. Operators must first
+point the Harness at a local checkout of the pi-fort Pi extension:
 
 ```shell
 export ML_AUTORESEARCH_PI_FORT=/absolute/path/to/local/pi-fort
@@ -432,14 +424,15 @@ The command overwrites only managed pi-fort files under
 `agent-work/.pi/fort.toml` and `agent-work/.pi/fort.d/`, refreshes managed
 Autoresearch Skill Set files under `agent-work/.pi/skills/`, rewrites the
 managed workspace instruction file `agent-work/AGENTS.md`, writes an
-Agent-Workspace-local `ml-autoresearch.toml` pointing at `/research-problem`
-and only explicit bounded-exception mounted `/data/...` paths for agent-safe static validation, and installs pi-fort
-into `agent-work` with `pi install --approve -l "$ML_AUTORESEARCH_PI_FORT"`; it does not
-delete the whole `agent-work/.pi` directory or existing Agent Workspace outputs.
-The local pi-fort path must exist and resolve to an absolute path after `~`
-expansion. `prepare-agent-boundary`, `autonomy-step`, and
-`run-autonomous-iteration` fail before invoking the autonomy agent if pi-fort
-cannot be installed into the Agent Workspace.
+Agent-Workspace-local `ml-autoresearch.toml` pointing at `/research-problem` and
+only explicit bounded-exception mounted `/data/...` paths for agent-safe static
+validation, and installs pi-fort into `agent-work` with
+`pi install --approve -l "$ML_AUTORESEARCH_PI_FORT"`. It does not delete the whole
+`agent-work/.pi` directory or existing Agent Workspace outputs. The local
+pi-fort path must exist and resolve to an absolute path after `~` expansion.
+`prepare-agent-boundary`, `autonomy-step`, and `run-autonomous-iteration` fail
+before invoking the autonomy agent if pi-fort cannot be installed into the Agent
+Workspace.
 
 ```shell
 cd agent-work

@@ -8,13 +8,13 @@ Evaluation Requests authorize bounded, Harness-owned autonomous Post-Run Evaluat
 
 There are two current surfaces for this diagnostic:
 
-- `evaluate-run` is the manual/operator convenience command. It runs the implemented Whole-Validation Failure Analysis directly and creates an implicit JSON Evaluation Request artifact from the CLI/API parameters under `outputs/evaluations/<evaluation_id>/evaluation_request.json` so the durable artifacts have ledger linkage.
-- `run-post-run-evaluation` is the autonomous request-gated surface. Its approved `evaluation_mode` values, currently `threshold_sweep` and `failure_bucket_review`, select bounded parts of Whole-Validation Failure Analysis after validating an explicit Evaluation Request. When `[candidate_execution] backend = "docker"`, request-gated Post-Run Evaluation runs inside the configured Candidate Execution Boundary instead of requiring Torch in the Research Workspace host environment.
+- `evaluate-run` is the manual/operator convenience command. It runs Whole-Validation Failure Analysis directly and creates an implicit JSON Evaluation Request artifact from the CLI/API parameters under `outputs/evaluations/<evaluation_id>/evaluation_request.json` so durable artifacts have ledger linkage.
+- `run-post-run-evaluation` is the autonomous request-gated surface. Its approved `evaluation_mode` values, currently `threshold_sweep` and `failure_bucket_review`, select bounded parts of Whole-Validation Failure Analysis after validating an explicit Evaluation Request. When `[candidate_execution] backend = "docker"`, request-gated Post-Run Evaluation runs inside the configured Candidate Execution Boundary rather than requiring Torch in the Research Workspace host environment.
 
 Required fields:
 
 - `target_run_id`: parent Run to evaluate.
-- `evaluation_mode`: approved Harness-owned request mode. Current values: `threshold_sweep`, `failure_bucket_review`. These are not separate ad hoc evaluators; they are bounded request-gated modes within Whole-Validation Failure Analysis.
+- `evaluation_mode`: approved Harness-owned request mode. Current values: `threshold_sweep`, `failure_bucket_review`. These are bounded request-gated modes within Whole-Validation Failure Analysis, not separate ad hoc evaluators.
 - `diagnostic_question`: question the diagnostic should answer.
 - `expected_decision_impact`: how the result may affect the next Research Loop decision.
 - `parameters`: bounded diagnostic parameters, including optional `primary_threshold` in `[0, 1]`, `threshold_sweep` bounds (`min`, `max`, `steps`), `batch_size`, `artifact_count`, and `failure_bucket_count`.
@@ -52,10 +52,7 @@ runs/<run_id>/outputs/evaluations/<evaluation_id>/diagnostic_samples/samples.jso
 runs/<run_id>/outputs/evaluations/<evaluation_id>/diagnostic_samples/sample_*.png
 ```
 
-Diagnostic samples are selected deterministically from Harness-owned buckets such
-as `worst_by_dice`, `false_positive_heavy`, `false_negative_heavy`,
-`empty_mask_false_positives`, and `missed_positive_masks`, within the validated
-artifact budget.
+Diagnostic samples are selected deterministically from Harness-owned buckets such as `worst_by_dice`, `false_positive_heavy`, `false_negative_heavy`, `empty_mask_false_positives`, and `missed_positive_masks`, within the validated artifact budget.
 
 `evaluation_metadata.json` links the output to `request_id`, `parent_run_id`, the approved mode, validated parameters, and relative artifact paths.
 

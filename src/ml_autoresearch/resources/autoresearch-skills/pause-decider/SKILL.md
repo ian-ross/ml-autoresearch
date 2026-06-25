@@ -22,8 +22,8 @@ Pause for budget_exhausted, repeated_failures, repeated_resource_failures, stall
 ## Guardrails
 
 - No covert workarounds: if the Candidate Experiment Contract blocks an idea, create a Capability Request instead of bypassing it.
-- No direct Harness modifications during autonomous operation; Harness changes require separate human-supervised work.
+- No direct Harness changes during autonomous operation; changes require separate human-supervised work.
 - No direct Research Ledger edits; use Harness-owned CLI/API commands.
-- No arbitrary filesystem access; use documented run, candidate, note, request, report, and artifact paths only.
+- No arbitrary filesystem access; use only documented run, candidate, note, request, report, and artifact paths.
 - No network access from Candidate Experiment code and no agent-driven runtime fetches for candidates.
 - No runtime weight downloads; use Approved Weight Artifacts or a reviewed Pretrained Weight Request path.

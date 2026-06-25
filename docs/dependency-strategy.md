@@ -11,13 +11,13 @@ ML Autoresearch separates the host development environment, Research Workspace R
 
 ## Why base installs do not include PyTorch
 
-The base dependencies do not include PyTorch. This is intentional: a broad dependency such as `torch>=2,<3` can cause local installs to resolve a large or incompatible GPU/NVIDIA stack based on the host environment. That is not the authority boundary we want.
+Base dependencies intentionally exclude PyTorch. A broad dependency such as `torch>=2,<3` can make local installs resolve a large or incompatible GPU/NVIDIA stack from the host environment, which is not the desired authority boundary.
 
 Instead:
 
-- base `ml-autoresearch` installs contain the Harness code and non-runtime dependencies;
-- host development installs use `uv sync --python 3.12 --extra dev`, which resolves the pinned CPU-only PyTorch wheel from the PyTorch CPU index;
-- Docker runner images own the PyTorch/CUDA runtime used for Candidate Experiment smoke tests and training. The packaged runner recipe installs Python 3.12, installs the pinned PyTorch CUDA 12.1 wheel explicitly, installs only non-PyTorch runtime dependencies, and then installs `ml-autoresearch` with dependency resolution disabled, so package installation does not replace the pinned PyTorch/CUDA stack.
+- base `ml-autoresearch` installs contain Harness code and non-runtime dependencies;
+- host development installs use `uv sync --python 3.12 --extra dev`, resolving the pinned CPU-only PyTorch wheel from the PyTorch CPU index;
+- Docker runner images own the PyTorch/CUDA runtime for Candidate Experiment smoke tests and training. The packaged runner recipe installs Python 3.12, the pinned PyTorch CUDA 12.1 wheel, only non-PyTorch runtime dependencies, then installs `ml-autoresearch` with dependency resolution disabled so package installation cannot replace the pinned PyTorch/CUDA stack.
 
 Candidate Experiments do not choose dependencies, Docker images, CUDA versions, or GPU access.
 
@@ -28,7 +28,7 @@ uv sync --python 3.12 --extra dev
 uv run --python 3.12 pytest -q
 ```
 
-Host tests are CPU-only by design. They should not initialize or depend on the host NVIDIA driver.
+Host tests are CPU-only by design and should not initialize or depend on the host NVIDIA driver.
 
 ## Research Workspace dependency workflow
 
@@ -55,12 +55,12 @@ uv run ml-autoresearch build-runtime-images --workspace-root . --update-config
 uv run ml-autoresearch validate-runtime-images --workspace-root .
 ```
 
-`build-runtime-images` stages packaged container build recipes under `.ml-autoresearch/container-build-recipes/`, prepares the Gondolin Agent Runtime Image assets under `.ml-autoresearch/images/agent/`, and builds a workspace- and Harness-version-specific Docker runner image tag for Candidate Execution Boundary runs. With `--update-config`, those two identities are written to `ml-autoresearch.toml`:
+`build-runtime-images` stages packaged container build recipes under `.ml-autoresearch/container-build-recipes/`, prepares Gondolin Agent Runtime Image assets under `.ml-autoresearch/images/agent/`, and builds a workspace- and Harness-version-specific Docker runner image tag for Candidate Execution Boundary runs. With `--update-config`, both identities are written to `ml-autoresearch.toml`:
 
 - `[agent_control_boundary].image` points to the Agent Runtime Image asset directory used by pi-fort/Gondolin.
-- `[candidate_execution].docker_image` names the Docker runner image tag used for candidate smoke tests, training, and evaluation.
+- `[candidate_execution].docker_image` names the Docker runner image tag for candidate smoke tests, training, and evaluation.
 
-`validate-runtime-images` verifies that the configured Agent image assets and Docker runner metadata match the current Harness identity, workspace config, and optional development source override. It writes `.ml-autoresearch/runtime-images.validated.json`. Runtime command families that execute inside or prepare runtime boundaries, such as `prepare-agent-boundary`, `autonomy-step`, `run-candidate`, `evaluate-run`, and `run-post-run-evaluation`, require a fresh validation stamp unless the operator uses an explicit skip option. Static `submit-candidate` validation/submission does not require runtime image validation.
+`validate-runtime-images` verifies that configured Agent image assets and Docker runner metadata match the current Harness identity, workspace config, and optional development source override. It writes `.ml-autoresearch/runtime-images.validated.json`. Runtime command families that execute inside or prepare runtime boundaries, such as `prepare-agent-boundary`, `autonomy-step`, `run-candidate`, `evaluate-run`, and `run-post-run-evaluation`, require a fresh validation stamp unless the operator uses an explicit skip option. Static `submit-candidate` validation/submission does not require runtime image validation.
 
 ## Development source override
 
@@ -71,24 +71,24 @@ For local Harness development, a Research Workspace may set:
 dev_source_path = "/path/to/ml-autoresearch"
 ```
 
-This tells runtime-image build and validation to identify the editable Harness checkout rather than an installed package artifact. Rebuild and revalidate runtime images after changing:
+This makes runtime-image build and validation identify the editable Harness checkout rather than an installed package artifact. Rebuild and revalidate runtime images after changing:
 
 - the Harness version or editable Harness checkout;
 - `[runtime_images].dev_source_path`;
 - packaged runtime image recipes or Harness dependencies;
 - `ml-autoresearch.toml` fields that affect the Agent Runtime Image or Docker runner image identity.
 
-A stale validation stamp is a safety signal that the configured runtime images may not match the Harness code that will orchestrate the run.
+A stale validation stamp signals that configured runtime images may not match the Harness code orchestrating the run.
 
 ## Docker and cluster GPU validation
 
-Before launching GPU-enabled training on the cluster, validate GPU visibility inside the same configured runner image:
+Before GPU-enabled cluster training, validate GPU visibility inside the configured runner image:
 
 ```bash
 uv run ml-autoresearch validate-docker-gpu --workspace-root .
 ```
 
-The validation command runs the runner image with Docker GPU access and prints PyTorch version, container CUDA runtime version, driver-visible GPU information, and `torch.cuda.is_available()`. This checks the runtime environment that Docker-backed Candidate Execution Boundary runs will use; the host virtualenv is not the authoritative GPU probe.
+The validation command runs the runner image with Docker GPU access and prints PyTorch version, container CUDA runtime version, driver-visible GPU information, and `torch.cuda.is_available()`. This checks the runtime environment used by Docker-backed Candidate Execution Boundary runs; the host virtualenv is not the authoritative GPU probe.
 
 If validation fails, check the host NVIDIA driver, Docker NVIDIA runtime configuration, and host driver compatibility with the container CUDA runtime. A newer container CUDA runtime requires a sufficiently new host NVIDIA driver.
 

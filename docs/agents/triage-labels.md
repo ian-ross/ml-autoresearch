@@ -4,7 +4,7 @@ Use this repository-specific five-label triage vocabulary for GitHub issues in `
 
 | Label | Meaning |
 | --- | --- |
-| `needs-triage` | Maintainer needs to evaluate the issue. |
+| `needs-triage` | Maintainer evaluation needed. |
 | `needs-info` | Waiting on the reporter or requester for more information. |
 | `ready-for-agent` | Fully specified and safe for an AFK/agent implementation pass. |
 | `ready-for-human` | Requires human decision, design, credentials, or implementation. |

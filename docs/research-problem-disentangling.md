@@ -1,6 +1,6 @@
 # Research Problem disentangling boundary
 
-ML Autoresearch is a reusable Harness package plus trusted filesystem Research Problem packages. The Harness must not know GVCCS-specific concepts in order to validate, run, evaluate, or record Candidate Experiments for other Research Problems.
+ML Autoresearch is a reusable Harness package plus trusted filesystem Research Problem packages. The Harness must not need GVCCS-specific concepts to validate, run, evaluate, or record Candidate Experiments for other Research Problems.
 
 See also ADRs 0006, 0008, 0009, and 0010.
 
@@ -26,21 +26,21 @@ A trusted Research Problem package owns Research Problem policy and concrete cap
 - qualitative prediction sample selection and reporting semantics;
 - Post-Run Evaluation adapter behavior that depends on the data modality and prediction target.
 
-The Harness accesses this code by loading a configured filesystem Research Problem provider, validating the returned Research Problem Spec, registering it, and then using only the checked Spec interface and adapters.
+The Harness accesses this code by loading a configured filesystem Research Problem provider, validating the returned Research Problem Spec, registering it, and using only the checked Spec interface and adapters.
 
 ## Research Problem Brief documents
 
 The Research Problem Spec is the normative, machine-checkable execution contract. It declares input modes, output forms, losses, optimizers, metrics, data-policy choices, brief documents, dataset profile artifacts, and trusted adapters that the Harness validates and uses during Runs.
 
-Brief documents are advisory context for progressive disclosure to humans and agents. The Harness resolves provider-declared brief paths relative to the Research Problem package root. Required brief files must exist; optional ones may be omitted. Absolute paths, parent-directory escapes, backslash-separated paths, and paths that resolve outside the package root are rejected.
+Brief documents are advisory context for progressive disclosure to humans and agents. The Harness resolves provider-declared brief paths relative to the Research Problem package root. Required brief files must exist; optional ones may be omitted. Absolute paths, parent-directory escapes, backslash-separated paths, and paths resolving outside the package root are rejected.
 
 ## GVCCS deletion seam
 
-Production code in the reusable `ml_autoresearch` package must remain Research Problem-generic. It must not contain a GVCCS implementation package, directly import GVCCS dataset types or adapters, hard-code GVCCS provider targets, expose GVCCS-named production APIs/commands, or mention GVCCS in production defaults or error messages.
+Production code in reusable `ml_autoresearch` must remain Research Problem-generic. It must not contain a GVCCS implementation package, directly import GVCCS dataset types or adapters, hard-code GVCCS provider targets, expose GVCCS-named production APIs/commands, or mention GVCCS in production defaults or error messages.
 
 Intentional exceptions are tests, fixtures, research notes, Candidate Experiments, campaign artifacts, and temporary documentation such as `docs/gvccs-features.md`, because they describe the initial Research Problem history.
 
-Regression tests scan tracked `src/ml_autoresearch/**` files to prevent GVCCS-specific production references from returning. Additional tests prove reusable Harness imports and fake Research Problem flows work while the GVCCS package is simulated as unavailable.
+Regression tests scan tracked `src/ml_autoresearch/**` files to prevent GVCCS-specific production references from returning. Additional tests prove reusable Harness imports and fake Research Problem flows work while simulating the GVCCS package as unavailable.
 
 ## External package tests
 

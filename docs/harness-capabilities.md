@@ -47,9 +47,9 @@ For Docker-backed Research Problem training, the Harness validates configured pr
 
 ## Candidate model interface
 
-Candidate code exposes `build_model(input_spec, output_spec)` and returns a `torch.nn.Module`. The Harness supplies specs derived from the active Research Problem Spec and the resolved candidate manifest.
+Candidate code exposes `build_model(input_spec, output_spec)` and returns a `torch.nn.Module`. The Harness supplies specs derived from the active Research Problem Spec and resolved candidate manifest.
 
-For mask-only providers, tensor shorthand may be accepted when the output spec has one primary output. When auxiliary outputs are requested, models must return exactly the requested output keys and compatible tensors. The names and shapes are provider/spec-defined.
+For mask-only providers, tensor shorthand may be accepted when the output spec has one primary output. When auxiliary outputs are requested, models must return exactly the requested output keys and compatible tensors. Names and shapes are provider/spec-defined.
 
 ## Training policy
 
@@ -61,7 +61,7 @@ Future capability candidates include additional losses such as focal variants, a
 
 ## Run artifacts
 
-Successful Harness-managed training runs produce the artifacts needed for comparison, diagnosis, and follow-up. The implemented trainer writes a best-validation checkpoint for successful runs at `outputs/models/best_epoch_model.pt` and records it in `outputs/best_metrics.json` and `outputs/final_metrics.json`.
+Successful Harness-managed training runs produce artifacts needed for comparison, diagnosis, and follow-up. The implemented trainer writes a best-validation checkpoint for successful runs at `outputs/models/best_epoch_model.pt` and records it in `outputs/best_metrics.json` and `outputs/final_metrics.json`.
 
 Expected run artifacts include:
 
@@ -79,8 +79,8 @@ Rejected or failed runs should still produce clear metadata/logs when possible.
 
 ## Post-run evaluations
 
-Post-Run Evaluations are run-scoped Harness operations. They do not create new Candidate Experiments or new Runs. Request-gated evaluations write under `outputs/evaluations/<evaluation_id>/` for the original Run and record ledger events. Current evaluation IDs derive from request IDs, for example `eval_<request_id>`.
+Post-Run Evaluations are run-scoped Harness operations. They do not create new Candidate Experiments or Runs. Request-gated evaluations write under `outputs/evaluations/<evaluation_id>/` for the original Run and record ledger events. Current evaluation IDs derive from request IDs, for example `eval_<request_id>`.
 
 ## Future approved weights
 
-Current code rejects candidate-supplied checkpoints and arbitrary runtime pretrained-weight downloads. Approved Weight Artifacts and Pretrained Weight Requests remain future architecture: they should be documented as follow-on design intent until a registry/workflow is implemented and tested.
+Current code rejects candidate-supplied checkpoints and arbitrary runtime pretrained-weight downloads. Approved Weight Artifacts and Pretrained Weight Requests remain future architecture and should be documented as follow-on design intent until a registry/workflow is implemented and tested.

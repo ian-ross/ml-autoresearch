@@ -1,12 +1,12 @@
 # Candidate Experiment Contract
 
-This document describes the implemented Candidate Experiment source contract. A Candidate Experiment is submitted as a local directory, not as an archive. The contract is generic: allowed input modes, output forms, losses, optimizers, data policies, metrics, and auxiliary targets come from the configured Research Problem Spec.
+This document describes the implemented Candidate Experiment source contract. A Candidate Experiment is submitted as a local directory, not an archive. The contract is generic: allowed input modes, output forms, losses, optimizers, data policies, metrics, and auxiliary targets come from the configured Research Problem Spec.
 
 GVCCS-specific examples live temporarily in `docs/gvccs-features.md`.
 
 ## Validation phases
 
-Candidate handling has two distinct phases:
+Candidate handling has two phases:
 
 1. **Static contract validation** checks files, manifest fields, proposal sections, and spec allowlists without importing or executing candidate Python code.
 2. **Harness smoke test/training** later imports `model.py` in a controlled Harness path and calls `build_model(input_spec, output_spec)` to check the model interface before or during execution.
@@ -39,7 +39,7 @@ training:
   max_epochs: 1
 ```
 
-The example values above are valid only when the configured Research Problem Spec advertises them.
+The example values are valid only when the configured Research Problem Spec advertises them.
 
 ## Allowed files
 
@@ -67,7 +67,7 @@ Rejected:
 
 ## Manifest authority
 
-Candidate manifests may select only schema-supported values allowed by the active Research Problem Spec. Candidate code must not implement custom data loading, custom target construction, custom losses, custom optimizers, schedulers, training loops, filesystem probes, network calls, runtime pretrained-weight downloads, Docker calls, or ledger writes.
+Candidate manifests may select only schema-supported values allowed by the active Research Problem Spec. Candidate code must not implement custom data loading, target construction, losses, optimizers, schedulers, training loops, filesystem probes, network calls, runtime pretrained-weight downloads, Docker calls, or ledger writes.
 
 Implemented generic manifest surfaces include:
 
@@ -150,11 +150,11 @@ When enabled, `patience` must be less than `max_epochs`; `min_delta` is the mini
 - `Success Criteria`
 - `Fallback/Next Decision`
 
-The validator also accepts documented normalized section synonyms. A proposal copied with the Candidate Experiment can contain additional narrative and implementation detail.
+The validator also accepts documented normalized section synonyms. A proposal copied with the Candidate Experiment may include additional narrative and implementation detail.
 
 ## Repair Candidate lineage
 
-A Repair Candidate is a distinct Candidate Experiment submitted to fix a prior candidate bug or contract issue without overwriting previously submitted source. Repair Candidates must preserve the original Experiment Proposal hypothesis and Comparison Target. If the hypothesis or Comparison Target changes, create a new Experiment Proposal instead of using repair lineage.
+A Repair Candidate is a distinct Candidate Experiment submitted to fix a prior candidate bug or contract issue without overwriting previous source. Repair Candidates must preserve the original Experiment Proposal hypothesis and Comparison Target. If either changes, create a new Experiment Proposal instead of using repair lineage.
 
 Repair Candidates declare structured lineage in `manifest.yaml`:
 
@@ -181,7 +181,7 @@ data:
   augmentation_policy: light_combined
 ```
 
-Allowed values come from the configured Research Problem Spec. If omitted, `data.sampling_policy` resolves to `sequential` and `data.augmentation_policy` resolves to `none` when those defaults are supported. Frame-selection policies are provider-dependent; temporal modes such as `centered_temporal_rgb_clip` are implemented by providers that advertise them, not by the generic Harness universally.
+Allowed values come from the configured Research Problem Spec. If omitted, `data.sampling_policy` resolves to `sequential` and `data.augmentation_policy` resolves to `none` when those defaults are supported. Frame-selection policies are provider-dependent; temporal modes such as `centered_temporal_rgb_clip` are implemented only by providers that advertise them.
 
 ## Dataset and mount authority
 
