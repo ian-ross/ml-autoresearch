@@ -97,6 +97,8 @@ def train_research_problem_run(
     """Train a Run through the active trusted Research Problem Spec adapter."""
 
     loaded = load_research_problem_provider(provider_config)
+    if not loaded.spec.operation_capabilities.training:
+        raise TrainingError(f"Research Problem {loaded.spec.id!r} does not declare the training operation capability")
     adapter = loaded.spec.training_adapter
     if adapter is None:
         raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")

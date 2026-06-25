@@ -16,6 +16,10 @@ _Avoid_: Task, use case, project
 A trusted Harness-side registration for one Research Problem's concrete capabilities, such as dataset adapters, input modes, prediction targets, metrics, augmentation policies, auxiliary targets, allowed losses, reporting templates, and figure selectors. A Research Problem Spec is trusted infrastructure, not Candidate Experiment authority.
 _Avoid_: Candidate plugin, candidate-provided dataset adapter, arbitrary task config
 
+**Research Problem Operation Capability**:
+An explicit Research Problem Spec declaration that a trusted Research Problem adapter supports a Harness operation, initially training and named Post-Run Evaluation modes. The declaration is checked at Spec registration/provider load so operation authority is visible at the Spec seam rather than inferred from adapter objects.
+_Avoid_: Implicit adapter capability, best-effort runtime probing, hidden operation support
+
 **Research Problem Brief**:
 Advisory, versioned documentation declared by a filesystem Research Problem package to support progressive disclosure of context such as problem overview, domain/data notes, literature, baselines, and modeling suggestions. The Research Problem Brief informs agents and humans but is not the normative machine-checkable execution contract unless a document is explicitly marked required by the interface.
 _Avoid_: Hidden contract, prompt-only spec, candidate authority
@@ -343,6 +347,7 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - A **Filesystem Research Problem Package** is the source-location boundary for trusted Research Problem-specific code; the semantic boundary is the checked **Research Problem Spec** it returns.
 - The **Research Problem Spec Registry** separates reusable **Harness** infrastructure from trusted problem-specific capability registration.
 - **Research Problem Specs** are Harness-side trusted registrations, not **Candidate Experiment** plugins or authority to bypass the **Candidate Experiment Contract**.
+- **Research Problem Operation Capabilities** make supported Harness operations explicit at the **Research Problem Spec** seam before training or Post-Run Evaluation dispatch.
 - The **Problem Support Library** provides reusable trusted building blocks for **Research Problem Specs** without becoming an independent policy boundary or Candidate-facing plugin API.
 - Mature **Research Problem** definitions are expected to move into trusted **Research Problem Repositories** that register problem-specific capabilities with reusable ML Autoresearch infrastructure.
 - A **Research Problem Repository** is both the trusted Python package boundary for problem-specific code and the **Research Workspace Root** for that Research Problem.

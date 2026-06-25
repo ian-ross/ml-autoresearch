@@ -335,6 +335,13 @@ def dispatch_evaluation_mode(
 ) -> tuple[dict[str, float], list[dict[str, object]], dict[str, object], dict[str, object]]:
     """Invoke the active Research Problem evaluation adapter for an approved mode."""
 
+    capabilities = getattr(research_problem.spec, "operation_capabilities", None)
+    declared_modes = tuple(getattr(capabilities, "evaluation_modes", ()))
+    if mode not in declared_modes:
+        raise EvaluationError(
+            f"Research Problem {getattr(research_problem.spec, 'id', '<unknown>')!r} "
+            f"does not declare Post-Run Evaluation mode {mode!r}"
+        )
     adapter = getattr(research_problem.spec, "evaluation_adapter", None)
     if adapter is None:
         raise EvaluationError(f"Research Problem {getattr(research_problem.spec, 'id', '<unknown>')!r} does not provide an evaluation adapter")

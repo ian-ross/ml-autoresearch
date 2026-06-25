@@ -98,11 +98,12 @@ def _metadata_data_root(metadata: dict[str, object]) -> Path | None:
 
 
 def _ensure_research_problem_supports_mode(spec: object, mode: str) -> None:
+    capabilities = getattr(spec, "operation_capabilities", None)
+    supported_modes = tuple(str(item) for item in getattr(capabilities, "evaluation_modes", ()))
+    if mode not in supported_modes:
+        raise EvaluationRequestError(f"Research Problem {getattr(spec, 'id', '<unknown>')!r} does not support evaluation mode: {mode}")
     adapter = getattr(spec, "evaluation_adapter", None)
     if adapter is None:
-        raise EvaluationRequestError(f"Research Problem {getattr(spec, 'id', '<unknown>')!r} does not support evaluation mode: {mode}")
-    supported = getattr(adapter, "supported_evaluation_modes", None)
-    if supported is not None and mode not in tuple(str(item) for item in supported):
         raise EvaluationRequestError(f"Research Problem {getattr(spec, 'id', '<unknown>')!r} does not support evaluation mode: {mode}")
     if not callable(getattr(adapter, "run_evaluation_mode", None)):
         raise EvaluationRequestError(f"Research Problem {getattr(spec, 'id', '<unknown>')!r} evaluation adapter is invalid")

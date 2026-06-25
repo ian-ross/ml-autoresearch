@@ -10,6 +10,7 @@ import pytest
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
     ResearchProblemProviderLoadError,
+    ResearchProblemSpec,
     ResearchProblemSpecRegistry,
     load_research_problem_provider,
 )
@@ -89,6 +90,32 @@ def _write_fake_package(root):
         "def build_wrong_contract(data_config=None):\n"
         "    return build_spec(data_config).model_copy(update={'contract_version': 'v9'})\n"
         "\n"
+        "class IncompleteTrainingAdapter:\n"
+        "    def validate_data_root(self, data_config):\n"
+        "        return data_config.get('dataset_root')\n"
+        "\n"
+        "class EvaluationAdapter:\n"
+        "    def run_evaluation_mode(self, **kwargs):\n"
+        "        return {}, [], {}, {}\n"
+        "\n"
+        "def build_training_adapter_without_capability(data_config=None):\n"
+        "    return build_spec(data_config).model_copy(update={'training_adapter': IncompleteTrainingAdapter()})\n"
+        "\n"
+        "def build_training_capability_without_adapter(data_config=None):\n"
+        "    return build_spec(data_config).model_copy(update={'operation_capabilities': {'training': True}})\n"
+        "\n"
+        "def build_incomplete_training_capability(data_config=None):\n"
+        "    return build_spec(data_config).model_copy(update={'operation_capabilities': {'training': True}, 'training_adapter': IncompleteTrainingAdapter()})\n"
+        "\n"
+        "def build_evaluation_modes_without_adapter(data_config=None):\n"
+        "    return build_spec(data_config).model_copy(update={'operation_capabilities': {'evaluation_modes': ('whole_validation_failure_analysis',)}})\n"
+        "\n"
+        "def build_evaluation_adapter_without_modes(data_config=None):\n"
+        "    return build_spec(data_config).model_copy(update={'evaluation_adapter': EvaluationAdapter()})\n"
+        "\n"
+        "def build_duplicate_evaluation_modes(data_config=None):\n"
+        "    return build_spec(data_config).model_copy(update={'operation_capabilities': {'evaluation_modes': ('whole_validation_failure_analysis', 'whole_validation_failure_analysis')}, 'evaluation_adapter': EvaluationAdapter()})\n"
+        "\n"
         "def build_invalid_shape(data_config=None):\n"
         "    return {'id': 'tiny_problem', 'version': 'test-spec-v0', 'contract_version': 'v0'}\n"
         "\n"
@@ -134,6 +161,7 @@ def test_loads_filesystem_research_problem_provider_and_registers_spec(tmp_path)
             "resolved_package_root": str(tmp_path.resolve()),
             "git": loaded.provenance.git,
         },
+        "operation_capabilities": {"training": False, "evaluation_modes": []},
     }
 
 
@@ -145,6 +173,79 @@ def test_provider_can_return_mapping_that_is_checked_before_registration(tmp_pat
 
     assert loaded.spec.id == "tiny_problem"
     assert registry.get("tiny_problem") == loaded.spec
+
+
+def test_provider_rejects_training_adapter_without_explicit_operation_capability(tmp_path) -> None:
+    _write_fake_package(tmp_path)
+
+    with pytest.raises(ResearchProblemProviderLoadError, match="training_adapter requires operation_capabilities.training"):
+        load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_training_adapter_without_capability"))
+
+
+def test_provider_rejects_training_capability_without_complete_adapter(tmp_path) -> None:
+    _write_fake_package(tmp_path)
+
+    with pytest.raises(ResearchProblemProviderLoadError, match="operation_capabilities.training requires training_adapter"):
+        load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_training_capability_without_adapter"))
+
+    with pytest.raises(ResearchProblemProviderLoadError, match="training_adapter is missing callable method: dataset_metadata"):
+        load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_incomplete_training_capability"))
+
+
+def test_provider_rejects_evaluation_capability_without_declared_adapter(tmp_path) -> None:
+    _write_fake_package(tmp_path)
+
+    with pytest.raises(ResearchProblemProviderLoadError, match="operation_capabilities.evaluation_modes requires evaluation_adapter"):
+        load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_evaluation_modes_without_adapter"))
+
+    with pytest.raises(ResearchProblemProviderLoadError, match="evaluation_adapter requires operation_capabilities.evaluation_modes"):
+        load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_evaluation_adapter_without_modes"))
+
+
+def test_provider_rejects_duplicate_evaluation_modes(tmp_path) -> None:
+    _write_fake_package(tmp_path)
+
+    with pytest.raises(ResearchProblemProviderLoadError, match="evaluation_modes must not contain duplicates"):
+        load_research_problem_provider(_config(tmp_path, "tiny_problem.research_problem:build_duplicate_evaluation_modes"))
+
+
+def test_evaluation_dispatch_rejects_undeclared_mode(tmp_path) -> None:
+    from ml_autoresearch.evaluations import EvaluationError, ResolvedEvaluationResearchProblem, dispatch_evaluation_mode
+
+    class EvaluationAdapter:
+        supported_evaluation_modes = ("declared",)
+
+        def run_evaluation_mode(self, **kwargs):
+            raise AssertionError("undeclared mode should not reach the evaluation adapter")
+
+    spec = ResearchProblemSpec(
+        id="tiny_problem",
+        version="test-spec-v0",
+        contract_version="v0",
+        input_modes=("tiny_rgb",),
+        input_specs={"tiny_rgb": {"mode": "tiny_rgb", "shape": [3, 8, 8]}},
+        output_forms=("tiny_mask_logits",),
+        output_specs={"tiny_mask_logits": {"form": "tiny_mask_logits", "shape": [1, 8, 8]}},
+        losses=("tiny_loss",),
+        optimizers=("sgd",),
+        sampling_policies=("sequential",),
+        augmentation_policies=("none",),
+        primary_metric="val/tiny_score",
+        operation_capabilities={"evaluation_modes": ("declared",)},
+        evaluation_adapter=EvaluationAdapter(),
+    )
+
+    with pytest.raises(EvaluationError, match="does not declare Post-Run Evaluation mode"):
+        dispatch_evaluation_mode(
+            research_problem=ResolvedEvaluationResearchProblem(spec=spec, metadata={}),
+            mode="undeclared",
+            run_dir=tmp_path,
+            data_root=tmp_path,
+            model_artifact_path=tmp_path / "model.pt",
+            threshold=0.5,
+            evaluation_dir=tmp_path / "evaluation",
+            max_artifact_samples=1,
+        )
 
 
 def test_provider_load_tolerates_missing_git_executable_for_best_effort_provenance(tmp_path, monkeypatch) -> None:
@@ -182,6 +283,8 @@ def test_external_fake_provider_package_ships_brief_documents_used_by_harness_te
     assert loaded.brief_documents[1].resolved_path == (package_root / "brief" / "baselines.md").resolve()
     assert loaded.brief_documents[1].required is True
     assert "Tiny Problem Overview" in loaded.brief_documents[0].resolved_path.read_text()
+    assert loaded.spec.operation_capabilities.training is True
+    assert loaded.spec.operation_capabilities.evaluation_modes == ()
     assert len(loaded.dataset_profile_artifacts) == 1
     profile = loaded.dataset_profile_artifacts[0]
     assert profile.name == "tiny_dataset_profile"
@@ -205,6 +308,8 @@ def test_external_gvccs_provider_package_ships_ground_camera_contrail_detection_
         )
     )
 
+    assert loaded.spec.operation_capabilities.training is True
+    assert loaded.spec.operation_capabilities.evaluation_modes == ("whole_validation_failure_analysis",)
     assert len(loaded.brief_documents) == 1
     document = loaded.brief_documents[0]
     assert document.name == "ground_camera_contrail_detection"

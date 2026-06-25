@@ -134,6 +134,8 @@ def run_candidate_with_research_problem(
     """Validate, smoke-test, and train through a generic Research Problem provider."""
 
     loaded = load_research_problem_provider(provider_config)
+    if not loaded.spec.operation_capabilities.training:
+        raise TrainingError(f"Research Problem {loaded.spec.id!r} does not declare the training operation capability")
     if loaded.spec.training_adapter is None:
         raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")
     validate_data_root = getattr(loaded.spec.training_adapter, "validate_data_root", None)
@@ -178,6 +180,8 @@ def train_accepted_run_with_research_problem(
     if metadata.get("status") != RunStatus.ACCEPTED.value:
         raise ValueError(f"accepted Run required for training continuation: {path}")
     loaded = load_research_problem_provider(provider_config)
+    if not loaded.spec.operation_capabilities.training:
+        raise TrainingError(f"Research Problem {loaded.spec.id!r} does not declare the training operation capability")
     if loaded.spec.training_adapter is None:
         raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")
     selected_backend = backend or NativeBackend()

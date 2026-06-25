@@ -134,6 +134,22 @@ class ResolvedDatasetProfileArtifact(BaseModel):
         return metadata
 
 
+class ResearchProblemOperationCapabilities(BaseModel):
+    """Explicit Harness operations supported by one Research Problem Spec."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    training: bool = False
+    evaluation_modes: tuple[str, ...] = ()
+
+    @field_validator("evaluation_modes")
+    @classmethod
+    def evaluation_modes_must_be_unique(cls, modes: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(modes)) != len(modes):
+            raise ValueError("evaluation_modes must not contain duplicates")
+        return modes
+
+
 class ResearchProblemSpec(BaseModel):
     """Declarative Harness-owned capabilities for one Research Problem.
 
@@ -165,6 +181,7 @@ class ResearchProblemSpec(BaseModel):
     primary_metric: str = Field(min_length=1)
     brief_documents: tuple[ResearchProblemBriefDocument, ...] = ()
     dataset_profile_artifacts: tuple[DatasetProfileArtifact, ...] = ()
+    operation_capabilities: ResearchProblemOperationCapabilities = Field(default_factory=ResearchProblemOperationCapabilities)
     training_adapter: object | None = Field(default=None, exclude=True)
     evaluation_adapter: object | None = Field(default=None, exclude=True)
 
@@ -300,6 +317,7 @@ class LoadedResearchProblemSpec(BaseModel):
         }
         if self.brief_documents:
             metadata["brief_documents"] = [document.metadata() for document in self.brief_documents]
+        metadata["operation_capabilities"] = self.spec.operation_capabilities.model_dump(mode="json")
         if self.dataset_profile_artifacts:
             metadata["dataset_profile_artifacts"] = [artifact.metadata() for artifact in self.dataset_profile_artifacts]
         return metadata
@@ -336,6 +354,7 @@ class ResearchProblemSpecRegistry:
 
         if spec.id in self._specs:
             raise DuplicateResearchProblemSpecError(f"research problem spec already registered: {spec.id}")
+        _validate_operation_capabilities(spec, error_cls=ResearchProblemSpecError)
         self._specs[spec.id] = spec
         if provenance is not None:
             self._provenance[spec.id] = provenance
@@ -538,7 +557,70 @@ def _check_provider_spec(raw_spec: object, config: ResearchProblemProviderConfig
             "Research Problem Spec contract-version mismatch: "
             f"configured {config.expected_contract_version!r}, provider returned {spec.contract_version!r}"
         )
+    _validate_provider_operation_capabilities(spec)
     return spec
+
+
+def _validate_provider_operation_capabilities(spec: ResearchProblemSpec) -> None:
+    _validate_operation_capabilities(spec, error_cls=ResearchProblemProviderLoadError)
+
+
+def _validate_operation_capabilities(
+    spec: ResearchProblemSpec,
+    *,
+    error_cls: type[ResearchProblemSpecError],
+) -> None:
+    try:
+        capabilities = ResearchProblemOperationCapabilities.model_validate(spec.operation_capabilities)
+    except ValidationError as exc:
+        raise error_cls(f"invalid Research Problem operation capabilities: {exc}") from exc
+    if capabilities != spec.operation_capabilities:
+        object.__setattr__(spec, "operation_capabilities", capabilities)
+
+    if spec.training_adapter is not None and not capabilities.training:
+        raise error_cls("training_adapter requires operation_capabilities.training to be true")
+    if capabilities.training:
+        if spec.training_adapter is None:
+            raise error_cls("operation_capabilities.training requires training_adapter")
+        _require_callable_methods(
+            spec.training_adapter,
+            "training_adapter",
+            (
+                "validate_data_root",
+                "dataset_metadata",
+                "build_datasets",
+                "apply_augmentation_policy",
+                "primary_output_name",
+                "compute_primary_loss",
+                "compute_auxiliary_losses",
+                "compute_validation_metrics",
+                "selection_policy",
+                "build_evaluation_dataset",
+            ),
+            error_cls=error_cls,
+        )
+
+    if spec.evaluation_adapter is not None and not capabilities.evaluation_modes:
+        raise error_cls("evaluation_adapter requires operation_capabilities.evaluation_modes")
+    if capabilities.evaluation_modes:
+        if spec.evaluation_adapter is None:
+            raise error_cls("operation_capabilities.evaluation_modes requires evaluation_adapter")
+        _require_callable_methods(spec.evaluation_adapter, "evaluation_adapter", ("run_evaluation_mode",), error_cls=error_cls)
+        supported_modes = getattr(spec.evaluation_adapter, "supported_evaluation_modes", None)
+        if supported_modes is not None and tuple(supported_modes) != tuple(capabilities.evaluation_modes):
+            raise error_cls("evaluation_adapter.supported_evaluation_modes must match operation_capabilities.evaluation_modes")
+
+
+def _require_callable_methods(
+    adapter: object,
+    adapter_name: str,
+    method_names: tuple[str, ...],
+    *,
+    error_cls: type[ResearchProblemSpecError],
+) -> None:
+    for method_name in method_names:
+        if not callable(getattr(adapter, method_name, None)):
+            raise error_cls(f"{adapter_name} is missing callable method: {method_name}")
 
 
 def _resolve_brief_documents(

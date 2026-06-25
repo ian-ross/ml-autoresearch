@@ -233,6 +233,7 @@ def _write_fake_problem_package(root: Path) -> None:
         "        sampling_policies=('sequential',),\n"
         "        augmentation_policies=('none',),\n"
         "        primary_metric='val/tiny_dice',\n"
+        "        operation_capabilities={'training': True},\n"
         "        training_adapter=TinyTrainingAdapter(),\n"
         "    )\n"
     )
