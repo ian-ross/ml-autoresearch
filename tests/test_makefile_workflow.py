@@ -36,11 +36,12 @@ def test_container_makefile_builds_default_local_enclave_image() -> None:
     assert ENCLAVE_BUILD_FRAGMENT in result.stdout
 
 
-def test_user_docs_prefer_makefile_runner_image_workflow() -> None:
+def test_user_docs_prefer_workspace_runtime_image_workflow() -> None:
     readme = Path("README.md").read_text()
     dependency_strategy = Path("docs/dependency-strategy.md").read_text()
 
     for text in (readme, dependency_strategy):
-        assert "make -C containers runner-image" in text
-        assert DEFAULT_RUNNER_IMAGE in text
-        assert "docker build -f containers/Dockerfile.runner -t ml-autoresearch-runner:local ." in text
+        assert "build-runtime-images" in text
+        assert "validate-runtime-images" in text
+        assert "ml-autoresearch-runner:local" not in text
+        assert "docker build -f containers/Dockerfile.runner -t ml-autoresearch-runner:local ." not in text

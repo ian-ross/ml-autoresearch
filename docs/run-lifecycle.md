@@ -1,6 +1,16 @@
 # Run Lifecycle
 
-A local Candidate Experiment submission creates a Harness-owned **Run** directory under the configured runs root.
+A local Candidate Experiment submission creates a Harness-owned **Run** directory under the configured runs root. In the target workflow, commands run from or point at a **Research Workspace Root**: a Research Problem Repository containing `ml-autoresearch.toml` plus durable research state such as `EXPERIMENT_INDEX.md`, `research-ledger.jsonl`, `candidates/`, `research-notes/`, and handoff directories.
+
+Before running candidates in a workspace, initialize and validate the runtime images:
+
+```bash
+uv run ml-autoresearch setup --workspace-root .
+uv run ml-autoresearch build-runtime-images --workspace-root . --update-config
+uv run ml-autoresearch validate-runtime-images --workspace-root .
+```
+
+The Agent Runtime Image is a Gondolin/pi-fort asset directory under `.ml-autoresearch/images/agent/`; the Candidate Execution Boundary uses a Docker runner image tag recorded in `[candidate_execution].docker_image`. The validation stamp under `.ml-autoresearch/runtime-images.validated.json` must be refreshed after Harness dependency, development source override, image recipe, or relevant Workspace Configuration changes.
 
 ## Submit command
 
@@ -8,7 +18,7 @@ A local Candidate Experiment submission creates a Harness-owned **Run** director
 ml-autoresearch submit-candidate --candidate path/to/candidate --runs-root runs --backend native
 ```
 
-The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`. It exits with status `0` for accepted submissions and non-zero for rejected or smoke-failed submissions. `--backend native|docker` selects the smoke-test Candidate Execution Boundary; Docker uses `--docker-image`, defaulting to `ml-autoresearch-runner:local`.
+The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`. It exits with status `0` for accepted submissions and non-zero for rejected or smoke-failed submissions. `--backend native|docker` selects the smoke-test Candidate Execution Boundary; Docker uses `--docker-image` or the workspace-local `[candidate_execution].docker_image` from `ml-autoresearch.toml`.
 
 `submit-candidate` defaults to `--require-proposal`; use `--no-require-proposal` only for manual compatibility submissions that intentionally omit candidate-local `PROPOSAL.md`.
 
@@ -63,12 +73,12 @@ Observation commands read metrics and summaries from the `outputs/` layout. Dock
 ## Run command
 
 ```bash
-ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --workspace-root /path/to/project
+ml-autoresearch run-candidate --candidate path/to/candidate --workspace-root /path/to/research-workspace
 ```
 
 `run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only when running manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Execution loads the configured trusted Research Problem provider from `ml-autoresearch.toml` when present, passes that package into native or Docker-backed operations, and records Research Problem and dataset metadata in `run_metadata.json`.
 
-Harness-owned autonomous next actions read workspace-local `ml-autoresearch.toml` for the Candidate Execution Boundary policy. This file captures the backend, Docker image, GPU policy, rootless/user policy, active Research Problem id, provider package path/target, Research Problem data root, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
+Harness-owned autonomous next actions read the Research Workspace Root's `ml-autoresearch.toml` for Candidate Execution Boundary policy. This Workspace Configuration captures the backend, Docker image, GPU policy, rootless/user policy, active Research Problem id, provider package path/target, Research Problem data config, runs root, ledger path, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
 
 `execute-next-action` is conservative: before executing the latest Autonomy Step result, it reconciles `research-ledger.jsonl` for older unexecuted Harness-owned actions and refuses to proceed if any are found. Use `execute-open-actions --dry-run` to list such recovery work, or `execute-open-actions` to execute pending Candidate Submissions, Experiment Batch Submissions, and Evaluation Requests in ledger creation order. Non-executable handoffs such as Research Notes, Capability Requests, and non-pausing Campaign Reports are not treated as open executable actions.
 
@@ -77,8 +87,7 @@ Configured provider example:
 ```bash
 ml-autoresearch run-candidate \
   --candidate path/to/candidate \
-  --runs-root runs \
-  --workspace-root /path/to/project \
+  --workspace-root /path/to/research-workspace \
   --max-samples 8
 ```
 

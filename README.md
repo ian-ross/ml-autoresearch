@@ -33,6 +33,8 @@ See [`CONTEXT.md`](CONTEXT.md) for canonical project vocabulary.
 
 ## Repository layout
 
+This repository is the reusable **Harness** package. It should not contain live Research Loop state for a specific problem. A separate **Research Problem Repository** is the **Research Workspace Root** for one problem; it contains `ml-autoresearch.toml`, durable research memory, Candidate Experiments, Research Notes, and generated agent/workspace state.
+
 ```text
 src/ml_autoresearch/        Python package and CLI
 tests/                      unit/integration tests and small fixtures
@@ -60,7 +62,7 @@ uv sync --managed-python --extra dev
 uv run pytest -q
 ```
 
-The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported. Base `ml-autoresearch` installs do not include PyTorch; use the `dev` extra for host tests. Docker-backed Candidate Execution Boundary runs get their runtime PyTorch/CUDA stack from the runner image and also use Python 3.12, with PyTorch `2.5.1+cu121` installed from the PyTorch CUDA 12.1 wheel index on top of the pinned `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04` base image. `containers/Dockerfile.runner` installs `ml-autoresearch` without dependency resolution so the pinned PyTorch/CUDA stack is not replaced. Build it with `make -C containers runner-image` or the equivalent manual fallback `docker build -f containers/Dockerfile.runner -t ml-autoresearch-runner:local .`.
+The `uv.lock` file is resolved for the Python 3.12 project baseline; older Python interpreters are not supported. Base `ml-autoresearch` installs do not include PyTorch; use the `dev` extra for host tests. Docker-backed Candidate Execution Boundary runs get their runtime PyTorch/CUDA stack from the workspace-specific runner image and also use Python 3.12, with PyTorch `2.5.1+cu121` installed from the PyTorch CUDA 12.1 wheel index on top of the pinned `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04` base image. Use `ml-autoresearch build-runtime-images` and `ml-autoresearch validate-runtime-images` from a Research Workspace Root to stage/build the packaged runtime recipes and write the workspace validation stamp.
 
 Run the CLI via:
 
@@ -69,6 +71,33 @@ uv run ml-autoresearch --help
 # or
 uv run python -m ml_autoresearch.cli --help
 ```
+
+## Creating a Research Workspace Root
+
+A new Research Problem starts in its own trusted repository. Initialize the Python project, add the reusable Harness package, then run setup to create the Workspace Configuration and initial research-memory layout:
+
+```bash
+mkdir my-research-problem
+cd my-research-problem
+uv init --package --python 3.12
+uv add ml-autoresearch
+uv run ml-autoresearch setup \
+  --problem-id my_research_problem \
+  --provider-module my_research_problem.research_problem
+```
+
+`setup` writes `ml-autoresearch.toml`, starter Research Problem materials, `EXPERIMENT_INDEX.md`, `research-ledger.jsonl`, canonical handoff directories, and Agent Workspace directories. Durable research state belongs in the Research Problem Repository. Generated operational state belongs under `.ml-autoresearch/`, `agent-work/`, `agent-history/`, `agent-reference/`, and `agent-research-problem/`.
+
+Build and validate workspace-specific runtime images before boundary, execution, or autonomy workflows:
+
+```bash
+uv run ml-autoresearch build-runtime-images --workspace-root . --update-config
+uv run ml-autoresearch validate-runtime-images --workspace-root .
+```
+
+The build command records two different runtime identities in `ml-autoresearch.toml`: the Gondolin Agent Runtime Image asset directory, usually `.ml-autoresearch/images/agent/`, and the Docker runner image tag used by Candidate Execution Boundary runs. The validation command writes `.ml-autoresearch/runtime-images.validated.json`; runtime commands reject stale stamps unless the operator explicitly opts out.
+
+For Harness source development, `[runtime_images].dev_source_path` can identify an editable Harness checkout. Rebuild and revalidate runtime images after changing the Harness dependency, the development source override, packaged container recipes, or any workspace config fields that affect image identity.
 
 ## Candidate Experiment contract
 
@@ -122,41 +151,36 @@ tests/fixtures/candidates/single_frame_unet_baseline
 
 ## Running a Candidate Experiment
 
-Run against the configured Research Problem provider. `run-candidate` defaults to autonomous-mode proposal validation; the committed test fixture has no `PROPOSAL.md`, so these fixture examples use `--no-require-proposal`.
+Run against the Research Problem provider configured in the Research Workspace Root's `ml-autoresearch.toml`. `run-candidate` defaults to autonomous-mode proposal validation; the committed Harness test fixture has no `PROPOSAL.md`, so this fixture example uses `--no-require-proposal`.
 
 ```bash
 uv run ml-autoresearch run-candidate \
   --candidate tests/fixtures/candidates/single_frame_unet_baseline \
   --runs-root runs \
-  --project-root . \
+  --workspace-root /path/to/research-workspace \
   --no-require-proposal
 ```
 
-Build the pinned Docker runner image. The Docker backend defaults to the local runner image tag `ml-autoresearch-runner:local`; the preferred repeatable local workflow is:
+For a real Research Problem Repository, prefer running from the workspace root and relying on `ml-autoresearch.toml` for the provider, backend, Docker image, GPU policy, runs root, ledger path, and prediction-sample defaults:
 
 ```bash
-make runner-image
+cd /path/to/research-workspace
+uv run ml-autoresearch run-candidate \
+  --candidate candidates/my_candidate \
+  --workspace-root .
 ```
 
-The manual Docker command remains a valid fallback and builds the same default image:
-
-```bash
-docker build -t ml-autoresearch-runner:local .
-```
-
-Run with custom execution policy overrides while reusing the same configured Research Problem provider (for example, with a custom data-root configured in `candidate-execution.toml`):
+Run with explicit policy overrides while reusing the same configured Research Problem provider:
 
 ```bash
 uv run ml-autoresearch run-candidate \
-  --candidate tests/fixtures/candidates/single_frame_unet_baseline \
-  --runs-root runs \
-  --project-root . \
+  --candidate candidates/my_candidate \
+  --workspace-root . \
   --max-samples 8 \
-  --prediction-sample-policy adjacent_and_scattered \
-  --no-require-proposal
+  --prediction-sample-policy adjacent_and_scattered
 ```
 
-Research Problem-specific trusted code is loaded through a filesystem provider configuration, not by Candidate Experiments. A configuration names the Research Problem id, the local package root, the provider target such as `gvccs.research_problem:build_spec`, the expected contract version, and data configuration such as the dataset root. The Harness validates the returned Spec, records provider provenance in Run metadata, and then uses only the checked Research Problem adapter interface. If the provider declares Research Problem Brief documents or Dataset Profile Artifacts, Agent Control Boundary setup generates a curated `agent-research-problem/` snapshot mounted at `/research-problem` with only those declared files and the generated index. It also exposes the progressive-disclosure index in `agent-work/AGENTS.md` and `agent-work/RESEARCH_PROBLEM_BRIEF_INDEX.md`, with document roles, summaries, and `/research-problem/...` read commands rather than embedding full brief content in every prompt or mounting the full Research Problem Repository into the agent environment. Agent handoff/autonomy flows require this explicit provider configuration and fail clearly instead of using a built-in/default Research Problem fallback.
+Research Problem-specific trusted code is loaded through the filesystem provider configuration in `ml-autoresearch.toml`, not by Candidate Experiments. The configuration names the Research Problem id, local package root, provider target such as `gvccs.research_problem:build_spec`, expected contract version, and data configuration such as the dataset root. The Harness validates the returned Spec, records provider provenance in Run metadata, and then uses only the checked Research Problem adapter interface. If the provider declares Research Problem Brief documents or Dataset Profile Artifacts, Agent Control Boundary setup generates a curated `agent-research-problem/` snapshot mounted at `/research-problem` with only those declared files and the generated index. It also exposes the progressive-disclosure index in `agent-work/AGENTS.md` and `agent-work/RESEARCH_PROBLEM_BRIEF_INDEX.md`, with document roles, summaries, and `/research-problem/...` read commands rather than embedding full brief content in every prompt or mounting the full Research Problem Repository into the agent environment. Agent handoff/autonomy flows require this explicit provider configuration and fail clearly instead of using a built-in/default Research Problem fallback.
 
 To run GVCCS-linked example/integration tests, set `ML_AUTORESEARCH_GVCCS_PROBLEM_ROOT` and `ML_AUTORESEARCH_TEST_PROBLEM_ROOT` to your external package roots before invoking the test suite.
 
@@ -174,12 +198,10 @@ Opt in explicitly for Docker runs when running on a GPU-capable host or cluster 
 
 ```bash
 uv run ml-autoresearch run-candidate \
-  --candidate tests/fixtures/candidates/single_frame_unet_baseline \
-  --runs-root runs \
-  --project-root . \
+  --candidate candidates/my_candidate \
+  --workspace-root . \
   --max-samples 8 \
-  --docker-enable-gpu \
-  --no-require-proposal
+  --docker-enable-gpu
 ```
 
 ## Inspecting local Runs

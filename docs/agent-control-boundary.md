@@ -324,23 +324,21 @@ minimal Agent Control Boundary section is:
 ```toml
 [agent_control_boundary]
 distro = "debian"
-image = "../../containers/ml-autoresearch-agent"
+image = ".ml-autoresearch/images/agent"
 allow_egress = true
 ```
 
 The `[agent_control_boundary]` table accepts:
 
 - `distro` — optional non-empty string; defaults to `"debian"`.
-- `image` — optional non-empty string; defaults to
-  `"../../containers/ml-autoresearch-agent"`.
+- `image` — optional non-empty string naming the Gondolin Agent Runtime Image
+  asset directory prepared by `ml-autoresearch build-runtime-images`; setup
+  templates default to `.ml-autoresearch/images/agent`.
 - `allow_egress` — optional boolean; defaults to `true`.
 
-The `image` value is copied into the generated pi-fort configuration. Relative
-image paths are interpreted by pi-fort relative to the generated
-`agent-work/.pi/fort.toml` file, not relative to the Research Workspace Root or the
-`agent-work/` current working directory. Thus the default
-`../../containers/ml-autoresearch-agent` resolves from `agent-work/.pi/` to the
-project's `containers/ml-autoresearch-agent` image reference.
+The `image` value is copied into the generated pi-fort configuration. It is the Agent Runtime Image asset directory, not the Docker runner image tag used by Candidate Execution Boundary training. Relative image paths are interpreted by pi-fort relative to the generated `agent-work/.pi/fort.toml` file, not relative to the Research Workspace Root or the `agent-work/` current working directory. Absolute paths are often clearer for live Research Workspace Roots because `.ml-autoresearch/images/agent/` is hidden workspace operational state.
+
+The separate Docker runner image tag lives in `[candidate_execution].docker_image` and is validated alongside the Agent Runtime Image assets by `ml-autoresearch validate-runtime-images`. Rebuild and revalidate with `ml-autoresearch build-runtime-images --update-config` after Harness dependency, `[runtime_images].dev_source_path`, recipe, or image-affecting Workspace Configuration changes.
 
 Approved read-only Research Problem data mounts are optional explicit bounded exceptions, not the default path. Use them only when a narrowly scoped policy says the Agent Control Boundary needs direct raw-data visibility; prefer Research Problem Briefs, Research History, Run artifacts, Post-Run Evaluation diagnostics, and Dataset Profile Artifacts for normal autonomous work. Optional mounts use an array of tables:
 
@@ -376,7 +374,7 @@ representative default generated configuration has no `/data` mount:
 enabled = true
 allow_egress = true
 distro = "debian"
-image = "../../containers/ml-autoresearch-agent"
+image = ".ml-autoresearch/images/agent"
 mounts = [
   {path="../agent-reference", target="/reference", readonly=true},
   {path="../agent-history", target="/history", readonly=true},

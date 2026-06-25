@@ -16,10 +16,23 @@ def test_dependency_strategy_doc_covers_runtime_split() -> None:
     assert "CUDA 12.1" in text
 
 
+def test_dependency_strategy_doc_covers_workspace_runtime_image_workflow() -> None:
+    text = DOC.read_text()
+
+    assert "uv init --package --python 3.12" in text
+    assert "uv add ml-autoresearch" in text
+    assert "uv run ml-autoresearch setup" in text
+    assert "build-runtime-images" in text
+    assert "validate-runtime-images" in text
+    assert "Gondolin Agent Runtime Image assets" in text
+    assert "Docker runner image tag" in text
+    assert "dev_source_path" in text
+    assert ".ml-autoresearch/runtime-images.validated.json" in text
+
+
 def test_dependency_strategy_doc_covers_cluster_gpu_workflow() -> None:
     text = DOC.read_text()
 
-    assert "docker build -f containers/Dockerfile.runner -t ml-autoresearch-runner:local ." in text
     assert "validate-docker-gpu" in text
     assert "--docker-enable-gpu" in text
     assert "host NVIDIA driver" in text

@@ -33,4 +33,4 @@ def test_readme_documents_separated_torch_runtime_strategy() -> None:
 
     assert "pinned CPU-only PyTorch build" in readme
     assert "Base `ml-autoresearch` installs do not include PyTorch" in readme
-    assert "runtime PyTorch/CUDA stack from the runner image" in readme
+    assert "runtime PyTorch/CUDA stack from the workspace-specific runner image" in readme
