@@ -11,7 +11,7 @@ ML Autoresearch separates the host development environment, Research Workspace R
 
 ## Why base installs do not include PyTorch
 
-Base dependencies intentionally exclude PyTorch. A broad dependency such as `torch>=2,<3` can make local installs resolve a large or incompatible GPU/NVIDIA stack from the host environment, which is not the desired authority boundary.
+The base dependencies do not include PyTorch. A broad dependency such as `torch>=2,<3` can make local installs resolve a large or incompatible GPU/NVIDIA stack from the host environment, which is not the desired authority boundary.
 
 Instead:
 

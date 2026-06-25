@@ -24,7 +24,7 @@ For dataset-statistic requests, use `capability_type: dataset_profile_artifact` 
 ## Guardrails
 
 - No covert workarounds: if the Candidate Experiment Contract blocks an idea, create a Capability Request instead of bypassing it.
-- No direct Harness changes during autonomous operation; changes require separate human-supervised work.
+- No direct Harness modifications during autonomous operation; changes require separate human-supervised work.
 - No direct Research Ledger edits; use Harness-owned CLI/API commands.
 - No arbitrary filesystem access; use only documented run, candidate, note, request, report, and artifact paths.
 - No network access from Candidate Experiment code and no agent-driven runtime fetches for candidates.

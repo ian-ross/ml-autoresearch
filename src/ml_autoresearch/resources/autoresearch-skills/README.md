@@ -1,6 +1,6 @@
 # Autoresearch Skill Set
 
-This directory is the source of truth for the packaged Autoresearch Skill Set. `prepare-agent-boundary` installs these skills into `agent-work/.pi/skills/` so the inner agent can use `campaign-manager` and focused Autoresearch skills inside the Agent Control Boundary.
+This directory is the single source of truth for the packaged Autoresearch Skill Set. `prepare-agent-boundary` installs these skills into `agent-work/.pi/skills/` so the inner agent can use `campaign-manager` and focused Autoresearch skills inside the Agent Control Boundary.
 
 For browsing from the documentation tree, `docs/autoresearch-skills` is a relative symlink here. Do not create a second copy.
 

@@ -7,7 +7,7 @@ description: Orchestrate one Autonomous Research Iteration for ML Autoresearch c
 
 ## Use
 
-Use this top-level skill to run or review exactly one Autonomous Research Iteration. When invoked by an Autonomy Step, one step means one primary handoff outcome, then stop. It coordinates focused skills and stops when Campaign Pause Conditions require human review.
+Use this top-level skill to run or review exactly one Autonomous Research Iteration. When invoked by an Autonomy Step, one Autonomy Step means one primary handoff outcome, then stop. It coordinates focused skills and stops when Campaign Pause Conditions require human review.
 
 ## Read first
 
@@ -34,7 +34,7 @@ Do not continue automatically after a pause decision. Require human review befor
 ## Guardrails
 
 - No covert workarounds: if the Candidate Experiment Contract blocks an idea, create a Capability Request instead of bypassing it.
-- No direct Harness changes during autonomous operation; changes require separate human-supervised work.
+- No direct Harness modifications during autonomous operation; changes require separate human-supervised work.
 - No direct Research Ledger edits; use Harness-owned CLI/API commands.
 - No arbitrary filesystem access; use only documented run, candidate, note, request, report, and artifact paths.
 - No network access from Candidate Experiment code and no agent-driven runtime fetches for candidates.
