@@ -70,6 +70,8 @@ ml-autoresearch run-candidate --candidate path/to/candidate --runs-root runs --w
 
 Harness-owned autonomous next actions read workspace-local `ml-autoresearch.toml` for the Candidate Execution Boundary policy. This file captures the backend, Docker image, GPU policy, rootless/user policy, active Research Problem id, provider package path/target, Research Problem data root, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
 
+`execute-next-action` is conservative: before executing the latest Autonomy Step result, it reconciles `research-ledger.jsonl` for older unexecuted Harness-owned actions and refuses to proceed if any are found. Use `execute-open-actions --dry-run` to list such recovery work, or `execute-open-actions` to execute pending Candidate Submissions, Experiment Batch Submissions, and Evaluation Requests in ledger creation order. Non-executable handoffs such as Research Notes, Capability Requests, and non-pausing Campaign Reports are not treated as open executable actions.
+
 Configured provider example:
 
 ```bash

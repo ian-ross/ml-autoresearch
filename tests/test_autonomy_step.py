@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ml_autoresearch.autonomy_step import render_autonomy_step_prompt, run_autonomy_step
+from ml_autoresearch.autonomy_step import find_open_executable_actions, render_autonomy_step_prompt, run_autonomy_step
 from ml_autoresearch.cli import app
 from ml_autoresearch.execution import OperationResult
 from conftest import invoke_typer_cli
@@ -385,6 +385,110 @@ class FakeNativeBackend:
 
     def evaluate_run(self, run_dir: str | Path, *, data_root: str | Path | None = None, max_artifact_samples: int = 12) -> OperationResult:
         raise AssertionError("candidate submission next-action execution must not evaluate")
+
+
+def test_find_open_executable_actions_reports_ingested_candidate_without_submission(tmp_path: Path):
+    write_project(tmp_path)
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
+    run_autonomy_step(tmp_path, agent_command=fake_command)
+
+    actions = find_open_executable_actions(tmp_path)
+
+    assert [action["action"] for action in actions] == ["run_candidate"]
+    assert actions[0]["handoff_type"] == "candidate_submission"
+    assert actions[0]["candidate_id"] == "agent_candidate"
+    assert actions[0]["canonical_path"] == "candidates/agent_candidate"
+
+
+def test_execute_next_action_refuses_when_older_open_candidate_exists(tmp_path: Path):
+    write_project(tmp_path)
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
+    run_autonomy_step(tmp_path, agent_command=fake_command)
+    (tmp_path / "agent-work" / "autonomy-step-result.json").write_text(
+        json.dumps(
+            {
+                "status": "ingested",
+                "workspace_root": str(tmp_path),
+                "agent_workspace": str(tmp_path / "agent-work"),
+                "prompt_path": str(tmp_path / "agent-work" / "prompt.txt"),
+                "agent_command": [],
+                "agent_returncode": 0,
+                "ingestion": {
+                    "status": "ingested",
+                    "handoff_type": "campaign_report",
+                    "canonical_path": "campaign-reports/status.md",
+                    "next_action": "stop_for_human",
+                    "executed_next_action": False,
+                },
+            }
+        )
+        + "\n"
+    )
+
+    completed = run_cli(tmp_path, "execute-next-action", "--workspace-root", str(tmp_path))
+
+    assert completed.returncode == 1
+    assert "open Harness actions" in completed.stderr
+    assert "run_candidate" in completed.stderr
+    assert "agent_candidate" in completed.stderr
+
+
+def test_execute_open_actions_runs_pending_candidate_in_ledger_order(tmp_path: Path, monkeypatch):
+    import ml_autoresearch.execution as execution
+
+    write_project(tmp_path)
+    data_root = tmp_path / "gvccs"
+    data_root.mkdir()
+    _write_completed_run(tmp_path, "run_prior", data_root=data_root)
+    FakeNativeBackend.provider_ids = []
+    monkeypatch.setattr(execution, "NativeBackend", FakeNativeBackend)
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
+    run_autonomy_step(tmp_path, agent_command=fake_command)
+
+    completed = run_cli(tmp_path, "execute-open-actions", "--workspace-root", str(tmp_path), "--max-actions", "1")
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["executed_count"] == 1
+    assert payload["executions"][0]["action"]["action"] == "run_candidate"
+    assert payload["executions"][0]["result"]["run_status"] == "completed"
+    assert find_open_executable_actions(tmp_path) == []
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert "candidate_submitted" in [event["event_type"] for event in events]
+
+
+def test_find_open_executable_actions_reports_ingested_experiment_batch_without_completion(tmp_path: Path):
+    write_project(tmp_path)
+    event = {
+        "event_type": "agent_handoff_ingested",
+        "created_at": "2026-06-25T00:00:00Z",
+        "handoff_type": "experiment_batch_submission",
+        "artifact_id": "agent_batch",
+        "source_path": "agent-work/batch-submissions/agent_batch",
+        "canonical_path": "experiment-batches/agent_batch",
+    }
+    (tmp_path / "research-ledger.jsonl").write_text(json.dumps(event) + "\n")
+
+    actions = find_open_executable_actions(tmp_path)
+
+    assert [action["action"] for action in actions] == ["run_experiment_batch"]
+    assert actions[0]["batch_id"] == "agent_batch"
+
+
+def test_execute_open_actions_dry_run_lists_pending_evaluation_request(tmp_path: Path):
+    write_project(tmp_path)
+    _write_completed_run(tmp_path, "run_123")
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _evaluation_request_agent_body())
+    run_autonomy_step(tmp_path, agent_command=fake_command)
+
+    completed = run_cli(tmp_path, "execute-open-actions", "--workspace-root", str(tmp_path), "--dry-run")
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["dry_run"] is True
+    assert payload["open_actions"][0]["action"] == "run_post_run_evaluation"
+    assert payload["open_actions"][0]["request_id"] == "eval-threshold-sweep-run-123"
+    assert not (tmp_path / "runs" / "run_123" / "outputs" / "evaluations").exists()
 
 
 def test_autonomy_step_dry_run_candidate_submission_reports_next_action_without_run(tmp_path: Path):

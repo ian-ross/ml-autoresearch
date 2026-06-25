@@ -31,6 +31,7 @@ from ml_autoresearch.autonomous_iteration import (
 )
 from ml_autoresearch.autonomy_step import (
     AutonomyStepError,
+    execute_open_actions,
     execute_outstanding_next_action,
     format_autonomy_step_summary,
     run_autonomy_step,
@@ -441,6 +442,25 @@ def execute_next_action_command(
         _exit_with_error(exc)
     typer.echo(format_autonomy_step_summary(result))
     if result.status == "execution_failed":
+        raise typer.Exit(1)
+
+
+@app.command("execute-open-actions")
+def execute_open_actions_command(
+    workspace_root: Annotated[
+        Path, typer.Option(help="Research Workspace Root containing research-ledger.jsonl.")
+    ] = Path("."),
+    dry_run: Annotated[bool, typer.Option(help="List open executable Harness actions without executing them.")] = False,
+    max_actions: Annotated[int | None, typer.Option(help="Maximum number of open actions to execute.")] = None,
+) -> None:
+    """Execute reconciled open Harness-owned actions in ledger order."""
+
+    try:
+        result = execute_open_actions(workspace_root, dry_run=dry_run, max_actions=max_actions)
+    except (AutonomyStepError, ResearchLedgerError, OSError) as exc:
+        _exit_with_error(exc)
+    _echo_json(result)
+    if result.get("status") == "failed":
         raise typer.Exit(1)
 
 

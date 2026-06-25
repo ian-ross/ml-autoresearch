@@ -288,6 +288,157 @@ def format_autonomy_step_summary(result: AutonomyStepResult) -> str:
     return "\n".join(lines)
 
 
+def find_open_executable_actions(project_root: str | Path = Path(".")) -> list[dict[str, object]]:
+    """Return Harness-executable ingested handoffs that have no downstream completion event."""
+
+    root = Path(project_root).resolve()
+    ledger_path = root / "research-ledger.jsonl"
+    if not ledger_path.is_file():
+        return []
+    events: list[dict[str, object]] = []
+    for index, line in enumerate(ledger_path.read_text().splitlines()):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            event["_ledger_index"] = index
+            events.append(event)
+
+    submitted_candidates = {
+        str(event.get("candidate_id"))
+        for event in events
+        if event.get("event_type") == "candidate_submitted" and event.get("candidate_id")
+    }
+    completed_evaluations = {
+        str(event.get("evaluation_request_id"))
+        for event in events
+        if event.get("event_type") == "evaluation_completed" and event.get("evaluation_request_id")
+    }
+    completed_batches = {
+        str(event.get("batch_id"))
+        for event in events
+        if event.get("event_type") == "experiment_batch_completed" and event.get("batch_id")
+    }
+
+    open_actions: list[dict[str, object]] = []
+    for event in events:
+        if event.get("event_type") != "agent_handoff_ingested":
+            continue
+        handoff_type = event.get("handoff_type")
+        canonical_path = event.get("canonical_path")
+        if not isinstance(canonical_path, str) or not canonical_path:
+            continue
+        base = {
+            "handoff_type": handoff_type,
+            "canonical_path": canonical_path,
+            "created_at": event.get("created_at"),
+            "ledger_index": event.get("_ledger_index"),
+        }
+        if handoff_type == "candidate_submission":
+            candidate_id = event.get("candidate_id") or event.get("artifact_id")
+            if isinstance(candidate_id, str) and candidate_id and candidate_id not in submitted_candidates:
+                open_actions.append({**base, "action": "run_candidate", "candidate_id": candidate_id})
+        elif handoff_type == "evaluation_request":
+            request_id = event.get("request_id") or event.get("artifact_id")
+            if isinstance(request_id, str) and request_id and request_id not in completed_evaluations:
+                open_actions.append(
+                    {
+                        **base,
+                        "action": "run_post_run_evaluation",
+                        "request_id": request_id,
+                        "run_id": event.get("run_id"),
+                    }
+                )
+        elif handoff_type == "experiment_batch_submission":
+            batch_id = event.get("artifact_id")
+            if isinstance(batch_id, str) and batch_id and batch_id not in completed_batches:
+                open_actions.append({**base, "action": "run_experiment_batch", "batch_id": batch_id})
+    return open_actions
+
+
+def execute_open_actions(
+    project_root: str | Path = Path("."), *, dry_run: bool = False, max_actions: int | None = None
+) -> dict[str, object]:
+    """Execute reconciled open Harness-owned actions in ledger order."""
+
+    root = Path(project_root).resolve()
+    open_actions = find_open_executable_actions(root)
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "dry_run": True,
+            "open_actions": open_actions,
+            "executed_count": 0,
+            "executions": [],
+        }
+    executions: list[dict[str, object]] = []
+    limit = max_actions if max_actions is not None else len(open_actions)
+    for _ in range(max(0, limit)):
+        current = find_open_executable_actions(root)
+        if not current:
+            break
+        action = current[0]
+        ingestion = _ingestion_from_open_action(action)
+        try:
+            result = execute_ingested_next_action(root, ingestion)
+        except Exception as exc:  # noqa: BLE001 - recovery command should report the failed action.
+            executions.append({"action": action, "status": "failed", "reason": str(exc)})
+            return {
+                "status": "failed",
+                "dry_run": False,
+                "open_actions": current,
+                "executed_count": len([item for item in executions if item.get("status") == "completed"]),
+                "executions": executions,
+                "reason": str(exc),
+            }
+        executions.append({"action": action, "status": "completed", "result": result})
+    remaining = find_open_executable_actions(root)
+    return {
+        "status": "completed" if not remaining else "partial",
+        "dry_run": False,
+        "open_actions": remaining,
+        "executed_count": len(executions),
+        "executions": executions,
+    }
+
+
+def _ingestion_from_open_action(action: dict[str, object]) -> dict[str, object]:
+    return {
+        "status": "ingested",
+        "handoff_type": action.get("handoff_type"),
+        "canonical_path": action.get("canonical_path"),
+        "next_action": action.get("action"),
+        "executed_next_action": False,
+    }
+
+
+def _open_action_matches_ingestion(action: dict[str, object], ingestion: dict[str, object]) -> bool:
+    return (
+        action.get("handoff_type") == ingestion.get("handoff_type")
+        and action.get("canonical_path") == ingestion.get("canonical_path")
+        and action.get("action") == ingestion.get("next_action")
+    )
+
+
+def _format_open_actions(actions: list[dict[str, object]]) -> str:
+    lines = ["Refusing to execute latest next action because open Harness actions exist:"]
+    for index, action in enumerate(actions, start=1):
+        lines.append("")
+        lines.append(f"{index}. {action.get('action')}")
+        lines.append(f"   handoff_type: {action.get('handoff_type')}")
+        for key in ("candidate_id", "request_id", "batch_id", "run_id"):
+            if action.get(key):
+                lines.append(f"   {key}: {action.get(key)}")
+        lines.append(f"   canonical_path: {action.get('canonical_path')}")
+        lines.append(f"   created_at: {action.get('created_at')}")
+    lines.append("")
+    lines.append("Run `ml-autoresearch execute-open-actions` to recover in ledger order.")
+    return "\n".join(lines)
+
+
 def execute_outstanding_next_action(project_root: str | Path = Path(".")) -> AutonomyStepResult:
     """Execute the outstanding Harness-owned next action from the previous Autonomy Step result."""
 
@@ -299,6 +450,9 @@ def execute_outstanding_next_action(project_root: str | Path = Path(".")) -> Aut
     ingestion = payload.get("ingestion")
     if not isinstance(ingestion, dict):
         raise AutonomyStepError("previous Autonomy Step result has no ingested handoff")
+    open_actions = find_open_executable_actions(root)
+    if open_actions and not (len(open_actions) == 1 and _open_action_matches_ingestion(open_actions[0], ingestion)):
+        raise AutonomyStepError(_format_open_actions(open_actions))
 
     execution = None
     status = str(payload.get("status", "ingested"))
