@@ -5,7 +5,11 @@ import torch
 
 from ml_autoresearch.cli import _daemonize_current_evaluate_run, app
 from ml_autoresearch.evaluation_requests import run_post_run_evaluation
-from ml_autoresearch.evaluations import _select_failure_bucket_indices, _threshold_sweep_summary, evaluate_run
+from ml_autoresearch.evaluations import evaluate_run
+from ml_autoresearch.problem_support.segmentation import (
+    select_binary_segmentation_failure_bucket_indices,
+    summarize_binary_segmentation_threshold_sweep,
+)
 from ml_autoresearch.runs import RunStatus
 from research_problem_helpers import run_candidate_with_gvccs_data
 from conftest import invoke_typer_cli
@@ -279,7 +283,7 @@ def test_failure_bucket_selection_is_bounded_and_deduplicates_memberships():
         },
     ]
 
-    selected = _select_failure_bucket_indices(records, max_artifact_samples=3)
+    selected = select_binary_segmentation_failure_bucket_indices(records, max_artifact_samples=3)
 
     assert len(selected) == 3
     assert len({item["dataset_index"] for item in selected}) == 3
@@ -304,7 +308,7 @@ def test_threshold_sweep_summary_selects_best_threshold_and_separates_sample_gro
         ]
     ).unsqueeze(1)
 
-    summary = _threshold_sweep_summary(probabilities, targets)
+    summary = summarize_binary_segmentation_threshold_sweep(probabilities, targets, default_threshold=0.5)
 
     assert summary["thresholds"] == [round(index * 0.05, 2) for index in range(1, 20)]
     assert summary["default_threshold"] == 0.5

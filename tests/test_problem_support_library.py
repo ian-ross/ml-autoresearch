@@ -16,6 +16,8 @@ from ml_autoresearch.problem_support.segmentation import (
     binary_segmentation_metrics,
     derive_boundary_target_v1,
     derive_line_target_v1,
+    select_binary_segmentation_failure_bucket_indices,
+    summarize_binary_segmentation_threshold_sweep,
 )
 from ml_autoresearch.problem_support.frame_sequences import infer_timestamped_frame_sequences
 
@@ -59,6 +61,53 @@ def test_problem_support_segmentation_metrics_and_auxiliary_targets_are_reusable
 
     assert derive_line_target_v1(target).sum().item() == 9
     assert derive_boundary_target_v1(target).sum().item() == 9
+
+
+def test_problem_support_segmentation_evaluation_diagnostics_are_reusable() -> None:
+    probabilities = torch.tensor(
+        [
+            [[[0.9, 0.2], [0.1, 0.2]]],
+            [[[0.8, 0.8], [0.1, 0.1]]],
+        ]
+    )
+    targets = torch.tensor(
+        [
+            [[[1.0, 0.0], [0.0, 0.0]]],
+            [[[0.0, 0.0], [0.0, 0.0]]],
+        ]
+    )
+
+    sweep = summarize_binary_segmentation_threshold_sweep(probabilities, targets, default_threshold=0.5)
+
+    assert sweep["thresholds"] == [round(index * 0.05, 2) for index in range(1, 20)]
+    assert sweep["default_threshold"] == 0.5
+    assert set(sweep["groups"]) == {"all_samples", "positive_mask_samples", "empty_mask_samples"}
+    assert set(sweep["best_threshold_by_dice"]) >= {"threshold", "dice"}
+
+    selected = select_binary_segmentation_failure_bucket_indices(
+        [
+            {
+                "dataset_index": 0,
+                "dice": 1.0,
+                "positive_pixel_count": 1,
+                "predicted_positive_pixel_count": 1,
+                "false_positive_pixels": 0,
+                "false_negative_pixels": 0,
+            },
+            {
+                "dataset_index": 1,
+                "dice": 0.0,
+                "positive_pixel_count": 0,
+                "predicted_positive_pixel_count": 2,
+                "false_positive_pixels": 2,
+                "false_negative_pixels": 0,
+            },
+        ],
+        max_artifact_samples=1,
+    )
+
+    assert len(selected) == 1
+    assert selected[0]["bucket_memberships"]
 
 
 @dataclass(frozen=True)

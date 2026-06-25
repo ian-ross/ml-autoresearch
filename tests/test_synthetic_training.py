@@ -8,11 +8,11 @@ import yaml
 from ml_autoresearch.runs import RunStatus
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 from research_problem_helpers import run_candidate_with_synthetic_fixture
+from ml_autoresearch.problem_support.segmentation import derive_boundary_target_v1
 from ml_autoresearch.training import (
     _best_validation_metrics,
     _data_loader_for_sampling,
     _dataset_with_augmentation_policy,
-    derive_boundary_target_v1,
 )
 
 

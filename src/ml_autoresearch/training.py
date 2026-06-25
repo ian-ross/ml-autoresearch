@@ -16,8 +16,7 @@ from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.errors import TrainingError
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig, load_research_problem_provider
 from ml_autoresearch.training_adapters import ResearchProblemTrainingAdapter
-from ml_autoresearch.metrics import binary_segmentation_metrics
-from ml_autoresearch.problem_support.segmentation import bce_dice_loss, derive_boundary_target_v1
+from ml_autoresearch.problem_support.segmentation import bce_dice_loss, binary_segmentation_validation_metrics
 from ml_autoresearch.smoke import _extract_expected_outputs, _import_candidate_model, input_spec_from_resolved_manifest, output_spec_from_resolved_manifest
 from ml_autoresearch.synthetic import SyntheticContrailDataset
 
@@ -509,13 +508,7 @@ def _validation_metrics(
 ) -> dict[str, float]:
     if training_adapter is not None and hasattr(training_adapter, "compute_validation_metrics"):
         return training_adapter.compute_validation_metrics(logits, target_mask)
-    metrics = binary_segmentation_metrics(torch.sigmoid(logits) >= 0.5, target_mask >= 0.5)
-    return {
-        "val/dice": metrics["dice"],
-        "val/iou": metrics["iou"],
-        "val/precision": metrics["precision"],
-        "val/recall": metrics["recall"],
-    }
+    return binary_segmentation_validation_metrics(logits, target_mask)
 
 
 def _selection_policy(training_adapter: ResearchProblemTrainingAdapter | object | None = None) -> tuple[str, str]:
