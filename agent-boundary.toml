@@ -1,9 +1,0 @@
-[agent_control_boundary]
-distro = "debian"
-image = "../../containers/ml-autoresearch-agent"
-allow_egress = true
-
-# Default Agent Control Boundary context comes from Research Problem Briefs,
-# Research History, Run/Post-Run Evaluation artifacts, and Dataset Profile
-# Artifacts. Do not mount the full training dataset by default. Add
-# [[data_mounts]] only as an explicit bounded exception.
