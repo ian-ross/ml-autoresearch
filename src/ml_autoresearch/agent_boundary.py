@@ -226,6 +226,7 @@ def _refresh_research_problem_snapshot(snapshot_dir: Path, research_problem: Loa
     _clear_snapshot_contents(snapshot_dir)
     reserved_paths = {RESEARCH_PROBLEM_INDEX}
     copied_paths: set[Path] = set()
+    _copy_provider_python_sources(snapshot_dir, research_problem, copied_paths, reserved_paths)
     for source, relative_path, kind, name in _declared_research_problem_snapshot_files(research_problem):
         if not source.is_file():
             raise AgentBoundaryError(f"declared {kind} {name!r} does not exist: {relative_path.as_posix()}")
@@ -235,6 +236,56 @@ def _refresh_research_problem_snapshot(snapshot_dir: Path, research_problem: Loa
         shutil.copy2(source, destination)
     (snapshot_dir / RESEARCH_PROBLEM_INDEX).write_text(
         "# Research Problem Brief index\n\n" + _render_research_problem_brief_index(research_problem) + "\n"
+    )
+
+
+def _copy_provider_python_sources(
+    snapshot_dir: Path,
+    research_problem: LoadedResearchProblemSpec,
+    copied_paths: set[Path],
+    reserved_paths: set[str],
+) -> None:
+    """Copy importable provider Python sources into the curated boundary snapshot.
+
+    The Agent Workspace config points static validation at `/research-problem`, so
+    the snapshot must include the configured provider module/package.  Only Python
+    source files are copied; undeclared briefs, profiles, data files, caches, and
+    other package resources remain outside the Agent Control Boundary unless they
+    are explicitly declared Research Problem context below.
+    """
+
+    package_root = research_problem.provenance.resolved_package_root
+    module_name = research_problem.provenance.provider_target.split(":", 1)[0]
+    top_level_name = module_name.split(".", 1)[0]
+    package_source = package_root / top_level_name
+    module_source = package_root / f"{top_level_name}.py"
+
+    if package_source.is_dir():
+        if package_source.is_symlink():
+            raise AgentBoundaryError(f"Research Problem provider package path must not be a symlink: {package_source}")
+        for source in sorted(package_source.rglob("*.py")):
+            if source.is_symlink():
+                raise AgentBoundaryError(f"Research Problem provider Python source must not be a symlink: {source}")
+            relative_path = source.relative_to(package_root)
+            _reserve_snapshot_path(relative_path, copied_paths, reserved_paths)
+            destination = snapshot_dir / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        return
+
+    if module_source.is_file():
+        if module_source.is_symlink():
+            raise AgentBoundaryError(f"Research Problem provider Python source must not be a symlink: {module_source}")
+        relative_path = module_source.relative_to(package_root)
+        _reserve_snapshot_path(relative_path, copied_paths, reserved_paths)
+        destination = snapshot_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(module_source, destination)
+        return
+
+    raise AgentBoundaryError(
+        "configured Research Problem provider module source was not found under "
+        f"{package_root}: expected {top_level_name}/ or {top_level_name}.py"
     )
 
 
@@ -379,7 +430,7 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "\n"
         + brief_index
         + "\n\n"
-        "The same index is available at `RESEARCH_PROBLEM_BRIEF_INDEX.md` and `/research-problem/RESEARCH_PROBLEM_BRIEF_INDEX.md`. `/research-problem` is a curated Agent Research Problem Snapshot containing only declared brief documents, Dataset Profile Artifacts, and this index; it is not the full Research Problem Repository. Read only the deeper `/research-problem/...` documents and dataset profile artifacts you need.\n"
+        "The same index is available at `RESEARCH_PROBLEM_BRIEF_INDEX.md` and `/research-problem/RESEARCH_PROBLEM_BRIEF_INDEX.md`. `/research-problem` is a curated Agent Research Problem Snapshot containing the importable read-only Research Problem provider Python sources, declared brief documents, Dataset Profile Artifacts, and this index; it is not the full Research Problem Repository and does not include undeclared package resources or raw datasets. Read only the deeper `/research-problem/...` documents and dataset profile artifacts you need.\n"
         "\n"
         "## Dataset profile artifacts\n"
         "\n"

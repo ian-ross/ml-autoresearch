@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 from ml_autoresearch.cli import app
+from ml_autoresearch.research_problems import ResearchProblemProviderConfig, load_research_problem_provider
 from conftest import invoke_typer_cli
 
 
@@ -164,7 +165,8 @@ path = "{data_root}"
     assert (tmp_path / "agent-research-problem" / "fake_research_problem" / "profile" / "tiny-dataset-profile.json").read_text() == '{"provenance": {"research_problem_id": "tiny_problem"}}\n'
     assert (tmp_path / "agent-research-problem" / "RESEARCH_PROBLEM_BRIEF_INDEX.md").is_file()
     assert not (tmp_path / "agent-research-problem" / "fake_research_problem" / "brief" / "undeclared.md").exists()
-    assert not (tmp_path / "agent-research-problem" / "fake_research_problem" / "research_problem.py").exists()
+    assert (tmp_path / "agent-research-problem" / "fake_research_problem" / "research_problem.py").is_file()
+    assert "def build_spec" in (tmp_path / "agent-research-problem" / "fake_research_problem" / "research_problem.py").read_text()
     assert (tmp_path / "agent-history" / "research-ledger.jsonl").read_text() == '{"event_type":"proposal_created"}\n'
     assert (tmp_path / "agent-history" / "runs" / "run_123" / "outputs" / "evaluations" / "eval_abc" / "summary.json").read_text() == '{"ok": true}\n'
     assert (tmp_path / "agent-history" / "candidates" / "candidate_123" / "manifest.yaml").read_text() == "name: candidate_123\n"
@@ -218,6 +220,16 @@ path = "{data_root}"
     assert 'provider_target = "fake_research_problem.research_problem:build_spec"' in agent_candidate_config
     assert 'expected_contract_version = "v0"' in agent_candidate_config
     assert 'data_config = { dataset_root = "/data/gvccs" }' in agent_candidate_config
+    loaded_boundary_provider = load_research_problem_provider(
+        ResearchProblemProviderConfig(
+            id="tiny_problem",
+            package_root=tmp_path / "agent-research-problem",
+            provider_target="fake_research_problem.research_problem:build_spec",
+            expected_contract_version="v0",
+            data_config={"dataset_root": "/data/gvccs"},
+        )
+    )
+    assert loaded_boundary_provider.spec.id == "tiny_problem"
 
     skill_path = tmp_path / "agent-work" / ".pi" / "skills" / "campaign-manager" / "SKILL.md"
     skill_text = skill_path.read_text()

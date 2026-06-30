@@ -163,9 +163,10 @@ require an explicit `[research_problem]` provider in the Research Workspace Root
 built-in/default Research Problem because the active provider supplies
 agent-visible Research Problem Brief metadata. During setup the Harness loads the
 provider, validates declared brief documents and Dataset Profile Artifacts,
-generates an Agent Research Problem Snapshot with only those files plus an index,
-mounts it read-only at `/research-problem`, and writes a progressive-disclosure
-brief index into `agent-work/AGENTS.md`,
+generates an Agent Research Problem Snapshot containing the provider Python
+sources, declared brief/profile files, and an index, mounts it read-only at
+`/research-problem`, and writes a progressive-disclosure brief index into
+`agent-work/AGENTS.md`,
 `agent-work/RESEARCH_PROBLEM_BRIEF_INDEX.md`, and
 `agent-research-problem/RESEARCH_PROBLEM_BRIEF_INDEX.md`. Each entry includes the
 document name/role, optional summary, required marker, mounted path, and a read
@@ -196,9 +197,10 @@ The VM exposes these read-only paths:
 - `/docs` — trusted project documentation, including the Candidate Experiment
   Contract, Run lifecycle, request/report formats, and agent skill docs.
 - `/research-problem` — the curated Agent Research Problem Snapshot for the
-  active Research Problem, containing only declared Research Problem Brief
-  documents, Dataset Profile Artifacts, and the generated index. It is not the
-  full Research Problem Repository.
+  active Research Problem, containing importable provider Python sources,
+  declared Research Problem Brief documents, Dataset Profile Artifacts, and the
+  generated index. It excludes undeclared package resources and raw datasets and
+  is not the full Research Problem Repository.
 - `/data` — optional approved read-only Research Problem data mounts, only when
   an explicit bounded-exception policy permits a mount. Full training datasets
   are not part of the default Agent Control Boundary.
