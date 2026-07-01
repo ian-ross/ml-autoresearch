@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from ml_autoresearch.agent_cli import app as agent_app
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request, validate_capability_request_file
 from ml_autoresearch.cli import app
 from conftest import invoke_typer_cli
@@ -135,6 +136,81 @@ def test_failed_capability_request_validation_does_not_append_ledger_event(tmp_p
 
     assert not ledger.exists()
 
+
+def test_agent_validate_capability_request_cli_rejects_unquoted_colon_mapping_failure(tmp_path: Path) -> None:
+    request_path = tmp_path / "bad.yaml"
+    request_path.write_text("""request_id: capability-bad-colon
+capability_type: contract_surface
+blocked_hypothesis: Test a blocked idea.
+current_contract_insufficiency: Current contract lacks the needed surface.
+expected_research_value: It would answer a research question.
+safety_reproducibility_risks: Must remain harness-owned.
+minimal_harness_change: Add the smallest safe surface.
+candidate_authority_requested: none
+example_follow_up_experiments:
+  - temporal_candidate: add compact residual refinement.
+priority: medium
+""")
+
+    completed = invoke_typer_cli(
+        agent_app,
+        [
+            "validate-capability-request",
+            "--request",
+            str(request_path),
+        ],
+    )
+
+    assert completed.returncode == 1
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "invalid"
+    assert "example_follow_up_experiments" in payload["reason"]
+    assert "Input should be a valid string" in payload["reason"]
+
+
+def test_agent_create_capability_request_cli_writes_colon_followups_as_strings(tmp_path: Path) -> None:
+    output = tmp_path / "capability-colon.yaml"
+    follow_up = "temporal_candidate: add compact residual refinement."
+
+    completed = invoke_typer_cli(
+        agent_app,
+        [
+            "create-capability-request",
+            "--output",
+            str(output),
+            "--capability-type",
+            "contract_surface",
+            "--blocked-hypothesis",
+            "Temporal context may improve thin contrail segmentation.",
+            "--current-contract-insufficiency",
+            "The current contract exposes only single-frame RGB inputs.",
+            "--expected-research-value",
+            "This would test whether temporal context reduces false negatives.",
+            "--safety-reproducibility-risks",
+            "Temporal grouping must remain Harness-owned and deterministic.",
+            "--minimal-harness-change",
+            "Add an allowlisted centered temporal clip input mode.",
+            "--candidate-authority-requested",
+            "none",
+            "--example-follow-up-experiment",
+            follow_up,
+            "--priority",
+            "medium",
+        ],
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "created"
+    assert payload["request"]["example_follow_up_experiments"] == [follow_up]
+
+    import yaml
+
+    raw = yaml.safe_load(output.read_text())
+    assert raw["example_follow_up_experiments"] == [follow_up]
+    validated = invoke_typer_cli(agent_app, ["validate-capability-request", "--request", str(output)])
+    assert validated.returncode == 0, validated.stderr
+    assert json.loads(validated.stdout)["request"]["example_follow_up_experiments"] == [follow_up]
 
 def test_create_capability_request_cli_validates_and_records_event(tmp_path: Path) -> None:
     request_path = write_request(tmp_path / "request.yaml")

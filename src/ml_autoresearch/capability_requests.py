@@ -104,6 +104,31 @@ def validate_capability_request_file(request_path: str | Path) -> CapabilityRequ
     return request
 
 
+def write_capability_request_file(request_path: str | Path, data: dict[str, Any]) -> CapabilityRequest:
+    """Validate structured Capability Request data and write safe YAML.
+
+    This helper is intended for agent-authored handoffs: callers provide typed
+    fields, the Pydantic schema validates them, and PyYAML serializes them so
+    strings containing YAML metacharacters (for example ``name: description``)
+    stay strings when read back.
+    """
+
+    path = Path(request_path)
+    payload = dict(data)
+    if payload.get("request_id") is None:
+        payload["request_id"] = path.stem
+    try:
+        request = CapabilityRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise CapabilityRequestError(str(exc)) from exc
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(request.model_dump(exclude_none=True), sort_keys=False))
+    except OSError as exc:
+        raise CapabilityRequestError(f"cannot write Capability Request {path}: {exc}") from exc
+    return request
+
+
 def create_capability_request(
     request_path: str | Path,
     *,

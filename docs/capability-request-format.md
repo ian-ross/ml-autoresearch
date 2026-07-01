@@ -6,7 +6,7 @@ Capability Requests are **not self-approving**. Recording a request only appends
 
 ## File format
 
-Capability Request files are YAML mappings validated by the Harness-owned API/CLI. Use `candidate_authority_requested: none` unless a human reviewer asks for a different description; requests should normally describe a minimal Harness change, not candidate self-permission.
+Capability Request files are YAML mappings validated by the Harness-owned API/CLI. Agents should create and validate them with `ml-autoresearch-agent create-capability-request` and `ml-autoresearch-agent validate-capability-request` before finalizing a handoff, rather than hand-writing fragile YAML. Use `candidate_authority_requested: none` unless a human reviewer asks for a different description; requests should normally describe a minimal Harness change, not candidate self-permission.
 
 ```yaml
 request_id: capability-temporal-inputs
@@ -67,7 +67,36 @@ Use a dataset-profile Capability Request when the missing information concerns t
 
 `request_id` is optional. If omitted, the Harness uses the request filename stem as the stable request identifier recorded in the Research Ledger.
 
-## CLI
+## Agent-safe CLI
+
+Inside the Agent Control Boundary, create Capability Request YAML from structured fields so values containing YAML metacharacters remain strings:
+
+```bash
+ml-autoresearch-agent create-capability-request \
+  --output capability-requests/capability-temporal-inputs.yaml \
+  --capability-type contract_surface \
+  --blocked-hypothesis "Temporal context could improve thin contrail segmentation." \
+  --current-contract-insufficiency "The current Candidate Experiment Contract only exposes single-frame RGB inputs." \
+  --expected-research-value "This would test whether adjacent frames reduce false negatives." \
+  --safety-reproducibility-risks "Temporal grouping must remain Harness-owned and deterministic." \
+  --minimal-harness-change "Add an allowlisted centered temporal clip Input Mode." \
+  --candidate-authority-requested none \
+  --example-follow-up-experiment "temporal_candidate: compare single-frame RGB against centered temporal RGB clip." \
+  --priority medium
+```
+
+Then validate before finalizing the handoff:
+
+```bash
+ml-autoresearch-agent validate-capability-request \
+  --request capability-requests/capability-temporal-inputs.yaml
+```
+
+Invalid request files fail before ingestion with a JSON `status: invalid` response and an actionable schema message, including the common YAML error where an unquoted list item such as `candidate: description` parses as a mapping instead of `example_follow_up_experiments: list[str]`.
+
+## Harness CLI
+
+Outside the Agent Control Boundary, the Harness records validated requests:
 
 ```bash
 python -m ml_autoresearch.cli create-capability-request \
@@ -75,4 +104,4 @@ python -m ml_autoresearch.cli create-capability-request \
   --ledger-path research-ledger.jsonl
 ```
 
-The command validates the file and records a `capability_request_created` event with `request_id` and `request_path`. Invalid requests fail without appending a ledger event.
+The Harness command validates the file and records a `capability_request_created` event with `request_id` and `request_path`. Invalid requests fail without appending a ledger event.

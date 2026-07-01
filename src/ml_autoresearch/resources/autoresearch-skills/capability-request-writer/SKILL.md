@@ -17,7 +17,7 @@ Use when a hypothesis is blocked by the current Candidate Experiment Contract, A
 
 ## Instructions
 
-Describe the blocked hypothesis, current insufficiency, expected research value, safety/reproducibility risks, minimal Harness-owned change, and example follow-up experiments. Prefer `candidate_authority_requested: none`. Recording the request creates only an auditable event; it does not authorize implementation.
+Describe the blocked hypothesis, current insufficiency, expected research value, safety/reproducibility risks, minimal Harness-owned change, and example follow-up experiments. Prefer `candidate_authority_requested: none`. Use `ml-autoresearch-agent create-capability-request` to generate the YAML from structured options, and always run `ml-autoresearch-agent validate-capability-request --request PATH` before treating the Capability Request as final. This avoids YAML pitfalls such as an unquoted `candidate: description` follow-up parsing as a mapping instead of a string. Recording the request creates only an auditable event; it does not authorize implementation.
 
 For dataset-statistic requests, use `capability_type: dataset_profile_artifact` and ask for a durable Harness-generated profile artifact or summary with provenance rather than raw training-data access inside the Agent Control Boundary. Include the diagnostic question, expected research decision impact, scope/split, bounded computation or artifact budget, and provenance requirements. Choose this only when the missing information concerns the Research Problem data distribution itself; propose a Candidate Experiment when the next hypothesis fits the existing contract, and write an Evaluation Request when the question concerns an already-completed Run.
 

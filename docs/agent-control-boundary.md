@@ -217,6 +217,8 @@ wrapper:
 - `ml-autoresearch-agent get-best-runs`
 - `ml-autoresearch-agent list-batches`
 - `ml-autoresearch-agent batch-summary`
+- `ml-autoresearch-agent create-capability-request`
+- `ml-autoresearch-agent validate-capability-request`
 
 Agent-safe observation commands default to canonical Research History roots:
 `/history/runs` for Run observation and `/history/batches` for Experiment Batch
@@ -224,9 +226,12 @@ observation. Root options remain available for tests and debugging, but
 autonomous agents should normally omit them instead of inventing host-relative
 paths such as `../agent-history/runs`.
 
-Capability Requests, Evaluation Requests, Research Notes, and Campaign Reports
-are handoff artifacts written as files in the corresponding Agent Workspace
-subdirectories unless an agent-safe wrapper command is explicitly added later.
+Capability Requests should be created with `ml-autoresearch-agent
+create-capability-request` and validated with `ml-autoresearch-agent
+validate-capability-request` before finalizing the handoff. Evaluation Requests,
+Research Notes, and Campaign Reports are handoff artifacts written as files in
+the corresponding Agent Workspace subdirectories unless an agent-safe wrapper
+command is explicitly added later.
 
 The agent may run shell, Python, and common text/data tools for bounded
 agent-side work: editing Candidate Experiment files, parsing exposed metrics,

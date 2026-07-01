@@ -65,6 +65,8 @@ RUN touch /tmp/agent-smoke/candidate/model.py \
     && ml-autoresearch-agent list-runs --runs-root /tmp/agent-smoke/runs >/dev/null \
     && ml-autoresearch-agent validate-candidate --candidate /tmp/agent-smoke/candidate --workspace-root /tmp/agent-smoke/project >/dev/null \
     && ml-autoresearch-agent prepare-candidate-submission --candidate /tmp/agent-smoke/candidate --submissions-root /tmp/agent-smoke/submissions --workspace-root /tmp/agent-smoke/project >/dev/null \
+    && ml-autoresearch-agent create-capability-request --output /tmp/agent-smoke/capability.yaml --capability-type contract_surface --blocked-hypothesis 'Smoke blocked hypothesis.' --current-contract-insufficiency 'Smoke insufficiency.' --expected-research-value 'Smoke research value.' --safety-reproducibility-risks 'Smoke risks.' --minimal-harness-change 'Smoke minimal harness change.' --candidate-authority-requested none --example-follow-up-experiment 'smoke_candidate: keep colon text as a string.' --priority medium >/dev/null \
+    && ml-autoresearch-agent validate-capability-request --request /tmp/agent-smoke/capability.yaml >/dev/null \
     && mkdir -p /tmp/agent-boundary-smoke/candidate \
     && cat > /tmp/agent-boundary-smoke/candidate/manifest.yaml <<'EOF'
 name: boundary_aux_candidate
