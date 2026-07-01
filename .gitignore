@@ -12,8 +12,6 @@ agent-sessions/
 agent-work/
 notification.toml
 runs/
-.pi/fort.toml
-.pi/fort.d
-.pi/settings.json
+.pi/
 .envrc
 
