@@ -73,6 +73,14 @@ def test_agent_dockerfile_smoke_checks_allowed_static_commands() -> None:
     assert "candidate-execution.toml" not in dockerfile
 
 
+def test_agent_dockerfile_smoke_problem_declares_training_capability() -> None:
+    dockerfile = AGENT_DOCKERFILE.read_text()
+
+    assert 'operation_capabilities={"training": True}' in dockerfile
+    assert "def build_datasets(self, **kwargs)" in dockerfile
+    assert "def compute_validation_metrics(self, logits, target_mask)" in dockerfile
+
+
 def test_agent_dockerfile_smoke_checks_boundary_auxiliary_contract() -> None:
     dockerfile = AGENT_DOCKERFILE.read_text()
 

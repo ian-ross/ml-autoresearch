@@ -30,6 +30,14 @@ from ml_autoresearch.research_problems import ResearchProblemSpec
 class Adapter:
     def validate_data_root(self, data_config): pass
     def dataset_metadata(self, data_config): return {"kind": "smoke"}
+    def build_datasets(self, **kwargs): raise NotImplementedError
+    def apply_augmentation_policy(self, dataset, augmentation_policy): return dataset
+    def primary_output_name(self, output_spec): return "mask_logits"
+    def compute_primary_loss(self, loss_name, logits, target_mask): raise NotImplementedError
+    def compute_auxiliary_losses(self, outputs, target_mask, auxiliary_targets): return {}
+    def compute_validation_metrics(self, logits, target_mask): return {"val/dice": 0.0}
+    def selection_policy(self): return "val/dice", "max"
+    def build_evaluation_dataset(self, **kwargs): raise NotImplementedError
 
 def build_spec(data_config=None):
     return ResearchProblemSpec(
@@ -38,6 +46,7 @@ def build_spec(data_config=None):
         output_forms=("mask_logits",), output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 16, 16]}},
         losses=("bce_dice",), optimizers=("adamw",), sampling_policies=("sequential",),
         frame_selection_policies=("all_target_frames",), augmentation_policies=("none",), primary_metric="val/dice",
+        operation_capabilities={"training": True},
         training_adapter=Adapter(), auxiliary_targets=("boundary",), auxiliary_losses=("weighted_bce",), auxiliary_outputs={"boundary": "boundary_logits"},
     )
 EOF
