@@ -347,6 +347,24 @@ def test_ingest_one_candidate_submission_copies_to_canonical_updates_index_and_l
     assert marker["canonical_path"] == "candidates/agent_candidate"
 
 
+def test_ingest_candidate_submission_ignores_pycache_directories(tmp_path: Path):
+    write_project(tmp_path)
+    source = write_submission(tmp_path)
+    queue_pycache = tmp_path / "agent-work" / "submissions" / "__pycache__"
+    queue_pycache.mkdir()
+    (queue_pycache / "stale.cpython-312.pyc").write_bytes(b"cached bytecode")
+    candidate_pycache = source / "candidate" / "__pycache__"
+    candidate_pycache.mkdir()
+    (candidate_pycache / "model.cpython-312.pyc").write_bytes(b"cached bytecode")
+
+    result = ingest_candidate_submission(tmp_path)
+
+    assert result["status"] == "ingested"
+    assert result["candidate_id"] == "agent_candidate"
+    assert not (tmp_path / "candidates" / "agent_candidate" / "__pycache__").exists()
+    assert not (tmp_path / "candidates" / "__pycache__").exists()
+
+
 def test_ingest_experiment_batch_submission_copies_to_canonical_batch_and_records_next_action(tmp_path: Path):
     write_project(tmp_path)
     source = write_batch_submission(tmp_path)

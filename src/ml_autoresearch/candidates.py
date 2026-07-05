@@ -118,6 +118,7 @@ class CandidateManifest(BaseModel):
 
 _ALLOWED_FILENAMES = {"manifest.yaml", "model.py", "README.md", "PROPOSAL.md"}
 _ALLOWED_SUFFIXES = {".py"}
+_IGNORED_DIRECTORY_NAMES = {"__pycache__"}
 _FORBIDDEN_SUFFIXES = {
     ".sh",
     ".ipynb",
@@ -210,6 +211,8 @@ def _validate_required_files(path: Path) -> None:
 def _validate_file_allowlist(path: Path) -> None:
     for item in path.rglob("*"):
         relative = item.relative_to(path)
+        if any(part in _IGNORED_DIRECTORY_NAMES for part in relative.parts):
+            continue
         if item.is_symlink():
             raise CandidateValidationError(f"symlink is forbidden in candidate source: {relative}")
         if item.is_dir():

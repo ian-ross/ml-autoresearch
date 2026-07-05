@@ -100,6 +100,29 @@ def test_prepare_candidate_submission_copies_draft_and_writes_metadata(tmp_path:
     }
 
 
+def test_prepare_candidate_submission_ignores_pycache_directories(tmp_path: Path):
+    write_static_candidate_execution_config(tmp_path)
+    candidate = write_candidate(tmp_path)
+    pycache = candidate / "__pycache__"
+    pycache.mkdir()
+    (pycache / "model.cpython-312.pyc").write_bytes(b"cached bytecode")
+    submissions_root = tmp_path / "submissions"
+
+    completed = run_agent_cli(
+        "prepare-candidate-submission",
+        "--candidate",
+        str(candidate),
+        "--submissions-root",
+        str(submissions_root),
+        "--workspace-root",
+        str(tmp_path),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["status"] == "prepared"
+    assert not (submissions_root / "agent_candidate" / "candidate" / "__pycache__").exists()
+
+
 def test_prepare_candidate_submission_refuses_to_overwrite_existing_submission(tmp_path: Path):
     write_static_candidate_execution_config(tmp_path)
     candidate = write_candidate(tmp_path)

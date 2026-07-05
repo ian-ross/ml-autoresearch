@@ -18,6 +18,7 @@ BATCH_SUBMISSION_SCHEMA_VERSION = "experiment_batch_submission.v1"
 BATCH_SUBMISSION_TYPE = "experiment_batch"
 BATCH_REQUESTED_ACTION = "validate_and_queue_batch_for_harness_execution"
 RELATIVE_BATCH_PATH = "experiment_batch"
+_IGNORED_COPY_DIRECTORY_NAMES = {"__pycache__"}
 
 
 class CandidateSubmissionPreparationError(ValueError):
@@ -45,7 +46,7 @@ def prepare_experiment_batch_submission(batch_dir: str | Path, submissions_root:
 
     submission_dir.parent.mkdir(parents=True, exist_ok=True)
     copied_batch_path = submission_dir / RELATIVE_BATCH_PATH
-    shutil.copytree(batch_path, copied_batch_path)
+    shutil.copytree(batch_path, copied_batch_path, ignore=_ignore_runtime_cache_dirs)
 
     metadata = {
         "schema_version": BATCH_SUBMISSION_SCHEMA_VERSION,
@@ -106,7 +107,7 @@ def prepare_candidate_submission(
 
     submission_dir.parent.mkdir(parents=True, exist_ok=True)
     copied_candidate_path = submission_dir / RELATIVE_CANDIDATE_PATH
-    shutil.copytree(candidate_path, copied_candidate_path)
+    shutil.copytree(candidate_path, copied_candidate_path, ignore=_ignore_runtime_cache_dirs)
 
     metadata = {
         "schema_version": SUBMISSION_SCHEMA_VERSION,
@@ -125,3 +126,7 @@ def prepare_candidate_submission(
         "metadata_path": str(submission_dir / "submission.json"),
         "submission": metadata,
     }
+
+
+def _ignore_runtime_cache_dirs(_directory: str, names: list[str]) -> set[str]:
+    return {name for name in names if name in _IGNORED_COPY_DIRECTORY_NAMES}

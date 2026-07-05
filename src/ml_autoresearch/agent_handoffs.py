@@ -29,6 +29,7 @@ from ml_autoresearch.submissions import (
 )
 
 INGESTION_MARKER = "INGESTED.json"
+_IGNORED_COPY_DIRECTORY_NAMES = {"__pycache__"}
 
 PRIMARY_HANDOFF_TYPES = (
     "candidate_submission",
@@ -138,7 +139,7 @@ def ingest_candidate_submission(project_root: str | Path = Path(".")) -> dict[st
         raise AgentHandoffIngestionError(f"manifest name must match submission candidate_id '{candidate_id}' (got '{manifest.name}')")
 
     canonical_candidate.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source_candidate, canonical_candidate)
+    shutil.copytree(source_candidate, canonical_candidate, ignore=_ignore_runtime_cache_dirs)
     canonical_relative = _relative_posix(canonical_candidate, root)
     source_relative = _relative_posix(source_dir, root)
 
@@ -193,7 +194,7 @@ def ingest_experiment_batch_submission(project_root: str | Path = Path(".")) -> 
         raise AgentHandoffIngestionError(str(exc)) from exc
 
     canonical_batch.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source_batch, canonical_batch)
+    shutil.copytree(source_batch, canonical_batch, ignore=_ignore_runtime_cache_dirs)
     canonical_relative = _relative_posix(canonical_batch, root)
     source_relative = _relative_posix(source_dir, root)
 
@@ -417,6 +418,10 @@ def _ingestion_failed(reason: str, handoff_types: list[str]) -> dict[str, object
     }
 
 
+def _ignore_runtime_cache_dirs(_directory: str, names: list[str]) -> set[str]:
+    return {name for name in names if name in _IGNORED_COPY_DIRECTORY_NAMES}
+
+
 def _discover_uningested_primary_handoffs(root: Path) -> dict[str, list[Path]]:
     return {
         "candidate_submission": _list_uningested_submissions(root / "agent-work" / "submissions", "candidate_submission"),
@@ -438,7 +443,9 @@ def _list_uningested_submissions(submissions_root: Path, handoff_type: str) -> l
     return sorted(
         path
         for path in submissions_root.iterdir()
-        if path.is_dir() and not _has_valid_ingestion_marker(path / INGESTION_MARKER, handoff_type)
+        if path.is_dir()
+        and path.name not in _IGNORED_COPY_DIRECTORY_NAMES
+        and not _has_valid_ingestion_marker(path / INGESTION_MARKER, handoff_type)
     )
 
 
