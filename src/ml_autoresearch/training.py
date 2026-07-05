@@ -244,8 +244,8 @@ def _train_manifest_epochs_run(
             train_aux_loss_totals: dict[str, float] = {}
             trained_samples = 0
             for batch_index, (inputs, targets) in enumerate(train_loader):
-                inputs = inputs.to(device)
-                targets = targets.to(device)
+                inputs = inputs.to(device, non_blocking=True)
+                targets = targets.to(device, non_blocking=True)
                 optimizer.zero_grad(set_to_none=True)
                 outputs = _extract_expected_outputs(model(inputs), output_spec)
                 logits = outputs[primary_output_name]
@@ -430,13 +430,40 @@ def _data_loader_for_sampling(
     training_adapter: ResearchProblemTrainingAdapter | object | None = None,
 ) -> DataLoader:
     dataset = _dataset_with_augmentation_policy(dataset, augmentation_policy, training_adapter)
+    loader_kwargs = _data_loader_performance_kwargs()
     if sampling_policy == "sequential":
-        return DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
     if sampling_policy == "deterministic_shuffle":
         generator = torch.Generator()
         generator.manual_seed(SAMPLING_POLICY_SEED)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=True, generator=generator)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True, generator=generator, **loader_kwargs)
     raise TrainingError(f"unsupported sampling policy: {sampling_policy}")
+
+
+def _data_loader_performance_kwargs() -> dict[str, object]:
+    """Resolve DataLoader throughput settings for GPU-backed Harness training.
+
+    Defaults stay conservative on CPU, but use worker prefetch + pinned host memory
+    when CUDA is visible so image decoding/rasterization can overlap GPU work.
+    Operators may override with ML_AUTORESEARCH_DATALOADER_* environment variables
+    inside the runner container.
+    """
+
+    default_workers = min(8, os.cpu_count() or 1) if torch.cuda.is_available() else 0
+    num_workers = int(os.environ.get("ML_AUTORESEARCH_DATALOADER_NUM_WORKERS", default_workers))
+    pin_memory = _env_bool("ML_AUTORESEARCH_DATALOADER_PIN_MEMORY", default=torch.cuda.is_available())
+    kwargs: dict[str, object] = {"num_workers": num_workers, "pin_memory": pin_memory}
+    if num_workers > 0:
+        kwargs["persistent_workers"] = _env_bool("ML_AUTORESEARCH_DATALOADER_PERSISTENT_WORKERS", default=True)
+        kwargs["prefetch_factor"] = int(os.environ.get("ML_AUTORESEARCH_DATALOADER_PREFETCH_FACTOR", "4"))
+    return kwargs
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _dataset_with_augmentation_policy(dataset, augmentation_policy: str, training_adapter: ResearchProblemTrainingAdapter | object | None = None):
@@ -541,8 +568,8 @@ def _evaluate(
     primary_output_name = _primary_output_name(output_spec, training_adapter)
     with torch.no_grad():
         for inputs, target in val_loader:
-            inputs = inputs.to(device)
-            target = target.to(device)
+            inputs = inputs.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
             outputs = _extract_expected_outputs(model(inputs), output_spec)
             logits = outputs[primary_output_name]
             mask_loss = _primary_loss(primary_loss_name, logits, target, training_adapter)

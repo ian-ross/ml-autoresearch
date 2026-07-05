@@ -22,6 +22,7 @@ DEFAULT_DOCKER_MEMORY_LIMIT = "4g"
 DEFAULT_DOCKER_CPUS = "2"
 DEFAULT_DOCKER_PIDS_LIMIT = "512"
 DEFAULT_DOCKER_SCRATCH_SIZE = "2g"
+DEFAULT_DOCKER_SHM_SIZE = "2g"
 DEFAULT_TIMEOUT_GRACE_SECONDS = 30
 DOCKER_GPU_VALIDATION_PROBE = """
 import json
@@ -201,6 +202,7 @@ class DockerBackend:
     cpus: str = DEFAULT_DOCKER_CPUS
     pids_limit: str = DEFAULT_DOCKER_PIDS_LIMIT
     scratch_size: str = DEFAULT_DOCKER_SCRATCH_SIZE
+    shm_size: str = DEFAULT_DOCKER_SHM_SIZE
     enable_gpu: bool = False
     container_user: str | None = None
     rootless_container_root: bool = False
@@ -566,6 +568,8 @@ class DockerBackend:
             self.pids_limit,
             "--memory",
             self.memory_limit,
+            "--shm-size",
+            self.shm_size,
             "--cpus",
             self.cpus,
             "--env",
@@ -580,6 +584,12 @@ class DockerBackend:
             "TORCHINDUCTOR_CACHE_DIR=/scratch/torchinductor",
             "--env",
             "ML_AUTORESEARCH_TIMEOUT_SENTINEL=/scratch/ml_autoresearch_timeout_requested",
+            *_passthrough_env_args(
+                "ML_AUTORESEARCH_DATALOADER_NUM_WORKERS",
+                "ML_AUTORESEARCH_DATALOADER_PIN_MEMORY",
+                "ML_AUTORESEARCH_DATALOADER_PERSISTENT_WORKERS",
+                "ML_AUTORESEARCH_DATALOADER_PREFETCH_FACTOR",
+            ),
         ]
 
     def _container_user(self, *, docker_is_rootless: bool = False) -> str:
@@ -720,6 +730,15 @@ def docker_gpu_validation_command(docker_image: str = DEFAULT_DOCKER_IMAGE) -> l
     ]
 
 
+def _passthrough_env_args(*names: str) -> list[str]:
+    args: list[str] = []
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None:
+            args.extend(["--env", f"{name}={value}"])
+    return args
+
+
 def validate_docker_gpu(docker_image: str = DEFAULT_DOCKER_IMAGE) -> subprocess.CompletedProcess[str]:
     """Run the runner-image GPU validation probe without launching candidate code."""
 
@@ -779,6 +798,7 @@ def backend_metadata(backend: ExecutionBackend) -> dict[str, object]:
                 "cpus": backend.cpus,
                 "pids_limit": backend.pids_limit,
                 "scratch": backend.scratch_size,
+                "shm_size": backend.shm_size,
             },
         }
         if backend.wall_clock_timeout_seconds is not None:
