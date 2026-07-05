@@ -19,7 +19,7 @@ Use this top-level skill to run or review exactly one Autonomous Research Iterat
 
 1. Review current Research Ledger, recent Research Notes, Campaign Reports, pending Capability Requests, and current best Result.
 2. If a pause condition is already met, delegate to `../pause-decider/SKILL.md` and stop.
-3. If a new hypothesis is ready, delegate to `../proposal-writer/SKILL.md`.
+3. If a new hypothesis is ready, decide whether it is a promotion candidate, a family scout, or a family-development continuation; delegate to `../proposal-writer/SKILL.md`.
 4. Implement only the approved Candidate Experiment through `../candidate-implementer/SKILL.md`.
 5. Submit/run through Harness-owned commands, then delegate observation to `../run-observer/SKILL.md`.
 6. If the Run failed or regressed, delegate to `../failure-classifier/SKILL.md` before deciding repair, new proposal, or pause.
@@ -33,6 +33,8 @@ Do not continue automatically after a pause decision. Require human review befor
 
 ## Guardrails
 
+- Use the current best Result for promotion decisions, not as the sole reason to abandon an immature architecture family after one scout.
+- For substantially new architecture families, require either a bounded family-development plan or a documented hard stop reason before declaring the family exhausted.
 - No covert workarounds: if the Candidate Experiment Contract blocks an idea, create a Capability Request instead of bypassing it.
 - No direct Harness modifications during autonomous operation; changes require separate human-supervised work.
 - No direct Research Ledger edits; use Harness-owned CLI/API commands.

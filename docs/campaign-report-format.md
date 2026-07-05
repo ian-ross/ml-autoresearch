@@ -40,7 +40,7 @@ Use these headings so later automation can parse and extend the scaffold:
 - Remaining budget: <amount/unknown>
 
 ## Next hypothesis
-<The next Experiment Proposal direction or the reason no next hypothesis is ready.>
+<The next Experiment Proposal direction or the reason no next hypothesis is ready. State whether the direction is a promotion candidate, a family scout, a family-development continuation, or no ready hypothesis. For architecture-family work, distinguish promotion criteria from continuation criteria.>
 
 ## Pause recommendation
 - Pause condition: <approved value or none>
@@ -49,7 +49,7 @@ Use these headings so later automation can parse and extend the scaffold:
 
 The `Pause condition` line is machine-read. Write it exactly as `- Pause condition: none` or `- Pause condition: <approved_value>` using one approved value below. Do not add prose, punctuation, or explanation to that line; put explanation under `Human decision needed` or elsewhere in the section.
 
-Required summary areas are: current best Result, recent Runs, failures, pending Capability Requests, budget use, and next hypothesis.
+Required summary areas are: current best Result, recent Runs, failures, pending Capability Requests, budget use, and next hypothesis. The next hypothesis summary should not treat failure to beat the current best Result as sufficient by itself to abandon an immature architecture family; if relevant, state whether the next step is promotion-oriented, scouting, family-development continuation, or pause for human review.
 
 ## Recording a Campaign Report
 

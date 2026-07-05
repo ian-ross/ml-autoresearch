@@ -34,6 +34,18 @@ Core instruction:
 
 > If a desired experiment requires capability outside the Candidate Experiment Contract, do not emulate, tunnel, hide, or approximate that capability through candidate code. File a Capability Request instead.
 
+## Architecture family exploration policy
+
+Use the current best Result as the promotion target, not as the only criterion for whether an immature architecture family deserves further development. A substantially new family's first successful Run is a scouting Run unless the proposal explicitly defines it as a mature promotion candidate. Do not abandon a new family solely because one untuned or lightly tuned scout fails to beat a heavily tuned incumbent.
+
+Separate three decisions:
+
+- **Promotion candidate:** must beat or credibly tie the current best Result on the Research Problem selection metric and required guardrails.
+- **Family scout:** does not need to beat the current best; it should test whether the family has a plausible strength, such as competitive metric distance, improved secondary metrics, better failure buckets, lower resource cost, useful learning dynamics, or qualitatively different errors.
+- **Family-development continuation:** should compare against the family baseline and prior scouts, with a bounded sequence of controlled variants before declaring the family exhausted.
+
+Before rejecting a substantially new architecture family, either run a bounded family-development sequence with comparable tuning depth to the incumbent lineage, or document a hard stop reason: Candidate Experiment Contract violation, parameter/resource infeasibility, catastrophic metric gap, unstable training, implementation defect, or diagnostics showing that the family cannot address the campaign failure modes. Compare mature families to mature incumbents; compare scouts to scouts when allocating research budget.
+
 ## Covert workarounds are forbidden
 
 The agent must not obtain unapproved research capability through Candidate Experiment code or helper files. Forbidden examples include:
