@@ -18,6 +18,27 @@ from ml_autoresearch.capability_requests import (
 )
 from ml_autoresearch.runs import get_best_runs, get_run_summary, list_runs
 
+_AGENT_CAMPAIGN_REPORT_HEADINGS = [
+    "## Summary",
+    "## Current best Result",
+    "## Recent Runs",
+    "## Failures",
+    "## Pending Capability Requests",
+    "## Budget use",
+    "## Next hypothesis",
+    "## Pause recommendation",
+]
+_AGENT_CAMPAIGN_REPORT_PAUSE_CONDITIONS = {
+    "none",
+    "budget_exhausted",
+    "repeated_failures",
+    "repeated_resource_failures",
+    "stalled_research_progress",
+    "too_many_pending_capability_requests",
+    "storage_risk",
+    "scheduled_check_in",
+}
+
 DEFAULT_AGENT_RUNS_ROOT = Path("/history/runs")
 DEFAULT_AGENT_BATCHES_ROOT = Path("/history/batches")
 _AGENT_RUNS_ROOT_ENV = "ML_AUTORESEARCH_AGENT_RUNS_ROOT"
@@ -50,6 +71,57 @@ def _resolve_batches_root(batches_root: Path | None) -> Path:
 
 def _echo_json(payload: object) -> None:
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def _format_campaign_report_section(value: str) -> str:
+    stripped = value.strip()
+    return stripped if stripped else "- unknown"
+
+
+def _write_agent_campaign_report(
+    output: Path,
+    *,
+    title: str,
+    summary: str,
+    current_best_result: str,
+    recent_runs: str,
+    failures: str,
+    pending_capability_requests: str,
+    budget_use: str,
+    next_hypothesis: str,
+    pause_condition: str,
+    human_decision_needed: str,
+) -> str:
+    normalized_pause = pause_condition.strip().strip("`").strip().rstrip(".").strip()
+    if normalized_pause not in _AGENT_CAMPAIGN_REPORT_PAUSE_CONDITIONS:
+        supported = ", ".join(sorted(_AGENT_CAMPAIGN_REPORT_PAUSE_CONDITIONS))
+        raise ValueError(f"Pause condition must be one of: {supported} (got {pause_condition!r})")
+    text = (
+        f"# Campaign Report: {title.strip() or 'Campaign Status'}\n\n"
+        "## Summary\n\n"
+        f"{_format_campaign_report_section(summary)}\n\n"
+        "## Current best Result\n\n"
+        f"{_format_campaign_report_section(current_best_result)}\n\n"
+        "## Recent Runs\n\n"
+        f"{_format_campaign_report_section(recent_runs)}\n\n"
+        "## Failures\n\n"
+        f"{_format_campaign_report_section(failures)}\n\n"
+        "## Pending Capability Requests\n\n"
+        f"{_format_campaign_report_section(pending_capability_requests)}\n\n"
+        "## Budget use\n\n"
+        f"{_format_campaign_report_section(budget_use)}\n\n"
+        "## Next hypothesis\n\n"
+        f"{_format_campaign_report_section(next_hypothesis)}\n\n"
+        "## Pause recommendation\n\n"
+        f"- Pause condition: {normalized_pause}\n"
+        f"- Human decision needed: {_format_campaign_report_section(human_decision_needed)}\n"
+    )
+    missing = [heading for heading in _AGENT_CAMPAIGN_REPORT_HEADINGS if heading not in text]
+    if missing:
+        raise ValueError(f"Campaign Report missing required headings after rendering: {', '.join(missing)}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(text)
+    return text
 
 
 def _echo_table(rows: list[dict[str, object]]) -> None:
@@ -313,6 +385,48 @@ def create_capability_request_command(
         _echo_json({"status": "invalid", "reason": str(exc)})
         raise typer.Exit(1) from exc
     _echo_json({"status": "created", "path": str(output), "request": written.model_dump(exclude_none=True)})
+
+
+@app.command("create-campaign-report")
+def create_campaign_report_command(
+    output: Annotated[Path, typer.Option(help="Output Markdown Campaign Report path in the Agent Workspace.")],
+    title: Annotated[str, typer.Option(help="Campaign Report title after '# Campaign Report:'.")],
+    summary: Annotated[str, typer.Option(help="One-paragraph campaign status summary.")],
+    current_best_result: Annotated[str, typer.Option(help="Markdown content for the required Current best Result section.")],
+    recent_runs: Annotated[str, typer.Option(help="Markdown content for the required Recent Runs section.")],
+    failures: Annotated[str, typer.Option(help="Markdown content for the required Failures section.")],
+    pending_capability_requests: Annotated[
+        str,
+        typer.Option(help="Markdown content for the required Pending Capability Requests section."),
+    ],
+    budget_use: Annotated[str, typer.Option(help="Markdown content for the required Budget use section.")],
+    next_hypothesis: Annotated[str, typer.Option(help="Markdown content for the required Next hypothesis section.")],
+    human_decision_needed: Annotated[str, typer.Option(help="Human decision status/details for the Pause recommendation section.")],
+    pause_condition: Annotated[
+        str,
+        typer.Option(help="Machine-readable pause condition: none or an approved Campaign Pause Condition."),
+    ] = "none",
+) -> None:
+    """Create a Campaign Report with the exact machine-readable headings required by ingestion."""
+
+    try:
+        text = _write_agent_campaign_report(
+            output,
+            title=title,
+            summary=summary,
+            current_best_result=current_best_result,
+            recent_runs=recent_runs,
+            failures=failures,
+            pending_capability_requests=pending_capability_requests,
+            budget_use=budget_use,
+            next_hypothesis=next_hypothesis,
+            pause_condition=pause_condition,
+            human_decision_needed=human_decision_needed,
+        )
+    except (OSError, ValueError) as exc:
+        _echo_json({"status": "invalid", "reason": str(exc)})
+        raise typer.Exit(1) from exc
+    _echo_json({"status": "created", "path": str(output), "bytes": len(text.encode())})
 
 
 @app.command("prepare-experiment-batch-submission")

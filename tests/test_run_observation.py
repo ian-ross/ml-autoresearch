@@ -189,7 +189,14 @@ def test_agent_cli_help_is_agent_safe_and_excludes_execution_authority() -> None
     help_text = completed.stdout
     assert "Agent-safe" in help_text
     assert "cannot run Candidate Experiments" in help_text
-    for allowed in ["list-runs", "run-summary", "get-best-runs", "validate-candidate", "prepare-candidate-submission"]:
+    for allowed in [
+        "list-runs",
+        "run-summary",
+        "get-best-runs",
+        "validate-candidate",
+        "prepare-candidate-submission",
+        "create-campaign-report",
+    ]:
         assert allowed in help_text
     for disallowed in [
         "run-candidate",
@@ -202,6 +209,52 @@ def test_agent_cli_help_is_agent_safe_and_excludes_execution_authority() -> None
         "record-campaign-report",
     ]:
         assert disallowed not in help_text
+
+
+def test_agent_cli_create_campaign_report_renders_required_ingestion_headings(tmp_path: Path):
+    report = tmp_path / "campaign-reports" / "2026-05-10-status.md"
+
+    completed = run_agent_cli(
+        "create-campaign-report",
+        "--output",
+        str(report),
+        "--title",
+        "GVCCS",
+        "--summary",
+        "Campaign status.",
+        "--current-best-result",
+        "- Run: run_1",
+        "--recent-runs",
+        "- run_1 completed",
+        "--failures",
+        "- none",
+        "--pending-capability-requests",
+        "- none",
+        "--budget-use",
+        "- unknown",
+        "--next-hypothesis",
+        "Try next mechanism.",
+        "--human-decision-needed",
+        "no",
+        "--pause-condition",
+        "none",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["status"] == "created"
+    text = report.read_text()
+    for heading in [
+        "## Summary",
+        "## Current best Result",
+        "## Recent Runs",
+        "## Failures",
+        "## Pending Capability Requests",
+        "## Budget use",
+        "## Next hypothesis",
+        "## Pause recommendation",
+    ]:
+        assert heading in text
+    assert "- Pause condition: none\n" in text
 
 
 def test_agent_cli_observation_commands_work_against_fixture_runs(tmp_path: Path):

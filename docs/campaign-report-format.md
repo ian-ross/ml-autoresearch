@@ -4,6 +4,8 @@ A Campaign Report is a human- and agent-readable status artifact for an autonomo
 
 Recommended path: `campaign-reports/YYYY-MM-DD-status.md`.
 
+Inside the Agent Control Boundary, agents must create Campaign Reports with `ml-autoresearch-agent create-campaign-report`. Agents must not hand-author reports with shell heredocs, direct file writes, the write tool, or ad-hoc edits; if the command is unavailable, they should stop instead of fabricating a report.
+
 ## Markdown structure
 
 Use these headings so later automation can parse and extend the scaffold:
@@ -51,9 +53,26 @@ The `Pause condition` line is machine-read. Write it exactly as `- Pause conditi
 
 Required summary areas are: current best Result, recent Runs, failures, pending Capability Requests, budget use, and next hypothesis. The next hypothesis summary should not treat failure to beat the current best Result as sufficient by itself to abandon an immature architecture family; if relevant, state whether the next step is promotion-oriented, scouting, family-development continuation, or pause for human review.
 
-## Recording a Campaign Report
+## Creating and recording a Campaign Report
 
-After writing the artifact, record it in the Research Ledger:
+Agents inside the Agent Control Boundary create the artifact with the scaffolded agent-safe command, passing Markdown content for each required section:
+
+```bash
+ml-autoresearch-agent create-campaign-report \
+  --output campaign-reports/2026-05-10-status.md \
+  --title "Ground-Camera Contrail Detection" \
+  --summary "One-paragraph status." \
+  --current-best-result "- Run: run_..." \
+  --recent-runs "| Run | Candidate Experiment | Status | Key Result | Note |\n| --- | --- | --- | --- | --- |" \
+  --failures "- none" \
+  --pending-capability-requests "- none" \
+  --budget-use "- unknown" \
+  --next-hypothesis "Next direction or no hypothesis." \
+  --human-decision-needed "no" \
+  --pause-condition none
+```
+
+After ingesting or otherwise accepting the artifact, record it in the Research Ledger:
 
 ```bash
 ml-autoresearch record-campaign-report \
