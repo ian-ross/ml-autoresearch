@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Literal
 
@@ -88,6 +89,38 @@ def record_campaign_resume(
     if normalized_report_path is not None:
         result["report_path"] = normalized_report_path
     return result
+
+
+def latest_campaign_pause_state(
+    *,
+    ledger_path: str | Path = CANONICAL_RESEARCH_LEDGER,
+) -> dict[str, str] | None:
+    """Return the active operator pause state unless a newer resume event clears it."""
+
+    path = Path(ledger_path)
+    if not path.is_file():
+        return None
+    latest_pause_index: int | None = None
+    latest_pause_reason: str | None = None
+    latest_resume_index: int | None = None
+    for index, line in enumerate(path.read_text().splitlines()):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        event_type = event.get("event_type")
+        if event_type == "campaign_paused":
+            latest_pause_index = index
+            latest_pause_reason = str(event.get("reason") or "unknown")
+        elif event_type == "campaign_resumed":
+            latest_resume_index = index
+    if latest_resume_index is not None and (latest_pause_index is None or latest_resume_index > latest_pause_index):
+        return None
+    if latest_pause_index is not None:
+        return {"status": "paused", "reason": latest_pause_reason or "unknown"}
+    return None
 
 
 def _normalize_required_path(path: str | Path, field_name: str) -> str:

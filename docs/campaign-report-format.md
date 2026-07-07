@@ -49,9 +49,9 @@ Use these headings so later automation can parse and extend the scaffold:
 - Human decision needed: <yes/no and details>
 ```
 
-The `Pause condition` line is machine-read. Write it exactly as `- Pause condition: none` or `- Pause condition: <approved_value>` using one approved value below. Do not add prose, punctuation, or explanation to that line; put explanation under `Human decision needed` or elsewhere in the section.
+The `Pause condition` line is machine-read. Write it exactly as `- Pause condition: none` or `- Pause condition: <approved_value>` using one approved value below. Do not add prose, punctuation, or explanation to that line; put explanation under `Human decision needed` or elsewhere in the section. A non-none value in an agent-authored Campaign Report is only an operator-review recommendation; it does not grant the agent authority to record `campaign_paused` or pause the campaign.
 
-Required summary areas are: current best Result, recent Runs, failures, pending Capability Requests, budget use, and next hypothesis. The next hypothesis summary should not treat failure to beat the current best Result as sufficient by itself to abandon an immature architecture family; if relevant, state whether the next step is promotion-oriented, scouting, family-development continuation, or pause for human review.
+Required summary areas are: current best Result, recent Runs, failures, pending Capability Requests, budget use, and next hypothesis. The next hypothesis summary should not treat failure to beat the current best Result as sufficient by itself to abandon an immature architecture family; if the current line appears exhausted, it should identify a broader frontier such as another architecture family, training policy, data policy, loss function, augmentation strategy, calibration/evaluation method, mining strategy, or preprocessing path unless a real blocker requires operator review.
 
 ## Creating and recording a Campaign Report
 
@@ -83,6 +83,8 @@ ml-autoresearch record-campaign-report \
 The command/API records a `campaign_report_written` event with `report_path`.
 
 ## Campaign Pause Conditions
+
+Campaign pausing is an operator-level control. The autonomous agent may recommend review in a Campaign Report or create a Capability Request for a real blocker, but `pause-campaign` is an operator-facing command.
 
 `campaign_paused` events must use this approved vocabulary in `reason`:
 

@@ -7,7 +7,7 @@ description: Orchestrate one Autonomous Research Iteration for ML Autoresearch c
 
 ## Use
 
-Use this top-level skill to run or review exactly one Autonomous Research Iteration. When invoked by an Autonomy Step, one Autonomy Step means one primary handoff outcome, then stop. It coordinates focused skills and stops when Campaign Pause Conditions require human review.
+Use this top-level skill to run or review exactly one Autonomous Research Iteration. When invoked by an Autonomy Step, one Autonomy Step means one primary handoff outcome, then stop. It coordinates focused skills and escalates real Campaign Pause Conditions for operator review without directly pausing the campaign.
 
 ## Read first
 
@@ -18,18 +18,18 @@ Use this top-level skill to run or review exactly one Autonomous Research Iterat
 ## Autonomous Research Iteration
 
 1. Review current Research Ledger, recent Research Notes, Campaign Reports, pending Capability Requests, and current best Result.
-2. If a pause condition is already met, delegate to `../pause-decider/SKILL.md` and stop.
+2. If a real pause condition is already met, delegate to `../pause-decider/SKILL.md` and create the appropriate report or Capability Request for operator review.
 3. If a new hypothesis is ready, decide whether it is a promotion candidate, a family scout, or a family-development continuation; delegate to `../proposal-writer/SKILL.md`.
 4. Implement only the approved Candidate Experiment through `../candidate-implementer/SKILL.md`.
 5. Submit/run through Harness-owned commands, then delegate observation to `../run-observer/SKILL.md`.
-6. If the Run failed or regressed, delegate to `../failure-classifier/SKILL.md` before deciding repair, new proposal, or pause.
+6. If the Run failed or regressed, delegate to `../failure-classifier/SKILL.md` before deciding repair, new proposal, broader frontier, or operator escalation.
 7. If bounded diagnostics are needed, delegate to `../evaluation-request-writer/SKILL.md`.
 8. Capture outcomes with `../research-note-writer/SKILL.md`.
 9. Record auditable events with `../ledger-recorder/SKILL.md`.
 10. If the contract blocks a hypothesis, delegate to `../capability-request-writer/SKILL.md`.
-11. At review intervals or before pausing, delegate to `../campaign-report-writer/SKILL.md` and then `../pause-decider/SKILL.md`.
+11. At review intervals or when a real blocker requires operator review, delegate to `../campaign-report-writer/SKILL.md` and then `../pause-decider/SKILL.md`.
 
-Do not continue automatically after a pause decision. Require human review before unattended use or installed Autoresearch Skill Set changes.
+The agent must not pause or terminate the campaign because it believes no promising experiments remain. If the current approach appears exhausted, broaden the search frontier by proposing experiments in a different architecture family, training policy, data policy, loss function, augmentation strategy, evaluation/calibration method, mining strategy, or preprocessing path. Actual `pause-campaign` authority belongs to the operator-facing CLI; use Campaign Reports or Capability Requests when human review is genuinely needed.
 
 ## Guardrails
 

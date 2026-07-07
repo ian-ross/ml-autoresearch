@@ -1,13 +1,13 @@
 ---
 name: pause-decider
-description: Decide whether an autonomous campaign must pause for human review.
+description: Decide whether an autonomous campaign has a real blocker requiring operator review.
 ---
 
 # Pause Decider
 
 ## Use
 
-Use before starting another Autonomous Research Iteration and whenever budget, failure, storage, capability, or progress risk appears. Apply Campaign Pause Conditions using the approved vocabulary.
+Use before starting another Autonomous Research Iteration and whenever budget, failure, storage, capability, or progress risk appears. Identify real blockers and recommend operator review using the approved Campaign Pause Conditions vocabulary; do not pause the campaign yourself.
 
 ## Read first
 
@@ -17,7 +17,9 @@ Use before starting another Autonomous Research Iteration and whenever budget, f
 
 ## Instructions
 
-Pause for budget_exhausted, repeated_failures, repeated_resource_failures, stalled_research_progress, too_many_pending_capability_requests, storage_risk, or scheduled_check_in. Create or update a Campaign Report when useful, record with `pause-campaign`, and stop until human review.
+Recommend operator review for budget_exhausted, repeated_failures, repeated_resource_failures, stalled_research_progress, too_many_pending_capability_requests, storage_risk, or scheduled_check_in. Create or update a Campaign Report when useful. Do not run `pause-campaign`; actual campaign pausing is an operator-level control outside the Agent Control Boundary.
+
+Do not treat local exhaustion of the current approach as a pause condition. If the current line looks stalled, broaden the search frontier by proposing work in a different architecture family, training policy, data policy, loss function, augmentation strategy, calibration/thresholding approach, hard-negative mining strategy, or preprocessing path. Use a Capability Request only when a real resource, contract, data, infrastructure, or policy blocker prevents that next work.
 
 ## Guardrails
 

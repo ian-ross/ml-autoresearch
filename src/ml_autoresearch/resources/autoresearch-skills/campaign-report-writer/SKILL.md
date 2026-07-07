@@ -7,7 +7,7 @@ description: Write Campaign Reports at review points.
 
 ## Use
 
-Use at scheduled checks, before pauses, or when humans need compact campaign status. Create the Campaign Report with `ml-autoresearch-agent create-campaign-report`; if that command is unavailable, stop rather than hand-authoring a report. The Harness records and ingests the report outside the Agent Control Boundary; outside the Agent Control Boundary, a human or Harness process may follow up with `record-campaign-report` or `pause-campaign`.
+Use at scheduled checks, when a real blocker needs operator review, or when humans need compact campaign status. Create the Campaign Report with `ml-autoresearch-agent create-campaign-report`; if that command is unavailable, stop rather than hand-authoring a report. The Harness records and ingests the report outside the Agent Control Boundary; outside the Agent Control Boundary, a human or Harness process may follow up with `record-campaign-report` or the operator-only `pause-campaign`.
 
 ## Read first
 
@@ -17,7 +17,7 @@ Use at scheduled checks, before pauses, or when humans need compact campaign sta
 
 ## Instructions
 
-Summarize current best Result, recent Runs, failures, pending Capability Requests, budget use, next hypothesis, and pause recommendation. Do not let the report replace per-Run Research Notes.
+Summarize current best Result, recent Runs, failures, pending Capability Requests, budget use, next hypothesis, and pause recommendation. Do not let the report replace per-Run Research Notes, and do not use a Campaign Report to pause simply because the current approach seems locally exhausted.
 
 In `## Next hypothesis`, state whether the next direction is a promotion candidate, a family scout, a family-development continuation, or no ready hypothesis. For architecture-family work, distinguish promotion criteria from continuation criteria; do not treat failure to beat the current best Result as sufficient by itself to abandon an immature family.
 
@@ -25,7 +25,7 @@ Never create a Campaign Report with the agent write tool, `cat >`, shell heredoc
 
 A Campaign Report must use the exact headings from `docs/campaign-report-format.md`: `## Summary`, `## Current best Result`, `## Recent Runs`, `## Failures`, `## Pending Capability Requests`, `## Budget use`, `## Next hypothesis`, and `## Pause recommendation`. Do not use synonyms such as `## Evidence checked`, `## Current best retained`, or `## Decision`; put that content under the required headings.
 
-The `## Pause recommendation` section must include one machine-readable line exactly as `- Pause condition: none` or `- Pause condition: <approved_value>`, where `<approved_value>` is one of `budget_exhausted`, `repeated_failures`, `repeated_resource_failures`, `stalled_research_progress`, `too_many_pending_capability_requests`, `storage_risk`, or `scheduled_check_in`. Do not add punctuation or prose to that line; put explanation on the `- Human decision needed:` line.
+The `## Pause recommendation` section must include one machine-readable line exactly as `- Pause condition: none` or `- Pause condition: <approved_value>`, where `<approved_value>` is one of `budget_exhausted`, `repeated_failures`, `repeated_resource_failures`, `stalled_research_progress`, `too_many_pending_capability_requests`, `storage_risk`, or `scheduled_check_in`. Do not add punctuation or prose to that line; put explanation on the `- Human decision needed:` line. A non-none recommendation is not authority to pause the campaign; actual pause authority belongs to the operator-facing CLI.
 
 ## Guardrails
 

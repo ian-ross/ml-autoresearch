@@ -1,13 +1,13 @@
 ---
 name: failure-classifier
-description: Classify unsuccessful Runs and decide repair, new proposal, request, or pause.
+description: Classify unsuccessful Runs and decide repair, new proposal, broader frontier, or request.
 ---
 
 # Failure Classifier
 
 ## Use
 
-Use when a Run fails, is rejected, times out, or produces a bad Result. Apply the Run Failure Classification vocabulary and decide whether to use a Repair Candidate, new Experiment Proposal, Capability Request, or pause.
+Use when a Run fails, is rejected, times out, or produces a bad Result. Apply the Run Failure Classification vocabulary and decide whether to use a Repair Candidate, new Experiment Proposal, broader search frontier, Capability Request, or operator escalation for a real blocker.
 
 ## Read first
 
@@ -19,7 +19,7 @@ Use when a Run fails, is rejected, times out, or produces a bad Result. Apply th
 
 Prefer the Harness-recorded failure_classification when present. Approved classes are candidate_bug, contract_violation, resource_failure, harness_failure, bad_research_result, and unknown. A Repair Candidate is valid only for candidate bugs or contract issues that preserve hypothesis and Comparison Target.
 
-When a successful Run from a substantially new architecture family underperforms the current best Result, classify the scientific outcome precisely. A first or lightly tuned family Run is usually a negative or mixed scout, not proof that the family is exhausted. Recommend abandoning the family only if there is a hard stop reason: contract violation, parameter/resource infeasibility, catastrophic metric gap, unstable training, implementation defect, or diagnostics showing the family cannot address the campaign failure modes. Otherwise, decide whether the evidence justifies a bounded family-development continuation, a different family scout, or a campaign-level pause.
+When a successful Run from a substantially new architecture family underperforms the current best Result, classify the scientific outcome precisely. A first or lightly tuned family Run is usually a negative or mixed scout, not proof that the family is exhausted. Recommend abandoning the family only if there is a hard stop reason: contract violation, parameter/resource infeasibility, catastrophic metric gap, unstable training, implementation defect, or diagnostics showing the family cannot address the campaign failure modes. Otherwise, decide whether the evidence justifies a bounded family-development continuation, a different family scout, or another frontier such as loss, augmentation, calibration, mining, preprocessing, or training policy. Do not recommend campaign pause solely because the current incumbent family is locally strong.
 
 ## Guardrails
 

@@ -369,7 +369,7 @@ def ingest_campaign_report(project_root: str | Path = Path(".")) -> dict[str, ob
     root = Path(project_root).resolve()
     source = _discover_one_uningested_file(root / "agent-work" / "campaign-reports", "Campaign Report", {".md"})
     text = _validate_campaign_report(source)
-    pause_condition = _campaign_report_pause_condition(text)
+    _campaign_report_pause_condition(text)
     canonical = root / "campaign-reports" / source.name
     if canonical.exists():
         raise AgentHandoffIngestionError(f"canonical Campaign Report already exists: {canonical}")
@@ -402,7 +402,7 @@ def ingest_campaign_report(project_root: str | Path = Path(".")) -> dict[str, ob
         "source_path": source_relative,
         "canonical_path": canonical_relative,
         "ledger_events": [handoff_event, report_event],
-        "next_action": "pause_campaign" if pause_condition is not None else "stop_for_human",
+        "next_action": "stop_for_human",
         "executed_next_action": False,
     }
 

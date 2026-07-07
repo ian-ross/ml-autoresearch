@@ -120,7 +120,8 @@ Use a disposable workspace and run one case per Autonomy Step:
   run_post_run_evaluation` without running the Post-Run Evaluation unless
   `--execute-next-action` is set.
 - Campaign Report: agent creates one Campaign Report under `campaign-reports/`;
-  ingestion copies it and stops for human campaign review or pause handling.
+  ingestion copies it and stops for human campaign review. Only the operator-facing
+  `pause-campaign` command records an actual campaign pause.
 - No handoff: agent exits successfully without creating primary handoff
   artifacts; `autonomy-step-result.json` reports `no_handoff` and
   `stop_for_human`.

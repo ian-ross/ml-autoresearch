@@ -17,7 +17,7 @@ Use whenever an autonomous step needs an auditable Research Ledger event.
 
 ## Instructions
 
-The Research Ledger is append-only and Harness-owned. Use `ml-autoresearch record-research-event`, `record-campaign-report`, `pause-campaign`, or corresponding APIs. Do not edit `research-ledger.jsonl` directly. Include paths and IDs needed to trace proposals, candidates, Runs, Results, Research Notes, Evaluation Requests, Capability Requests, Campaign Reports, and pauses.
+The Research Ledger is append-only and Harness-owned. Outside the Agent Control Boundary, use `ml-autoresearch record-research-event`, `record-campaign-report`, the operator-only `pause-campaign`, or corresponding APIs. Inside the Agent Control Boundary, create the appropriate handoff artifact instead of mutating the ledger. Do not edit `research-ledger.jsonl` directly. Include paths and IDs needed to trace proposals, candidates, Runs, Results, Research Notes, Evaluation Requests, Capability Requests, Campaign Reports, and pauses.
 
 ## Guardrails
 

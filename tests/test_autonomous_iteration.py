@@ -9,6 +9,7 @@ from ml_autoresearch.autonomous_iteration import (
     parse_duration_seconds,
     run_autonomous_iteration,
 )
+from ml_autoresearch.autonomy_step import AutonomyStepResult
 
 
 @pytest.fixture(autouse=True)
@@ -197,6 +198,68 @@ priority: medium
 
     assert result.stop_reason == "capability_request"
     assert result.steps_completed == 1
+
+
+def test_autonomous_iteration_honors_operator_pause_without_invoking_agent(tmp_path: Path) -> None:
+    from ml_autoresearch.campaign_controls import record_campaign_pause
+
+    write_project(tmp_path)
+    write_notification_config(tmp_path)
+    record_campaign_pause("scheduled_check_in", ledger_path=tmp_path / "research-ledger.jsonl")
+    fake_command = write_fake_agent(
+        tmp_path / "fake_agent.py",
+        "raise AssertionError('agent should not run while an operator pause is active')\n",
+    )
+
+    result = run_autonomous_iteration(
+        tmp_path,
+        agent_command=fake_command,
+        max_steps=10,
+        notify_email="user@example.com",
+        send_mailjet=lambda message: None,
+    )
+
+    assert result.stop_reason == "campaign_paused"
+    assert result.steps_started == 0
+    assert result.steps_completed == 0
+
+
+def test_autonomous_iteration_honors_operator_pause_after_current_safe_checkpoint(tmp_path: Path, monkeypatch) -> None:
+    from ml_autoresearch.campaign_controls import record_campaign_pause
+    import ml_autoresearch.autonomous_iteration as autonomous_iteration
+
+    write_project(tmp_path)
+    write_notification_config(tmp_path)
+    calls = 0
+
+    def fake_step(root: Path, *, agent_command: str | None = None, execute_next_action: bool = False) -> AutonomyStepResult:
+        nonlocal calls
+        calls += 1
+        record_campaign_pause("scheduled_check_in", ledger_path=tmp_path / "research-ledger.jsonl")
+        return AutonomyStepResult(
+            status="ingested",
+            workspace_root=str(root),
+            agent_workspace=str(root / "agent-work"),
+            prompt_path=str(root / "agent-work" / "prompt.txt"),
+            agent_command=["fake-agent"],
+            agent_returncode=0,
+            ingestion={"handoff_type": "research_note", "next_action": "continue_autonomy"},
+        )
+
+    monkeypatch.setattr(autonomous_iteration, "run_autonomy_step", fake_step)
+
+    result = run_autonomous_iteration(
+        tmp_path,
+        agent_command="fake-agent",
+        max_steps=10,
+        notify_email="user@example.com",
+        send_mailjet=lambda message: None,
+    )
+
+    assert result.stop_reason == "campaign_paused"
+    assert result.steps_started == 1
+    assert result.steps_completed == 1
+    assert calls == 1
 
 
 def test_autonomous_iteration_requires_a_limit(tmp_path: Path) -> None:

@@ -167,7 +167,7 @@ def render_autonomy_step_prompt(project_root: Path | None = None) -> str:
         "\n"
         "Multiple primary handoff outcomes are forbidden in one Autonomy Step. If blocked, write one Campaign Report "
         "or one Capability Request, not both. If no useful handoff is safe, stop without fabricating artifacts.\n"
-        "If you create a Campaign Report, do not hand-author it with shell heredocs, direct file writes, ad-hoc edits, or the agent write tool. "
+        "If you write a Campaign Report, do not hand-author it with shell heredocs, direct file writes, ad-hoc edits, or the agent write tool. "
         "Use `ml-autoresearch-agent create-campaign-report` to create the report from structured section arguments. "
         "If that command is unavailable, stop rather than fabricating a by-hand report.\n"
         "If you create a Campaign Report, it must include these exact machine-readable headings:\n"
@@ -181,6 +181,8 @@ def render_autonomy_step_prompt(project_root: Path | None = None) -> str:
         "- ## Pause recommendation\n"
         "The Campaign Report Pause recommendation must include exactly `- Pause condition: none` or "
         "`- Pause condition: <approved_value>`. Do not add punctuation or prose to the Pause condition line.\n"
+        "A non-none Campaign Report pause recommendation is not campaign-pause authority; operator `pause-campaign` controls actual campaign pauses.\n"
+        "Do not pause or stop because you believe no promising experiments remain. If a local approach is exhausted, broaden the frontier: switch architecture family, training policy, data policy, loss, augmentation, calibration, mining, preprocessing, or write a Research Note proposing alternatives.\n"
         "Use ml-autoresearch-agent, not ml-autoresearch, for allowed inner-boundary commands.\n"
     )
 
@@ -193,14 +195,14 @@ def _campaign_state_prompt(project_root: Path) -> str:
         return (
             "Campaign resume state:\n"
             f"- Human campaign review is complete: {state['reason']}.\n"
-            "- Do not treat earlier scheduled_check_in or resolved capability-request pause recommendations as active blockers.\n"
+            "- Do not treat earlier scheduled_check_in pauses or resolved capability-request blockers as active blockers.\n"
             "- Continue from the latest Research Ledger, Research Notes, and Campaign Reports unless a new pause condition is met.\n"
             "\n"
         )
     if state["status"] == "paused":
         return (
             "Campaign pause state:\n"
-            f"- Latest Campaign Report recommends pause for `{state['reason']}`.\n"
+            f"- Operator pause is active for `{state['reason']}`.\n"
             "- Stop for human review unless a newer campaign_resumed ledger event clears this pause.\n"
             "\n"
         )
@@ -229,36 +231,11 @@ def _latest_campaign_pause_resume_state(project_root: Path) -> dict[str, str] | 
         elif event_type == "campaign_paused":
             latest_pause_index = index
             latest_pause_reason = str(event.get("reason") or "unknown")
-        elif event_type == "campaign_report_written":
-            report_path = event.get("report_path")
-            reason = _campaign_report_pause_reason(project_root, report_path) if isinstance(report_path, str) else None
-            if reason and reason != "none":
-                latest_pause_index = index
-                latest_pause_reason = reason
     if latest_resume_index is not None and (latest_pause_index is None or latest_resume_index > latest_pause_index):
         return {"status": "resumed", "reason": latest_resume_reason or "human_review_complete"}
     if latest_pause_index is not None:
         return {"status": "paused", "reason": latest_pause_reason or "unknown"}
     return None
-
-
-def _campaign_report_pause_reason(project_root: Path, report_path: str) -> str | None:
-    path = Path(report_path)
-    if not path.is_absolute():
-        path = project_root / path
-    if not path.is_file():
-        return None
-    prefix = "Pause condition:"
-    for line in path.read_text().splitlines():
-        normalized = line.strip()
-        candidate = normalized[1:].strip() if normalized.startswith("-") else normalized
-        if candidate.startswith(prefix):
-            return _normalize_campaign_report_pause_reason(candidate[len(prefix) :])
-    return None
-
-
-def _normalize_campaign_report_pause_reason(raw_value: str) -> str:
-    return raw_value.strip().strip("`").strip().rstrip(".").strip().strip("`")
 
 
 def write_result_file(workspace: Path, result: AutonomyStepResult) -> Path:

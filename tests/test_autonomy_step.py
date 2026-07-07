@@ -200,8 +200,8 @@ def test_autonomy_step_prompt_includes_campaign_report_schema_when_reports_are_a
     assert "Do not add punctuation or prose" in prompt
 
 
-def test_autonomy_step_prompt_tells_agent_when_human_resumed_after_pause_report(tmp_path: Path):
-    from ml_autoresearch.campaign_controls import record_campaign_report_written, record_campaign_resume
+def test_autonomy_step_prompt_does_not_treat_agent_report_pause_recommendation_as_active_pause(tmp_path: Path):
+    from ml_autoresearch.campaign_controls import record_campaign_report_written
 
     write_project(tmp_path)
     report = tmp_path / "campaign-reports" / "2026-05-31-status.md"
@@ -214,8 +214,20 @@ def test_autonomy_step_prompt_tells_agent_when_human_resumed_after_pause_report(
 - Human decision needed: yes.
 """
     )
+    record_campaign_report_written("campaign-reports/2026-05-31-status.md", ledger_path=tmp_path / "research-ledger.jsonl")
+
+    prompt = render_autonomy_step_prompt(tmp_path)
+
+    assert "Campaign pause state:" not in prompt
+    assert "Latest Campaign Report recommends pause" not in prompt
+
+
+def test_autonomy_step_prompt_tells_agent_when_human_resumed_after_operator_pause(tmp_path: Path):
+    from ml_autoresearch.campaign_controls import record_campaign_pause, record_campaign_resume
+
+    write_project(tmp_path)
     ledger = tmp_path / "research-ledger.jsonl"
-    record_campaign_report_written("campaign-reports/2026-05-31-status.md", ledger_path=ledger)
+    record_campaign_pause("scheduled_check_in", ledger_path=ledger)
     record_campaign_resume("human_review_complete", report_path="campaign-reports/2026-06-01-resume.md", ledger_path=ledger)
     fake_command = write_fake_agent(
         tmp_path / "fake_agent.py",

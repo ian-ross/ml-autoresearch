@@ -572,7 +572,7 @@ def test_ingest_evaluation_request_copies_without_recording_execution_event(tmp_
     assert "evaluation_requested" not in (tmp_path / "research-ledger.jsonl").read_text()
 
 
-def test_ingest_campaign_report_copies_records_events_and_selects_next_action(tmp_path: Path) -> None:
+def test_ingest_campaign_report_copies_records_events_without_granting_agent_pause_authority(tmp_path: Path) -> None:
     write_project(tmp_path)
     source = write_campaign_report(tmp_path, pause_condition="`scheduled_check_in`")
 
@@ -580,7 +580,7 @@ def test_ingest_campaign_report_copies_records_events_and_selects_next_action(tm
 
     assert result["handoff_type"] == "campaign_report"
     assert result["report_path"] == "campaign-reports/2026-05-10-status.md"
-    assert result["next_action"] == "pause_campaign"
+    assert result["next_action"] == "stop_for_human"
     assert result["executed_next_action"] is False
     assert (tmp_path / "campaign-reports" / source.name).read_text() == source.read_text()
     events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]

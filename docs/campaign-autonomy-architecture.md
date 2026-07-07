@@ -30,7 +30,7 @@ Each step records recovery state: prompt, result JSON, handoff markers such as `
 
 ## Reports, pauses, and resumes
 
-Campaign reports summarize evidence, recommended next action, budget state, and pause conditions. `pause-campaign` records `campaign_paused` with an approved reason. `resume-campaign` records `campaign_resumed`; newer resume events clear prior scheduled-check-in or resolved-review blockers in later autonomy prompts.
+Campaign reports summarize evidence, recommended next action, budget state, and pause recommendations. Agent-authored reports do not record `campaign_paused`; they provide operator-review evidence. `pause-campaign` is an operator-facing control that records `campaign_paused` with an approved reason, and `run-autonomous-iteration` honors an active pause at safe checkpoints before starting another agent step. `resume-campaign` records `campaign_resumed`; newer resume events clear prior scheduled-check-in or resolved-review blockers in later autonomy prompts.
 
 See `docs/campaign-report-format.md` for the report format.
 
@@ -48,6 +48,7 @@ Run failures use the vocabulary in `docs/run-lifecycle.md`. Repair Candidates ar
 
 ## Current non-goals
 
-- Unbounded autonomous continuation after a pause decision.
+- Agent authority to pause the campaign because a local research frontier appears exhausted.
+- Unbounded autonomous continuation after an operator pause decision.
 - Candidate-owned training/evaluation, data loading, ledger writes, or runtime weight downloads.
 - Treating GVCCS-specific behavior as generic Harness behavior; Research Problem-specific features belong behind provider specs and docs such as `docs/gvccs-features.md`.

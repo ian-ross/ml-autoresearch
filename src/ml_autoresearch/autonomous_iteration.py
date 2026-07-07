@@ -14,6 +14,8 @@ from typing import Callable
 
 from ml_autoresearch.agent_handoffs import _discover_uningested_primary_handoffs
 from ml_autoresearch.autonomy_step import AutonomyStepResult, run_autonomy_step
+from ml_autoresearch.campaign_controls import latest_campaign_pause_state
+from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER
 
 RESULT_FILENAME = "autonomous-iteration-result.json"
 
@@ -115,6 +117,9 @@ def run_autonomous_iteration(
         if _time_limit_reached(start_monotonic, max_duration_seconds):
             stop_reason = "time_limit_reached"
             break
+        if _operator_pause_active(root):
+            stop_reason = "campaign_paused"
+            break
 
         steps_started += 1
         step = run_autonomy_step(root, agent_command=agent_command, execute_next_action=True)
@@ -125,6 +130,9 @@ def run_autonomous_iteration(
         step_stop = _stop_reason_from_step(step)
         if step_stop is not None:
             stop_reason = step_stop
+            break
+        if _operator_pause_active(root):
+            stop_reason = "campaign_paused"
             break
         if max_steps is not None and steps_completed >= max_steps:
             stop_reason = "step_limit_reached"
@@ -247,6 +255,10 @@ def _ensure_clean_agent_workspace(root: Path) -> None:
 
 def _time_limit_reached(start_monotonic: float, max_duration_seconds: int | None) -> bool:
     return max_duration_seconds is not None and monotonic() - start_monotonic >= max_duration_seconds
+
+
+def _operator_pause_active(root: Path) -> bool:
+    return latest_campaign_pause_state(ledger_path=root / CANONICAL_RESEARCH_LEDGER) is not None
 
 
 def _stop_reason_from_step(step: AutonomyStepResult) -> str | None:

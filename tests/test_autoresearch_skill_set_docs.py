@@ -16,7 +16,7 @@ REQUIRED_SKILLS = {
     "research-note-writer": ["Research Note", "research-figures", "figure provenance"],
     "ledger-recorder": ["Research Ledger", "record-research-event"],
     "capability-request-writer": ["Capability Request", "not self-approving"],
-    "campaign-report-writer": ["Campaign Report", "pause-campaign"],
+    "campaign-report-writer": ["Campaign Report", "operator"],
     "pause-decider": ["Campaign Pause Conditions", "approved vocabulary"],
 }
 FORBIDDEN_GUARDRAILS = [
@@ -66,4 +66,4 @@ def test_campaign_manager_delegates_to_focused_skills() -> None:
         if skill_name != "campaign-manager":
             assert f"../{skill_name}/SKILL.md" in text
     assert "one Autonomy Step means one primary handoff outcome, then stop" in text
-    assert "Do not continue automatically after a pause decision" in text
+    assert "Actual `pause-campaign` authority belongs to the operator-facing CLI" in text

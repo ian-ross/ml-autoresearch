@@ -7,6 +7,7 @@ from ml_autoresearch.cli import app
 from ml_autoresearch.campaign_controls import (
     PAUSE_CONDITIONS,
     CampaignControlError,
+    latest_campaign_pause_state,
     record_campaign_pause,
     record_campaign_report_written,
     record_campaign_resume,
@@ -68,6 +69,19 @@ def test_campaign_pause_rejects_unapproved_condition_without_corrupting_ledger(t
         record_research_event("campaign_paused", {"reason": "waiting for review"}, ledger_path=ledger)
 
     assert read_jsonl(ledger) == [valid]
+
+
+def test_latest_campaign_pause_state_tracks_operator_pause_until_resume(tmp_path: Path) -> None:
+    ledger = tmp_path / "research-ledger.jsonl"
+
+    assert latest_campaign_pause_state(ledger_path=ledger) is None
+
+    record_campaign_pause("scheduled_check_in", ledger_path=ledger)
+    assert latest_campaign_pause_state(ledger_path=ledger) == {"status": "paused", "reason": "scheduled_check_in"}
+
+    record_campaign_resume("human_review_complete", ledger_path=ledger)
+    assert latest_campaign_pause_state(ledger_path=ledger) is None
+
 
 
 def test_pause_condition_vocabulary_covers_required_conditions() -> None:
