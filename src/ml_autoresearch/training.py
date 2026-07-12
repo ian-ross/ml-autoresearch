@@ -431,6 +431,15 @@ def _data_loader_for_sampling(
 ) -> DataLoader:
     dataset = _dataset_with_augmentation_policy(dataset, augmentation_policy, training_adapter)
     loader_kwargs = _data_loader_performance_kwargs()
+    if training_adapter is not None and hasattr(training_adapter, "data_loader_for_sampling"):
+        adapter_loader = training_adapter.data_loader_for_sampling(  # type: ignore[attr-defined]
+            dataset,
+            batch_size=batch_size,
+            sampling_policy=sampling_policy,
+            loader_kwargs=loader_kwargs,
+        )
+        if adapter_loader is not None:
+            return adapter_loader
     if sampling_policy == "sequential":
         return DataLoader(dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
     if sampling_policy == "deterministic_shuffle":
