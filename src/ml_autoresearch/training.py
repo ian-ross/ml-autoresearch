@@ -541,7 +541,10 @@ def _validation_metrics(
     logits: torch.Tensor,
     target_mask: torch.Tensor,
     training_adapter: ResearchProblemTrainingAdapter | object | None = None,
+    dataset: object | None = None,
 ) -> dict[str, float]:
+    if training_adapter is not None and dataset is not None and hasattr(training_adapter, "compute_validation_metrics_from_dataset"):
+        return training_adapter.compute_validation_metrics_from_dataset(logits, target_mask, dataset)
     if training_adapter is not None and hasattr(training_adapter, "compute_validation_metrics"):
         return training_adapter.compute_validation_metrics(logits, target_mask)
     return binary_segmentation_validation_metrics(logits, target_mask)
@@ -591,7 +594,7 @@ def _evaluate(
             prediction_logits.append(logits.detach().cpu())
             targets.append(target.detach().cpu())
     sample_count = len(val_loader.dataset)
-    result = _validation_metrics(torch.cat(prediction_logits), torch.cat(targets), training_adapter)
+    result = _validation_metrics(torch.cat(prediction_logits), torch.cat(targets), training_adapter, val_loader.dataset)
     result["val/loss"] = total_mask_loss / sample_count
     if auxiliary_loss_totals:
         for name, total in auxiliary_loss_totals.items():
