@@ -67,6 +67,113 @@ def bce_dice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor) -> torch
     return bce + dice_loss
 
 
+def focal_tversky_loss(
+    mask_logits: torch.Tensor,
+    target_mask: torch.Tensor,
+    *,
+    alpha: float = 0.3,
+    beta: float = 0.7,
+    gamma: float = 0.75,
+    epsilon: float = _EPSILON,
+) -> torch.Tensor:
+    """Recall-oriented focal Tversky loss for trusted thin binary masks.
+
+    ``alpha`` weights false positives and ``beta`` weights false negatives. The
+    defaults intentionally weight false negatives more heavily for rare, thin
+    positive structures such as contrails.
+    """
+
+    if not (0.0 <= alpha <= 1.0 and 0.0 <= beta <= 1.0):
+        raise ValueError("alpha and beta must be in [0, 1]")
+    if gamma <= 0.0:
+        raise ValueError("gamma must be positive")
+    probabilities = torch.sigmoid(mask_logits)
+    target = target_mask.float()
+    dims = tuple(range(1, probabilities.ndim))
+    true_positive = (probabilities * target).sum(dim=dims)
+    false_positive = (probabilities * (1.0 - target)).sum(dim=dims)
+    false_negative = ((1.0 - probabilities) * target).sum(dim=dims)
+    tversky = (true_positive + epsilon) / (true_positive + alpha * false_positive + beta * false_negative + epsilon)
+    return torch.pow(1.0 - tversky, gamma).mean()
+
+
+def _soft_skeletonize(mask: torch.Tensor, *, iterations: int) -> torch.Tensor:
+    """Differentiable morphological skeletonization for NCHW binary masks/probabilities."""
+
+    if iterations < 1:
+        raise ValueError("iterations must be at least 1")
+    image = mask.float().clamp(0.0, 1.0)
+
+    def erode(tensor: torch.Tensor) -> torch.Tensor:
+        return -F.max_pool2d(-tensor, kernel_size=3, stride=1, padding=1)
+
+    def dilate(tensor: torch.Tensor) -> torch.Tensor:
+        return F.max_pool2d(tensor, kernel_size=3, stride=1, padding=1)
+
+    opened = dilate(erode(image))
+    skeleton = F.relu(image - opened)
+    current = image
+    for _ in range(iterations - 1):
+        current = erode(current)
+        opened = dilate(erode(current))
+        delta = F.relu(current - opened)
+        skeleton = skeleton + F.relu(delta - skeleton * delta)
+    return skeleton.clamp(0.0, 1.0)
+
+
+def cldice_score(
+    predicted_mask: torch.Tensor,
+    target_mask: torch.Tensor,
+    *,
+    iterations: int = 32,
+    epsilon: float = _EPSILON,
+) -> torch.Tensor:
+    """Return soft clDice connectivity scores for NCHW binary masks/probabilities.
+
+    Empty/empty masks score 1.0. Empty/non-empty or non-empty/empty masks score
+    0.0, avoiding epsilon-only optimistic scores for false positives.
+    """
+
+    if predicted_mask.shape != target_mask.shape:
+        raise ValueError(f"predicted_mask and target_mask shapes differ: {tuple(predicted_mask.shape)} != {tuple(target_mask.shape)}")
+    prediction = predicted_mask.float().clamp(0.0, 1.0)
+    target = target_mask.float().clamp(0.0, 1.0)
+    dims = tuple(range(1, prediction.ndim))
+    pred_mass = prediction.sum(dim=dims)
+    target_mass = target.sum(dim=dims)
+    both_empty = (pred_mass <= epsilon) & (target_mass <= epsilon)
+    one_empty = (pred_mass <= epsilon) ^ (target_mass <= epsilon)
+
+    pred_skeleton = _soft_skeletonize(prediction, iterations=iterations)
+    target_skeleton = _soft_skeletonize(target, iterations=iterations)
+    topology_precision = (pred_skeleton * target).sum(dim=dims) / (pred_skeleton.sum(dim=dims) + epsilon)
+    topology_sensitivity = (target_skeleton * prediction).sum(dim=dims) / (target_skeleton.sum(dim=dims) + epsilon)
+    score = (2.0 * topology_precision * topology_sensitivity) / (topology_precision + topology_sensitivity + epsilon)
+    score = torch.where(both_empty, torch.ones_like(score), score)
+    score = torch.where(one_empty, torch.zeros_like(score), score)
+    return score
+
+
+def cldice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor, *, iterations: int = 32) -> torch.Tensor:
+    """Differentiable clDice loss for trusted binary mask logits."""
+
+    return 1.0 - cldice_score(torch.sigmoid(mask_logits), target_mask, iterations=iterations).mean()
+
+
+def contrail_connectivity_metric(predicted_mask: torch.Tensor, target_mask: torch.Tensor, *, iterations: int = 32) -> float:
+    """Return aggregate clDice as the Contrail Connectivity Metric."""
+
+    return float(cldice_score(predicted_mask.float(), target_mask.float(), iterations=iterations).mean().item())
+
+
+def bce_dice_cldice_loss(mask_logits: torch.Tensor, target_mask: torch.Tensor, *, cldice_weight: float = 0.5) -> torch.Tensor:
+    """Trusted BCE + Dice + weighted clDice loss for binary mask logits."""
+
+    if cldice_weight < 0.0:
+        raise ValueError("cldice_weight must be non-negative")
+    return bce_dice_loss(mask_logits, target_mask) + cldice_weight * cldice_loss(mask_logits, target_mask)
+
+
 def derive_line_target_v1(target_mask: torch.Tensor) -> torch.Tensor:
     """Derive the v1 Line Target as a small tolerance band around positives."""
 
@@ -92,12 +199,16 @@ def weighted_bce_loss(logits: torch.Tensor, target: torch.Tensor, *, positive_we
 def binary_segmentation_validation_metrics(logits: torch.Tensor, target_mask: torch.Tensor) -> dict[str, float]:
     """Return Harness validation metric names for binary segmentation logits."""
 
-    metrics = binary_segmentation_metrics(torch.sigmoid(logits) >= 0.5, target_mask >= 0.5)
+    predictions = torch.sigmoid(logits) >= 0.5
+    targets = target_mask >= 0.5
+    metrics = binary_segmentation_metrics(predictions, targets)
     return {
         "val/dice": metrics["dice"],
         "val/iou": metrics["iou"],
         "val/precision": metrics["precision"],
         "val/recall": metrics["recall"],
+        "val/cldice": contrail_connectivity_metric(predictions, targets),
+        "val/contrail_connectivity": contrail_connectivity_metric(predictions, targets),
     }
 
 

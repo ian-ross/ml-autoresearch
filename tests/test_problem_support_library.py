@@ -13,9 +13,13 @@ from ml_autoresearch.problem_support.imaging import (
     rgb_image_to_tensor,
 )
 from ml_autoresearch.problem_support.segmentation import (
+    bce_dice_cldice_loss,
     binary_segmentation_metrics,
+    cldice_score,
+    contrail_connectivity_metric,
     derive_boundary_target_v1,
     derive_line_target_v1,
+    focal_tversky_loss,
     select_binary_segmentation_failure_bucket_indices,
     summarize_binary_segmentation_threshold_sweep,
 )
@@ -61,6 +65,34 @@ def test_problem_support_segmentation_metrics_and_auxiliary_targets_are_reusable
 
     assert derive_line_target_v1(target).sum().item() == 9
     assert derive_boundary_target_v1(target).sum().item() == 9
+
+
+def test_problem_support_trusted_segmentation_losses_cover_thin_positive_masks() -> None:
+    target = torch.zeros((1, 1, 5, 5), dtype=torch.float32)
+    target[:, :, 2, 1:4] = 1.0
+    perfect_logits = torch.full_like(target, -8.0)
+    perfect_logits[target.bool()] = 8.0
+    missed_logits = torch.full_like(target, -8.0)
+
+    assert focal_tversky_loss(perfect_logits, target).item() < focal_tversky_loss(missed_logits, target).item()
+    assert bce_dice_cldice_loss(perfect_logits, target).item() < bce_dice_cldice_loss(missed_logits, target).item()
+
+
+def test_problem_support_cldice_connectivity_metric_rewards_unbroken_lines_and_handles_empty_masks() -> None:
+    target = torch.zeros((1, 1, 7, 7), dtype=torch.float32)
+    target[:, :, 3, 1:6] = 1.0
+    connected = target.clone()
+    broken = target.clone()
+    broken[:, :, 3, 3] = 0.0
+    empty = torch.zeros_like(target)
+    false_positive = empty.clone()
+    false_positive[:, :, 3, 3] = 1.0
+
+    assert cldice_score(connected, target).item() == pytest.approx(1.0)
+    assert cldice_score(broken, target).item() < cldice_score(connected, target).item()
+    assert contrail_connectivity_metric(connected, target) == pytest.approx(1.0)
+    assert contrail_connectivity_metric(empty, empty) == pytest.approx(1.0)
+    assert contrail_connectivity_metric(false_positive, empty) == pytest.approx(0.0)
 
 
 def test_problem_support_segmentation_evaluation_diagnostics_are_reusable() -> None:

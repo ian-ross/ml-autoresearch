@@ -67,7 +67,7 @@ Rejected:
 
 ## Manifest authority
 
-Candidate manifests may select only schema-supported values allowed by the active Research Problem Spec. Candidate code must not implement custom data loading, target construction, losses, optimizers, schedulers, training loops, filesystem probes, network calls, runtime pretrained-weight downloads, Docker calls, or ledger writes.
+Candidate manifests may select only schema-supported values allowed by the active Research Problem Spec. Candidate code must not implement custom data loading, target construction, losses, optimizers, schedulers, training loops, filesystem probes, network calls, runtime pretrained-weight downloads, Docker calls, or ledger writes. New loss functions require a Capability Request, human approval, trusted Harness/problem-support implementation, and Research Problem Spec/agent-control-boundary allowlist updates before candidates may select them.
 
 Implemented generic manifest surfaces include:
 
