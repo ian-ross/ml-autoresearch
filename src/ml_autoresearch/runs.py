@@ -680,12 +680,18 @@ def _resolved_manifest_payload(
     payload = manifest.model_dump(mode="json")
     payload["research_problem"] = _research_problem_identity(manifest, registry)
     data_policy = payload.setdefault("data", {})
+    if data_policy.get("temporal_offsets_seconds") is None:
+        data_policy.pop("temporal_offsets_seconds", None)
     selected = data_policy.get("augmentation_policy", "none")
     data_policy["augmentation_policy"] = selected
     data_policy["augmentation_policy_effective"] = selected
     frame_selection = data_policy.get("frame_selection_policy", "all_target_frames")
     data_policy["frame_selection_policy"] = frame_selection
     data_policy["frame_selection_policy_effective"] = frame_selection
+    if payload.get("input_mode") == "centered_temporal_rgb_clip":
+        temporal_offsets = data_policy.get("temporal_offsets_seconds", [-30, 0, 30])
+        data_policy["temporal_offsets_seconds"] = temporal_offsets
+        data_policy["temporal_offsets_seconds_effective"] = temporal_offsets
     return payload
 
 

@@ -228,11 +228,26 @@ class ResearchProblemSpec(BaseModel):
 
         input_mode = str(resolved_manifest.get("input_mode", ""))
         try:
-            return dict(self.input_specs[input_mode])
+            input_spec = dict(self.input_specs[input_mode])
         except KeyError as exc:
             raise ResearchProblemSpecError(
                 f"Research Problem {self.id!r} has no smoke input spec for input_mode {input_mode!r}"
             ) from exc
+        if input_mode == "centered_temporal_rgb_clip":
+            data_policy = resolved_manifest.get("data", {}) or {}
+            if not isinstance(data_policy, Mapping):
+                raise ResearchProblemSpecError("resolved manifest data field must be a mapping")
+            raw_offsets = data_policy.get("temporal_offsets_seconds_effective", data_policy.get("temporal_offsets_seconds", [-30, 0, 30]))
+            offsets = _validated_temporal_offsets_for_input_spec(raw_offsets)
+            base_shape = input_spec.get("shape", [9, 128, 128])
+            if not isinstance(base_shape, list) or len(base_shape) != 3:
+                raise ResearchProblemSpecError("centered_temporal_rgb_clip input spec shape must be [channels, height, width]")
+            input_spec["shape"] = [3 * len(offsets), base_shape[1], base_shape[2]]
+            input_spec["clip_length"] = len(offsets)
+            input_spec["temporal_offsets_seconds"] = offsets
+            input_spec["target_frame_index"] = offsets.index(0)
+            input_spec["target_channel_start"] = 3 * offsets.index(0)
+        return input_spec
 
     def build_output_spec(self, resolved_manifest: Mapping[str, object]) -> dict[str, object]:
         """Build the smoke-test output spec for a Resolved Manifest."""
@@ -261,6 +276,30 @@ class ResearchProblemSpec(BaseModel):
         if auxiliary_outputs:
             output_spec["auxiliary_outputs"] = auxiliary_outputs
         return output_spec
+
+
+def _validated_temporal_offsets_for_input_spec(raw_offsets: object) -> list[int]:
+    if not isinstance(raw_offsets, list) or not raw_offsets:
+        raise ResearchProblemSpecError("data.temporal_offsets_seconds must be a non-empty list of integer second offsets")
+    if any(isinstance(offset, bool) or not isinstance(offset, int) for offset in raw_offsets):
+        raise ResearchProblemSpecError("data.temporal_offsets_seconds must contain only integer second offsets")
+    offsets = sorted(raw_offsets)
+    if len(offsets) != len(set(offsets)):
+        raise ResearchProblemSpecError("data.temporal_offsets_seconds must not contain duplicate offsets")
+    if len(offsets) > 5:
+        raise ResearchProblemSpecError("data.temporal_offsets_seconds supports at most 5 frames")
+    if 0 not in offsets:
+        raise ResearchProblemSpecError("data.temporal_offsets_seconds must include 0 for the target frame")
+    if any(abs(offset) > 120 for offset in offsets):
+        raise ResearchProblemSpecError("data.temporal_offsets_seconds offsets must be within +/-120 seconds")
+    if any(offset % 30 != 0 for offset in offsets):
+        raise ResearchProblemSpecError("data.temporal_offsets_seconds offsets must be multiples of 30 seconds")
+    if offsets.index(0) != len(offsets) // 2:
+        raise ResearchProblemSpecError(
+            "data.temporal_offsets_seconds must place 0 at the canonical target position after sorting; "
+            "use symmetric odd-length clips or past-heavy even-length clips such as [-60, -30, 0, 30]"
+        )
+    return offsets
 
 
 class ResearchProblemProviderConfig(BaseModel):

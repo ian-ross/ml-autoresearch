@@ -64,6 +64,35 @@ class DataManifest(BaseModel):
     sampling_policy: str = Field(default="sequential", min_length=1)
     frame_selection_policy: str | None = Field(default=None, min_length=1)
     augmentation_policy: str = Field(default="none", min_length=1)
+    temporal_offsets_seconds: list[int] | None = None
+
+    @model_validator(mode="after")
+    def _validate_temporal_offsets(self) -> "DataManifest":
+        if self.temporal_offsets_seconds is None:
+            return self
+        offsets = self.temporal_offsets_seconds
+        if not offsets:
+            raise ValueError("temporal_offsets_seconds must contain at least one offset")
+        if any(isinstance(offset, bool) or not isinstance(offset, int) for offset in offsets):
+            raise ValueError("temporal_offsets_seconds must contain only integer second offsets")
+        normalized = sorted(offsets)
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("temporal_offsets_seconds must not contain duplicate offsets")
+        if len(normalized) > 5:
+            raise ValueError("temporal_offsets_seconds supports at most 5 frames")
+        if 0 not in normalized:
+            raise ValueError("temporal_offsets_seconds must include 0 for the target frame")
+        if any(abs(offset) > 120 for offset in normalized):
+            raise ValueError("temporal_offsets_seconds offsets must be within +/-120 seconds")
+        if any(offset % 30 != 0 for offset in normalized):
+            raise ValueError("temporal_offsets_seconds offsets must be multiples of 30 seconds")
+        if normalized.index(0) != len(normalized) // 2:
+            raise ValueError(
+                "temporal_offsets_seconds must place 0 at the canonical target position after sorting; "
+                "use symmetric odd-length clips or past-heavy even-length clips such as [-60, -30, 0, 30]"
+            )
+        self.temporal_offsets_seconds = normalized
+        return self
 
 
 class AuxiliaryTargetManifest(BaseModel):
@@ -319,6 +348,8 @@ def _load_manifest(
 def _apply_data_policy_defaults(manifest: CandidateManifest, spec: ResearchProblemSpec) -> None:
     if manifest.data.frame_selection_policy is None:
         manifest.data.frame_selection_policy = spec.input_mode_frame_selection_defaults.get(manifest.input_mode, "all_target_frames")
+    if manifest.input_mode == "centered_temporal_rgb_clip" and manifest.data.temporal_offsets_seconds is None:
+        manifest.data.temporal_offsets_seconds = [-30, 0, 30]
 
 
 def _validation_error_details(exc: ValidationError) -> list[str]:
@@ -374,6 +405,11 @@ def _manifest_allowlist_errors(manifest: CandidateManifest, spec: ResearchProble
         errors.append(
             "data.frame_selection_policy: centered_temporal_rgb_clip requires "
             f"{expected_frame_policy!r} {context} (got {manifest.data.frame_selection_policy!r})"
+        )
+    if manifest.data.temporal_offsets_seconds is not None and manifest.input_mode != "centered_temporal_rgb_clip":
+        errors.append(
+            "data.temporal_offsets_seconds: temporal offsets are only supported with "
+            f"input_mode 'centered_temporal_rgb_clip' {context} (got {manifest.input_mode!r})"
         )
     _append_allowlist_error(
         errors,
