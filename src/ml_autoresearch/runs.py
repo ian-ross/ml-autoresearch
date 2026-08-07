@@ -133,14 +133,19 @@ def run_candidate_with_research_problem(
 ) -> RunSubmission:
     """Validate, smoke-test, and train through a generic Research Problem provider."""
 
+    try:
+        provider_config = provider_config.model_copy(update={"data_roots": provider_config.resolved_data_roots()})
+    except ValueError as exc:
+        raise TrainingError(str(exc)) from exc
     loaded = load_research_problem_provider(provider_config)
     if not loaded.spec.operation_capabilities.training:
         raise TrainingError(f"Research Problem {loaded.spec.id!r} does not declare the training operation capability")
     if loaded.spec.training_adapter is None:
         raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")
+    effective_data_config = provider_config.effective_data_config()
     validate_data_root = getattr(loaded.spec.training_adapter, "validate_data_root", None)
     if callable(validate_data_root):
-        validate_data_root(provider_config.data_config)
+        validate_data_root(effective_data_config)
     registry = ResearchProblemSpecRegistry(active_id=loaded.spec.id)
     registry.register(loaded.spec, provenance=loaded.provenance)
     selected_backend = backend or NativeBackend()
@@ -155,8 +160,8 @@ def run_candidate_with_research_problem(
             prediction_sample_policy=prediction_sample_policy,
         ),
         backend=selected_backend,
-        dataset=loaded.spec.training_adapter.dataset_metadata(provider_config.data_config),
-        research_problem=loaded.run_metadata(),
+        dataset=loaded.spec.training_adapter.dataset_metadata(effective_data_config),
+        research_problem=_research_problem_run_metadata(loaded.run_metadata(), provider_config),
         research_problem_registry=registry,
         ledger_path=ledger_path,
         require_proposal=require_proposal,
@@ -179,12 +184,17 @@ def train_accepted_run_with_research_problem(
     metadata = _read_metadata(path)
     if metadata.get("status") != RunStatus.ACCEPTED.value:
         raise ValueError(f"accepted Run required for training continuation: {path}")
+    try:
+        provider_config = provider_config.model_copy(update={"data_roots": provider_config.resolved_data_roots()})
+    except ValueError as exc:
+        raise TrainingError(str(exc)) from exc
     loaded = load_research_problem_provider(provider_config)
     if not loaded.spec.operation_capabilities.training:
         raise TrainingError(f"Research Problem {loaded.spec.id!r} does not declare the training operation capability")
     if loaded.spec.training_adapter is None:
         raise TrainingError(f"Research Problem {loaded.spec.id!r} does not provide a training adapter")
     selected_backend = backend or NativeBackend()
+    effective_data_config = provider_config.effective_data_config()
     return _train_accepted_run(
         RunSubmission(str(metadata.get("run_id") or path.name), path, RunStatus.ACCEPTED),
         lambda accepted_run_dir: selected_backend.train_research_problem(
@@ -195,10 +205,28 @@ def train_accepted_run_with_research_problem(
             prediction_sample_policy=prediction_sample_policy,
         ),
         backend=selected_backend,
-        dataset=loaded.spec.training_adapter.dataset_metadata(provider_config.data_config),
-        research_problem=loaded.run_metadata(),
+        dataset=loaded.spec.training_adapter.dataset_metadata(effective_data_config),
+        research_problem=_research_problem_run_metadata(loaded.run_metadata(), provider_config),
         ledger_path=_resolve_ledger_path(path.parent, ledger_path),
     )
+
+
+def _research_problem_run_metadata(
+    metadata: dict[str, object], provider_config: ResearchProblemProviderConfig
+) -> dict[str, object]:
+    if not provider_config.data_roots:
+        return metadata
+    resolved = dict(metadata)
+    resolved["data_config"] = provider_config.model_dump(mode="json")["data_config"]
+    resolved["data_roots"] = {
+        name: {
+            "host_path": str(path),
+            "container_path": f"/data/{name}",
+            "readonly": True,
+        }
+        for name, path in sorted(provider_config.data_roots.items())
+    }
+    return resolved
 
 
 def train_accepted_run_with_synthetic_fixture(

@@ -17,7 +17,7 @@ The GVCCS provider owns:
 
 ## Data layout and mounts
 
-GVCCS data is configured through the Research Problem provider `data_config`, usually with a `dataset_root`. For Docker-backed Harness execution, the Harness validates the host data root and mounts it read-only at `/data`; in-container provider config is rewritten to the mounted path. Candidate Experiment code must remain data-path agnostic.
+GVCCS data is configured through the Research Problem provider `data_config` with a single `dataset_root`. This is the supported compatibility form: Docker-backed Harness execution validates the host directory, mounts it read-only at `/data`, and rewrites the in-container provider config to that path. GVCCS does not need to migrate to named Research Problem Data Roots unless it later gains independently provisioned data. Candidate Experiment code remains data-path agnostic.
 
 External GVCCS package integration tests require a valid GVCCS package root. If `ML_AUTORESEARCH_GVCCS_PROBLEM_ROOT` is unset and the local fallback checkout is absent, those tests fail clearly rather than silently skip.
 

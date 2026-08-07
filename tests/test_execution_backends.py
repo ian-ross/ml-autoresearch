@@ -315,6 +315,92 @@ def test_docker_backend_constructs_contained_evaluate_run_command_with_readonly_
     assert request_payload["max_artifact_samples"] == 3
 
 
+def test_docker_backend_evaluate_run_mounts_named_data_roots_at_container_namespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    run_dir = tmp_path / "runs" / "run_1"
+    training_root = tmp_path / "training"
+    ancillary_root = tmp_path / "ancillary"
+    training_root.mkdir()
+    ancillary_root.mkdir()
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "models").mkdir(parents=True)
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "outputs" / "best_metrics.json").write_text(
+        '{"model_artifact": "outputs/models/best_epoch_model.pt"}\n'
+    )
+    (run_dir / "outputs" / "models" / "best_epoch_model.pt").write_text("checkpoint\n")
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run_1",
+                "status": "completed",
+                "research_problem": {
+                    "data_roots": {
+                        "training": {
+                            "host_path": str(training_root),
+                            "container_path": "/data/training",
+                            "readonly": True,
+                        },
+                        "ancillary": {
+                            "host_path": str(ancillary_root),
+                            "container_path": "/data/ancillary",
+                            "readonly": True,
+                        },
+                    }
+                },
+            }
+        )
+        + "\n"
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    DockerBackend("custom:tag", rootless_container_root=True).evaluate_run(run_dir)
+
+    docker_run = calls[1]
+    joined = "\n".join(docker_run)
+    assert f"{training_root.resolve()}:/data/training:ro,z" in joined
+    assert f"{ancillary_root.resolve()}:/data/ancillary:ro,z" in joined
+    request_payload = json.loads(docker_run[-1].split("=", 1)[1])
+    assert request_payload["data_root"] == "/data/training"
+    assert request_payload["data_roots"] == {
+        "ancillary": "/data/ancillary",
+        "training": "/data/training",
+    }
+
+
+def test_docker_backend_evaluate_run_rejects_aliased_named_data_roots(tmp_path: Path):
+    run_dir = tmp_path / "runs" / "run_1"
+    shared_root = tmp_path / "shared"
+    shared_root.mkdir()
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "research_problem": {
+                    "data_roots": {
+                        name: {
+                            "host_path": str(shared_root),
+                            "container_path": f"/data/{name}",
+                            "readonly": True,
+                        }
+                        for name in ("training", "ancillary")
+                    }
+                }
+            }
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="distinct host directories"):
+        DockerBackend("custom:tag").evaluate_run(run_dir)
+
+
 def test_docker_backend_constructs_request_gated_post_run_evaluation_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -384,6 +470,83 @@ def test_docker_backend_constructs_request_gated_post_run_evaluation_command(
     assert request_payload["request_path"] == str(request_path.resolve(strict=True))
     assert request_payload["runs_root"] == str(runs_root.resolve(strict=True))
     assert request_payload["ledger_path"] == str(ledger_path.resolve())
+
+
+def test_docker_backend_request_gated_evaluation_mounts_all_named_data_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runs_root = tmp_path / "runs"
+    run_dir = runs_root / "run_1"
+    training_root = tmp_path / "training"
+    ancillary_root = tmp_path / "ancillary"
+    training_root.mkdir()
+    ancillary_root.mkdir()
+    (run_dir / "outputs" / "evaluations").mkdir(parents=True)
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run_1",
+                "status": "completed",
+                "research_problem": {
+                    "id": "tiny_problem",
+                    "contract_version": "v0",
+                    "provider": {"target": "fake:build", "resolved_package_root": str(tmp_path)},
+                    "data_roots": {
+                        "training": {
+                            "host_path": str(training_root),
+                            "container_path": "/data/training",
+                            "readonly": True,
+                        },
+                        "ancillary": {
+                            "host_path": str(ancillary_root),
+                            "container_path": "/data/ancillary",
+                            "readonly": True,
+                        },
+                    },
+                },
+            }
+        )
+        + "\n"
+    )
+    request_path = tmp_path / "request.yaml"
+    request_path.write_text(
+        "request_id: eval-named-roots\n"
+        "target_run_id: run_1\n"
+        "evaluation_mode: threshold_sweep\n"
+        "diagnostic_question: Which threshold is best?\n"
+        "expected_decision_impact: Choose threshold.\n"
+        "parameters:\n"
+        "  threshold_sweep:\n"
+        "    min: 0.1\n"
+        "    max: 0.9\n"
+        "    steps: 9\n"
+        "artifact_budget:\n"
+        "  max_artifacts: 2\n"
+        "  max_runtime_seconds: 120\n"
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    DockerBackend("custom:tag", rootless_container_root=True).run_post_run_evaluation(
+        request_path,
+        runs_root=runs_root,
+        ledger_path=tmp_path / "ledger.jsonl",
+    )
+
+    docker_run = calls[1]
+    joined = "\n".join(docker_run)
+    assert f"{training_root.resolve()}:/data/training:ro,z" in joined
+    assert f"{ancillary_root.resolve()}:/data/ancillary:ro,z" in joined
+    request_payload = json.loads(docker_run[-1].split("=", 1)[1])
+    assert request_payload["data_roots"] == {
+        "ancillary": "/data/ancillary",
+        "training": "/data/training",
+    }
 
 
 def test_docker_backend_evaluate_run_data_root_override_is_validated_and_mounted(

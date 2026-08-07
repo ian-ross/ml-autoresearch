@@ -353,14 +353,35 @@ Each `[[data_mounts]]` entry accepts:
 
 - `name` — required non-empty string. If `target` is omitted, this name is used
   to derive `target = "/data/{name}"`.
-- `path` — required non-empty string naming an existing host path. Relative
-  paths are resolved relative to the Research Workspace Root.
+- exactly one source selector:
+  - `path` — a non-empty string naming an existing host directory. Relative
+    paths are resolved relative to the Research Workspace Root;
+  - `root` — the logical name of an existing `[research_problem.data_roots]`
+    entry. This reuses its validated host source without exposing any other
+    configured root.
 - `target` — optional non-empty string; defaults to `/data/{name}`. The target
   must be a non-overlapping direct child of `/data`, for example
   `/data/example-research-problem-data`; nested targets such as
   `/data/example-research-problem-data/train` are rejected.
 - `readonly` — optional boolean, but if present it must be `true`. Writable data
   mounts are rejected.
+
+For example, this explicitly exposes only the ancillary root while keeping the
+training root outside the Agent Control Boundary:
+
+```toml
+[research_problem.data_roots]
+training = "/srv/example/training"
+ancillary = "/srv/example/ancillary"
+
+[[data_mounts]]
+name = "ancillary"
+root = "ancillary"
+```
+
+Candidate Execution Boundary roots are never copied into `[[data_mounts]]`
+automatically. The generated Agent Workspace provider config contains only
+logical roots selected by explicit `root` entries.
 
 ## Implementation using pi-fort
 
@@ -392,7 +413,10 @@ mounts = [
 If an operator configures an explicit bounded-exception `[[data_mounts]]` entry,
 `prepare-agent-boundary` appends that read-only mount and rewrites matching
 Agent-Workspace-local `ml-autoresearch.toml` data config values to the mounted
-`/data/...` target. Without a matching explicit data mount, setup does not copy unmapped raw dataset paths such as `dataset_root`/`data_root` into the Agent
+`/data/...` target. A `root` source also writes only that selected logical root
+to the generated `[research_problem.data_roots]` table. Without a matching
+explicit data mount, setup does not copy unmapped raw dataset paths such as
+`dataset_root`/`data_root`, or unselected named roots, into the Agent
 Workspace-local config.
 
 ## Agent image and dependency boundary

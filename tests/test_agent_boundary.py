@@ -1,6 +1,8 @@
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from ml_autoresearch.cli import app
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig, load_research_problem_provider
 from conftest import invoke_typer_cli
@@ -325,6 +327,46 @@ def test_prepare_agent_boundary_default_does_not_expose_raw_dataset_mount_or_pat
 
 
 
+def test_prepare_agent_boundary_can_explicitly_mount_one_named_research_problem_data_root(
+    tmp_path: Path, monkeypatch
+):
+    training_root = tmp_path / "training"
+    ancillary_root = tmp_path / "ancillary"
+    training_root.mkdir()
+    ancillary_root.mkdir()
+    write_project(
+        tmp_path,
+        '''
+[[data_mounts]]
+name = "natural-earth"
+root = "ancillary"
+''',
+    )
+    config_path = tmp_path / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text()
+        + f'''
+
+[research_problem.data_roots]
+training = "{training_root}"
+ancillary = "{ancillary_root}"
+'''
+    )
+    configure_fake_pi_fort(tmp_path, monkeypatch)
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 0, completed.stderr
+    generated = (tmp_path / "agent-work" / "ml-autoresearch.toml").read_text()
+    assert "[research_problem.data_roots]" in generated
+    assert 'ancillary = "/data/natural-earth"' in generated
+    assert "training =" not in generated
+    fort = (tmp_path / "agent-work" / ".pi" / "fort.toml").read_text()
+    assert f'path="{ancillary_root.resolve()}"' in fort
+    assert 'target="/data/natural-earth"' in fort
+    assert str(training_root) not in fort
+
+
 def test_prepare_agent_boundary_fails_for_missing_data_mount_path(tmp_path: Path):
     write_project(
         tmp_path,
@@ -386,6 +428,29 @@ target = "/data/shared"
 
     assert completed.returncode == 1
     assert "overlapping data mount target" in completed.stderr
+
+
+@pytest.mark.parametrize("target", ["/data/..", "/data//shared", "/data/shared/"])
+def test_prepare_agent_boundary_rejects_noncanonical_or_traversing_data_targets(
+    tmp_path: Path, target: str
+):
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    (tmp_path / "ml-autoresearch.toml").write_text(
+        f'''
+[agent_control_boundary]
+
+[[data_mounts]]
+name = "unsafe"
+path = "{data_root}"
+target = "{target}"
+'''.lstrip()
+    )
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 1
+    assert "canonical non-overlapping direct children of /data" in completed.stderr
 
 
 def test_prepare_agent_boundary_requires_pi_fort_environment_variable(tmp_path: Path, monkeypatch):

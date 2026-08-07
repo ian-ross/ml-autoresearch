@@ -8,6 +8,7 @@ only the existing allowlisted manifest contract.
 from __future__ import annotations
 
 import importlib
+import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterable, Mapping
@@ -312,6 +313,34 @@ class ResearchProblemProviderConfig(BaseModel):
     provider_target: str = Field(min_length=1)
     expected_contract_version: str = Field(min_length=1)
     data_config: dict[str, object] = Field(default_factory=dict)
+    data_roots: dict[str, Path] = Field(default_factory=dict)
+
+    def effective_data_config(self) -> dict[str, object]:
+        """Return provider data config with the resolved logical-root mapping."""
+
+        data_config = dict(self.data_config)
+        if self.data_roots:
+            data_config["data_roots"] = {name: str(path) for name, path in sorted(self.data_roots.items())}
+        return data_config
+
+    def resolved_data_roots(self) -> dict[str, Path]:
+        """Validate and resolve named host/container data-root directories."""
+
+        resolved: dict[str, Path] = {}
+        sources: set[Path] = set()
+        for name, path in sorted(self.data_roots.items()):
+            if re.fullmatch(r"[a-z][a-z0-9_-]*", name) is None:
+                raise ValueError(f"invalid Research Problem data root name: {name!r}")
+            if not path.exists():
+                raise ValueError(f"Research Problem data root {name!r} does not exist: {path}")
+            if not path.is_dir():
+                raise ValueError(f"Research Problem data root {name!r} is not a directory: {path}")
+            source = path.resolve(strict=True)
+            if source in sources:
+                raise ValueError("Research Problem data roots must resolve to distinct directories")
+            sources.add(source)
+            resolved[name] = source
+        return resolved
 
 
 class ResearchProblemProviderProvenance(BaseModel):
@@ -569,7 +598,7 @@ def _evict_provider_module_cache(package_root: Path, module_name: str) -> None:
 
 def _call_provider(provider: Callable[..., object], config: ResearchProblemProviderConfig) -> object:
     try:
-        return provider(data_config=dict(config.data_config))
+        return provider(data_config=config.effective_data_config())
     except TypeError:
         try:
             return provider()

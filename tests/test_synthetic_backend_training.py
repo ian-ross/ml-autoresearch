@@ -227,6 +227,46 @@ def test_docker_backend_constructs_research_problem_training_command_with_read_o
     assert "/data" in joined
     assert f"{data_root}:/data:z" not in joined
 
+def test_docker_backend_mounts_named_research_problem_data_roots_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir = tmp_path / "runs" / "run_1"
+    training_root = tmp_path / "training"
+    ancillary_root = tmp_path / "ancillary"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "logs").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+    training_root.mkdir()
+    ancillary_root.mkdir()
+    provider_config, _package_root = _provider_config_for_test(tmp_path)
+    provider_config = provider_config.model_copy(
+        update={"data_roots": {"training": training_root, "ancillary": ancillary_root}}
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    DockerBackend("custom:tag").train_research_problem(run_dir, provider_config)
+
+    docker_run = calls[2]
+    joined = "\n".join(docker_run)
+    assert f"{training_root.resolve()}:/data/training:ro,z" in joined
+    assert f"{ancillary_root.resolve()}:/data/ancillary:ro,z" in joined
+    assert f"{training_root.resolve()}:/data:ro,z" not in joined
+    request_json_arg = next(arg for arg in docker_run if arg.startswith("--request-json="))
+    request_payload = json.loads(request_json_arg.split("=", 1)[1])
+    assert request_payload["provider_config"]["data_roots"] == {
+        "ancillary": "/data/ancillary",
+        "training": "/data/training",
+    }
+
+
 def test_docker_backend_rejects_missing_or_file_research_problem_data_root_before_launch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     calls: list[list[str]] = []
 

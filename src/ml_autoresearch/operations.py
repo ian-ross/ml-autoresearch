@@ -39,6 +39,7 @@ class OperationRequest:
     max_prediction_samples: int = 2
     prediction_sample_policy: str = "first_n"
     data_root: Path | None = None
+    data_roots: dict[str, Path] | None = None
     max_artifact_samples: int = 12
     request_path: Path | None = None
     runs_root: Path | None = None
@@ -58,6 +59,8 @@ class OperationRequest:
             payload["max_samples"] = self.max_samples
         if self.data_root is not None:
             payload["data_root"] = str(self.data_root)
+        if self.data_roots is not None:
+            payload["data_roots"] = {name: str(path) for name, path in sorted(self.data_roots.items())}
         if self.request_path is not None:
             payload["request_path"] = str(self.request_path)
         if self.runs_root is not None:
@@ -81,6 +84,11 @@ class OperationRequest:
             max_prediction_samples=int(payload.get("max_prediction_samples", 2)),
             prediction_sample_policy=str(payload.get("prediction_sample_policy", "first_n")),
             data_root=Path(payload["data_root"]) if payload.get("data_root") is not None else None,
+            data_roots=(
+                {str(name): Path(path) for name, path in payload["data_roots"].items()}
+                if isinstance(payload.get("data_roots"), dict)
+                else None
+            ),
             max_artifact_samples=int(payload.get("max_artifact_samples", 12)),
             request_path=Path(payload["request_path"]) if payload.get("request_path") is not None else None,
             runs_root=Path(payload["runs_root"]) if payload.get("runs_root") is not None else None,
@@ -130,6 +138,7 @@ def execute_operation_request(request: OperationRequest) -> OperationResponse:
             request.run_dir,
             backend="native",
             data_root=request.data_root,
+            data_roots=request.data_roots,
             max_artifact_samples=request.max_artifact_samples,
         )
         return OperationResponse(operation=request.operation)
@@ -138,6 +147,11 @@ def execute_operation_request(request: OperationRequest) -> OperationResponse:
 
         if request.request_path is None or request.runs_root is None or request.ledger_path is None:
             raise ValueError("run_post_run_evaluation requires request_path, runs_root, and ledger_path")
-        run_post_run_evaluation(request.request_path, runs_root=request.runs_root, ledger_path=request.ledger_path)
+        run_post_run_evaluation(
+            request.request_path,
+            runs_root=request.runs_root,
+            ledger_path=request.ledger_path,
+            data_roots=request.data_roots,
+        )
         return OperationResponse(operation=request.operation)
     raise ValueError(f"unsupported operation: {request.operation}")

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Mapping, Protocol
 
 import yaml
 
@@ -90,6 +91,7 @@ class ExecutionBackend(Protocol):
         run_dir: str | Path,
         *,
         data_root: str | Path | None = None,
+        data_roots: Mapping[str, str | Path] | None = None,
         max_artifact_samples: int = 12,
     ) -> OperationResult:
         """Evaluate a completed Run without retraining."""
@@ -160,6 +162,7 @@ class NativeBackend:
         run_dir: str | Path,
         *,
         data_root: str | Path | None = None,
+        data_roots: Mapping[str, str | Path] | None = None,
         max_artifact_samples: int = 12,
     ) -> OperationResult:
         response = execute_operation_request(
@@ -167,6 +170,11 @@ class NativeBackend:
                 operation="evaluate_run",
                 run_dir=Path(run_dir),
                 data_root=Path(data_root) if data_root is not None else None,
+                data_roots=(
+                    {name: Path(path) for name, path in data_roots.items()}
+                    if data_roots is not None
+                    else None
+                ),
                 max_artifact_samples=max_artifact_samples,
             )
         )
@@ -243,8 +251,13 @@ class DockerBackend:
     ) -> OperationResult:
         path = Path(run_dir)
         provider_package_root = self._validate_research_problem_package_root(provider_config.package_root)
-        data_path = self._research_problem_data_root(provider_config)
-        container_config = self._container_research_problem_config(provider_config, data_root_mounted=data_path is not None)
+        data_roots = self._research_problem_data_roots(provider_config)
+        data_path = None if data_roots else self._research_problem_data_root(provider_config)
+        container_config = self._container_research_problem_config(
+            provider_config,
+            data_root_mounted=data_path is not None,
+            named_data_roots=tuple(data_roots),
+        )
         self._prepare_writable_paths(path)
         self._ensure_image_available()
         request = OperationRequest(
@@ -259,6 +272,7 @@ class DockerBackend:
             path,
             request,
             data_root=data_path,
+            data_roots=data_roots,
             provider_package_root=provider_package_root,
         )
         return self._run_training_operation(command, path, "Docker Research Problem training failed", "train_research_problem")
@@ -268,23 +282,29 @@ class DockerBackend:
         run_dir: str | Path,
         *,
         data_root: str | Path | None = None,
+        data_roots: Mapping[str, str | Path] | None = None,
         max_artifact_samples: int = 12,
     ) -> OperationResult:
         path = Path(run_dir)
-        data_path = self._evaluate_data_root(path, data_root)
+        data_path, named_data_roots = self._evaluate_data_roots(path, data_root, data_roots)
+        container_data_roots = {
+            name: Path(f"/data/{name}") for name in sorted(named_data_roots)
+        }
         self._prepare_evaluation_writable_paths(path)
         self._ensure_image_available()
         provider_package_root = self._research_problem_package_root_from_run_metadata(path)
         request = OperationRequest(
             operation="evaluate_run",
             run_dir=Path("/"),
-            data_root=Path("/data"),
+            data_root=Path("/data/training") if named_data_roots else Path("/data"),
+            data_roots=container_data_roots or None,
             max_artifact_samples=max_artifact_samples,
         )
         command = self._operation_request_command(
             path,
             request,
             data_root=data_path,
+            data_roots=named_data_roots,
             outputs_read_only=True,
             evaluations_writable=True,
             provider_package_root=provider_package_root,
@@ -317,9 +337,14 @@ class DockerBackend:
         run_dir = root / request.target_run_id
         if not run_dir.is_dir():
             raise RuntimeError(f"target Run does not exist: {request.target_run_id}")
-        data_path = self._request_evaluation_data_root(
-            run_dir,
-            required=request.evaluation_mode == "failure_bucket_review",
+        named_data_roots = self._request_evaluation_data_roots(run_dir)
+        data_path = (
+            None
+            if named_data_roots
+            else self._request_evaluation_data_root(
+                run_dir,
+                required=request.evaluation_mode == "failure_bucket_review",
+            )
         )
         provider_package_root = self._research_problem_package_root_from_run_metadata(run_dir)
         self._prepare_evaluation_writable_paths(run_dir)
@@ -333,6 +358,7 @@ class DockerBackend:
             runs_root=root,
             ledger_path=ledger,
             data_root=data_path,
+            data_roots=named_data_roots,
             provider_package_root=provider_package_root,
         )
         self._run_operation(command, "Docker request-gated Post-Run Evaluation failed")
@@ -431,6 +457,7 @@ class DockerBackend:
         request: OperationRequest,
         *,
         data_root: Path | None = None,
+        data_roots: Mapping[str, Path] | None = None,
         outputs_read_only: bool = False,
         evaluations_writable: bool = False,
         provider_package_root: Path | None = None,
@@ -442,6 +469,7 @@ class DockerBackend:
             "run-operation",
             f"--request-json={request.to_json()}",
             data_root=data_root,
+            data_roots=data_roots,
             outputs_read_only=outputs_read_only,
             evaluations_writable=evaluations_writable,
             provider_package_root=provider_package_root,
@@ -454,6 +482,7 @@ class DockerBackend:
         module: str,
         *args: str,
         data_root: Path | None = None,
+        data_roots: Mapping[str, Path] | None = None,
         outputs_read_only: bool = False,
         evaluations_writable: bool = False,
         provider_package_root: Path | None = None,
@@ -480,6 +509,8 @@ class DockerBackend:
             command.extend(["--gpus", "all"])
         if data_root is not None:
             command.extend(["--volume", f"{data_root}:/data:ro,z"])
+        for name, source in sorted((data_roots or {}).items()):
+            command.extend(["--volume", f"{source}:/data/{name}:ro,z"])
         if provider_package_root is not None:
             command.extend([
                 "--env",
@@ -498,6 +529,7 @@ class DockerBackend:
         runs_root: Path,
         ledger_path: Path,
         data_root: Path | None,
+        data_roots: Mapping[str, Path],
         provider_package_root: Path | None,
     ) -> list[str]:
         command = self._base_docker_command(run_dir.name)
@@ -517,6 +549,8 @@ class DockerBackend:
         )
         if data_root is not None:
             command.extend(["--volume", f"{data_root}:{data_root}:ro,z"])
+        for name, source in sorted(data_roots.items()):
+            command.extend(["--volume", f"{source}:/data/{name}:ro,z"])
         if self.enable_gpu:
             command.extend(["--gpus", "all"])
         if provider_package_root is not None:
@@ -531,6 +565,11 @@ class DockerBackend:
             request_path=request_path,
             runs_root=runs_root,
             ledger_path=ledger_path,
+            data_roots=(
+                {name: Path(f"/data/{name}") for name in sorted(data_roots)}
+                if data_roots
+                else None
+            ),
         )
         command.extend(
             [
@@ -618,14 +657,37 @@ class DockerBackend:
     def _host_user() -> str:
         return f"{os.getuid()}:{os.getgid()}"
 
-    def _evaluate_data_root(self, run_dir: Path, data_root: str | Path | None) -> Path:
+    def _evaluate_data_roots(
+        self,
+        run_dir: Path,
+        data_root: str | Path | None,
+        data_roots: Mapping[str, str | Path] | None,
+    ) -> tuple[Path | None, dict[str, Path]]:
+        named_roots = (
+            {
+                name: self._validate_named_data_root(name, path)
+                for name, path in data_roots.items()
+            }
+            if data_roots is not None
+            else self._request_evaluation_data_roots(run_dir)
+        )
+        if named_roots:
+            named_roots = self._validate_distinct_named_data_roots(named_roots)
+            if data_root is not None:
+                if "training" not in named_roots:
+                    raise RuntimeError("--data-root requires a named training data root")
+                named_roots["training"] = self._validate_research_problem_data_root(data_root)
+                named_roots = self._validate_distinct_named_data_roots(named_roots)
+            if "training" not in named_roots:
+                raise RuntimeError("named Research Problem data roots must include 'training' for evaluation")
+            return None, named_roots
         path = (
             self._request_evaluation_data_root(run_dir, required=True)
             if data_root is None
             else self._validate_research_problem_data_root(data_root)
         )
         assert path is not None
-        return path
+        return path, {}
 
     def _request_evaluation_data_root(self, run_dir: Path, *, required: bool) -> Path | None:
         try:
@@ -638,6 +700,40 @@ class DockerBackend:
                 raise RuntimeError("Run metadata does not contain a Research Problem data root; pass --data-root")
             return None
         return self._validate_research_problem_data_root(str(dataset["host_data_path"]))
+
+    def _request_evaluation_data_roots(self, run_dir: Path) -> dict[str, Path]:
+        try:
+            metadata = json.loads((run_dir / "run_metadata.json").read_text())
+        except Exception as exc:  # noqa: BLE001 - Docker launch should fail clearly before importing candidate code.
+            raise RuntimeError(f"cannot read Run metadata for evaluation data roots: {exc}") from exc
+        research_problem = metadata.get("research_problem")
+        raw_roots = research_problem.get("data_roots") if isinstance(research_problem, dict) else None
+        if raw_roots is None:
+            return {}
+        if not isinstance(raw_roots, dict):
+            raise RuntimeError("Run metadata research_problem.data_roots must be a mapping")
+        roots: dict[str, Path] = {}
+        for name, raw_root in raw_roots.items():
+            if not isinstance(name, str) or not isinstance(raw_root, dict):
+                raise RuntimeError("Run metadata contains an invalid named Research Problem data root")
+            host_path = raw_root.get("host_path")
+            container_path = raw_root.get("container_path")
+            if raw_root.get("readonly") is not True or container_path != f"/data/{name}":
+                raise RuntimeError(f"Run metadata contains invalid mount policy for data root {name!r}")
+            if not isinstance(host_path, str):
+                raise RuntimeError(f"Run metadata data root {name!r} is missing host_path")
+            roots[name] = self._validate_named_data_root(name, host_path)
+        return self._validate_distinct_named_data_roots(roots)
+
+    def _validate_distinct_named_data_roots(self, roots: dict[str, Path]) -> dict[str, Path]:
+        if len(set(roots.values())) != len(roots):
+            raise RuntimeError("Research Problem data roots must resolve to distinct host directories")
+        return roots
+
+    def _validate_named_data_root(self, name: str, data_root: str | Path) -> Path:
+        if re.fullmatch(r"[a-z][a-z0-9_-]*", name) is None:
+            raise RuntimeError(f"invalid Research Problem data root name: {name!r}")
+        return self._validate_host_directory(data_root, label=f"Research Problem data root {name!r}")
 
     def _validate_research_problem_data_root(self, data_root: str | Path) -> Path:
         return self._validate_host_directory(data_root, label="Research Problem data root")
@@ -675,6 +771,13 @@ class DockerBackend:
             raise RuntimeError(f"{source} research_problem.provider.resolved_package_root must be a string")
         return self._validate_research_problem_package_root(package_root)
 
+    def _research_problem_data_roots(self, provider_config: ResearchProblemProviderConfig) -> dict[str, Path]:
+        roots = {
+            name: self._validate_named_data_root(name, path)
+            for name, path in provider_config.data_roots.items()
+        }
+        return self._validate_distinct_named_data_roots(roots)
+
     def _research_problem_data_root(self, provider_config: ResearchProblemProviderConfig) -> Path | None:
         data_root = provider_config.data_config.get("dataset_root") or provider_config.data_config.get("data_root")
         if data_root is None:
@@ -688,6 +791,7 @@ class DockerBackend:
         provider_config: ResearchProblemProviderConfig,
         *,
         data_root_mounted: bool,
+        named_data_roots: tuple[str, ...] = (),
     ) -> ResearchProblemProviderConfig:
         data_config = dict(provider_config.data_config)
         if data_root_mounted:
@@ -695,8 +799,13 @@ class DockerBackend:
                 data_config["dataset_root"] = "/data"
             if "data_root" in data_config:
                 data_config["data_root"] = "/data"
+        container_roots = {name: Path(f"/data/{name}") for name in sorted(named_data_roots)}
         return provider_config.model_copy(
-            update={"package_root": Path(CONTAINER_RESEARCH_PROBLEM_ROOT), "data_config": data_config}
+            update={
+                "package_root": Path(CONTAINER_RESEARCH_PROBLEM_ROOT),
+                "data_config": data_config,
+                "data_roots": container_roots,
+            }
         )
 
     def _validate_host_directory(self, value: str | Path, *, label: str) -> Path:

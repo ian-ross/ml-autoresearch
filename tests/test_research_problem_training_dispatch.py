@@ -145,6 +145,51 @@ def test_run_candidate_trains_through_generic_research_problem_provider(tmp_path
     assert (run.run_dir / "outputs" / "best_metrics.json").is_file()
 
 
+def test_run_metadata_records_named_research_problem_data_roots(tmp_path: Path) -> None:
+    _write_fake_problem_package(tmp_path)
+    candidate = _write_fake_candidate(tmp_path)
+    training_root = tmp_path / "training"
+    ancillary_root = tmp_path / "ancillary"
+    training_root.mkdir()
+    ancillary_root.mkdir()
+    config = ResearchProblemProviderConfig(
+        id="fake_problem",
+        package_root=tmp_path,
+        provider_target="fake_problem.research_problem:build_spec",
+        expected_contract_version="v0",
+        data_config={"fixture": "tiny", "sample_count": 4, "manifest": "natural-earth/manifest.json"},
+        data_roots={"training": training_root, "ancillary": ancillary_root},
+    )
+
+    run = run_candidate_with_research_problem(
+        candidate,
+        tmp_path / "runs",
+        config,
+        max_samples=4,
+        max_prediction_samples=1,
+    )
+
+    assert run.status == RunStatus.COMPLETED
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["research_problem"]["data_config"] == {
+        "fixture": "tiny",
+        "manifest": "natural-earth/manifest.json",
+        "sample_count": 4,
+    }
+    assert metadata["research_problem"]["data_roots"] == {
+        "ancillary": {
+            "host_path": str(ancillary_root),
+            "container_path": "/data/ancillary",
+            "readonly": True,
+        },
+        "training": {
+            "host_path": str(training_root),
+            "container_path": "/data/training",
+            "readonly": True,
+        },
+    }
+
+
 def test_fake_research_problem_controls_training_output_loss_and_metric_policy(tmp_path: Path) -> None:
     import torch
 

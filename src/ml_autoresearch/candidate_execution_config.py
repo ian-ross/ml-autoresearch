@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,6 +68,10 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         runs_root = root / "runs"
     ledger_path = _optional_workspace_path(settings, "ledger_path", root)
     research_problem_provider = _research_problem_provider_config(data, root)
+    if data_root is not None and research_problem_provider is not None and research_problem_provider.data_roots:
+        raise CandidateExecutionConfigError(
+            "candidate_execution.data_root cannot be combined with research_problem.data_roots"
+        )
     max_samples = _optional_int(settings, "max_samples", minimum=1)
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
     prediction_sample_policy = _literal(
@@ -148,6 +153,15 @@ def resolve_configured_research_problem_provider(
         return None
     data_config = dict(provider.data_config)
     data_root = data_root_override if data_root_override is not None else config.data_root
+    if provider.data_roots:
+        data_roots = dict(provider.data_roots)
+        if data_root is not None:
+            if "training" not in data_roots:
+                raise CandidateExecutionConfigError(
+                    "a data-root override requires research_problem.data_roots.training"
+                )
+            data_roots["training"] = Path(data_root)
+        return provider.model_copy(update={"data_roots": data_roots})
     if data_root is not None:
         if "dataset_root" in data_config:
             data_config["dataset_root"] = str(data_root)
@@ -171,13 +185,49 @@ def _research_problem_provider_config(data: dict[str, object], workspace_root: P
     data_config = settings.get("data_config", {})
     if not isinstance(data_config, dict):
         raise CandidateExecutionConfigError("research_problem.data_config must be a table")
+    if "data_roots" in data_config:
+        raise CandidateExecutionConfigError(
+            "research_problem.data_config.data_roots is reserved; configure [research_problem.data_roots]"
+        )
+    data_roots = _research_problem_data_roots(settings.get("data_roots", {}), workspace_root)
     return ResearchProblemProviderConfig(
         id=spec_id,
         package_root=package_root,
         provider_target=provider_target,
         expected_contract_version=expected_contract_version,
         data_config=dict(data_config),
+        data_roots=data_roots,
     )
+
+
+def _research_problem_data_roots(raw_roots: object, workspace_root: Path) -> dict[str, Path]:
+    if not isinstance(raw_roots, dict):
+        raise CandidateExecutionConfigError("research_problem.data_roots must be a table")
+    roots: dict[str, Path] = {}
+    resolved_sources: dict[Path, str] = {}
+    for name, raw_path in sorted(raw_roots.items()):
+        if not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9_-]*", name) is None:
+            raise CandidateExecutionConfigError(
+                "research_problem.data_roots names must match [a-z][a-z0-9_-]*"
+            )
+        if not isinstance(raw_path, str) or not raw_path:
+            raise CandidateExecutionConfigError(f"research_problem.data_roots.{name} must be a non-empty string")
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = workspace_root / path
+        if not path.exists():
+            raise CandidateExecutionConfigError(f"Research Problem data root {name!r} does not exist: {path}")
+        if not path.is_dir():
+            raise CandidateExecutionConfigError(f"Research Problem data root {name!r} is not a directory: {path}")
+        resolved = path.resolve(strict=True)
+        previous_name = resolved_sources.get(resolved)
+        if previous_name is not None:
+            raise CandidateExecutionConfigError(
+                f"Research Problem data roots {previous_name!r} and {name!r} resolve to the same directory: {resolved}"
+            )
+        resolved_sources[resolved] = name
+        roots[name] = resolved
+    return roots
 
 
 def _literal(settings: dict[str, object], key: str, allowed: set[str], default: str) -> str:

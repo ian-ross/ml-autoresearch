@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -149,6 +149,7 @@ def run_post_run_evaluation(
     *,
     runs_root: str | Path,
     ledger_path: str | Path = CANONICAL_RESEARCH_LEDGER,
+    data_roots: Mapping[str, str | Path] | None = None,
 ) -> dict[str, Any]:
     """Run one approved autonomous Post-Run Evaluation from a validated request.
 
@@ -173,11 +174,16 @@ def run_post_run_evaluation(
         raise EvaluationRequestError(f"target Run metadata is invalid JSON: {request.target_run_id}: {exc}") from exc
     if not isinstance(run_metadata, dict):
         raise EvaluationRequestError(f"target Run metadata must be a JSON object: {request.target_run_id}")
-    from ml_autoresearch.evaluations import resolve_run_research_problem
+    from ml_autoresearch.evaluations import _resolve_data_roots, resolve_run_research_problem
 
-    precheck_data_root = _metadata_data_root(run_metadata)
+    precheck_data_roots = _resolve_data_roots(run_metadata, data_roots)
+    precheck_data_root = precheck_data_roots.get("training") or _metadata_data_root(run_metadata)
     try:
-        research_problem = resolve_run_research_problem(run_metadata, data_root=precheck_data_root)
+        research_problem = resolve_run_research_problem(
+            run_metadata,
+            data_root=precheck_data_root,
+            data_roots=precheck_data_roots,
+        )
         if request.evaluation_mode == "failure_bucket_review":
             _ensure_research_problem_supports_mode(research_problem.spec, "whole_validation_failure_analysis")
     except Exception as exc:  # noqa: BLE001 - normalize adapter/spec errors at the request boundary.
@@ -208,7 +214,14 @@ def run_post_run_evaluation(
     }
     _write_json(evaluation_dir / "summary.json", summary)
     if request.evaluation_mode == "failure_bucket_review":
-        metadata = _run_failure_bucket_review(request, run_dir, evaluation_id, evaluation_dir, metadata)
+        metadata = _run_failure_bucket_review(
+            request,
+            run_dir,
+            evaluation_id,
+            evaluation_dir,
+            metadata,
+            data_roots=precheck_data_roots,
+        )
     _write_json(evaluation_dir / "evaluation_metadata.json", metadata)
 
     requested_event = record_research_event(
@@ -246,6 +259,8 @@ def _run_failure_bucket_review(
     evaluation_id: str,
     evaluation_dir: Path,
     base_metadata: dict[str, Any],
+    *,
+    data_roots: Mapping[str, Path],
 ) -> dict[str, Any]:
     """Run bounded Whole-Validation Failure Analysis behind the failure-bucket request gate."""
 
@@ -270,8 +285,12 @@ def _run_failure_bucket_review(
     if max_artifact_samples < 1:
         raise EvaluationRequestError("failure_bucket_review requires at least one diagnostic artifact")
 
-    data_root = _resolve_data_root(run_metadata, None)
-    research_problem = resolve_run_research_problem(run_metadata, data_root=data_root)
+    data_root = _resolve_data_root(run_metadata, None, data_roots=data_roots)
+    research_problem = resolve_run_research_problem(
+        run_metadata,
+        data_root=data_root,
+        data_roots=data_roots,
+    )
     model_artifact = _model_artifact_from_best_metrics(run_dir)
     aggregate, per_sample_records, threshold_sweep, diagnostic_manifest = dispatch_evaluation_mode(
         research_problem=research_problem,
@@ -308,6 +327,7 @@ def _run_failure_bucket_review(
         "threshold": threshold,
         "research_problem": research_problem.metadata,
         "data_root": str(data_root),
+        "data_roots": {name: str(path) for name, path in sorted(data_roots.items())},
         "model_artifact": model_artifact,
         "artifacts": {
             **base_metadata["artifacts"],

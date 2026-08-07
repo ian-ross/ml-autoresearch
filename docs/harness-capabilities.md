@@ -43,7 +43,7 @@ Generic docs should not treat a provider example as a universal Harness allowlis
 
 `run-candidate` validates, smoke-tests, and trains synchronously against the configured Research Problem provider. Docker is the default Candidate Execution Boundary for `run-candidate`; the native backend remains an explicit developer-unsafe escape hatch.
 
-For Docker-backed Research Problem training, the Harness validates configured provider data roots, mounts approved host data read-only at `/data`, mounts the trusted Research Problem package read-only, and writes outputs under the run's `outputs/` directory.
+For Docker-backed Research Problem training and Post-Run Evaluation, the Harness validates configured provider data roots and mounts each named host directory read-only at `/data/<name>`. The provider receives the same logical-root mapping with host paths during native execution and container paths during Docker execution. Existing providers configured only with `data_config.dataset_root` retain the legacy read-only `/data` mount. The trusted Research Problem package is mounted read-only, and operation outputs remain under the Run's `outputs/` directory.
 
 ## Candidate model interface
 

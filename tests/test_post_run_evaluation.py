@@ -141,6 +141,87 @@ def test_evaluate_run_api_writes_run_scoped_validation_artifacts(tmp_path: Path)
     assert events[1]["evaluation_id"] == result.evaluation_id
 
 
+def test_native_evaluate_run_override_rewrites_named_training_root_for_provider(
+    tmp_path: Path, monkeypatch
+):
+    import ml_autoresearch.evaluations as evaluation_module
+
+    package_root = tmp_path / "provider"
+    package = package_root / "fake_problem"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "research_problem.py").write_text(
+        "from ml_autoresearch.research_problems import ResearchProblemSpec\n"
+        "def build_spec(data_config=None):\n"
+        "    roots = (data_config or {}).get('data_roots', {})\n"
+        "    return ResearchProblemSpec(\n"
+        "        id='fake_problem', version=roots.get('training', 'missing') + '|' + roots.get('ancillary', 'missing'), contract_version='v0',\n"
+        "        input_modes=('rgb',), input_specs={'rgb': {'mode': 'rgb', 'shape': [3, 8, 8]}},\n"
+        "        output_forms=('mask',), output_specs={'mask': {'form': 'mask', 'shape': [1, 8, 8]}},\n"
+        "        losses=('loss',), optimizers=('optimizer',), sampling_policies=('sequential',),\n"
+        "        augmentation_policies=('none',), primary_metric='val/metric')\n"
+    )
+    run_dir = tmp_path / "runs" / "run_1"
+    old_training = tmp_path / "old-training"
+    override_training = tmp_path / "override-training"
+    ancillary = tmp_path / "ancillary"
+    old_training.mkdir()
+    override_training.mkdir()
+    ancillary.mkdir()
+    (run_dir / "outputs" / "models").mkdir(parents=True)
+    (run_dir / "outputs" / "best_metrics.json").write_text(
+        '{"model_artifact": "outputs/models/best_epoch_model.pt"}\n'
+    )
+    (run_dir / "outputs" / "models" / "best_epoch_model.pt").write_text("checkpoint\n")
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run_1",
+                "status": "completed",
+                "research_problem": {
+                    "id": "fake_problem",
+                    "contract_version": "v0",
+                    "provider": {
+                        "target": "fake_problem.research_problem:build_spec",
+                        "resolved_package_root": str(package_root),
+                    },
+                    "data_roots": {
+                        "training": {
+                            "host_path": str(old_training),
+                            "container_path": "/data/training",
+                            "readonly": True,
+                        },
+                        "ancillary": {
+                            "host_path": str(ancillary),
+                            "container_path": "/data/ancillary",
+                            "readonly": True,
+                        },
+                    },
+                },
+            }
+        )
+    )
+    observed: dict[str, object] = {}
+
+    def fake_dispatch(**kwargs):
+        observed["provider_data_roots"] = kwargs["research_problem"].spec.version
+        observed["adapter_data_root"] = kwargs["data_root"]
+        return {}, [], {}, {}
+
+    monkeypatch.setattr(evaluation_module, "dispatch_evaluation_mode", fake_dispatch)
+
+    result = evaluate_run(run_dir, data_root=override_training, max_artifact_samples=1)
+
+    assert result.status == "completed"
+    assert observed == {
+        "provider_data_roots": f"{override_training.resolve()}|{ancillary.resolve()}",
+        "adapter_data_root": override_training.resolve(),
+    }
+    metadata = json.loads((result.evaluation_dir / "evaluation_metadata.json").read_text())
+    assert metadata["data_roots"]["training"] == str(override_training.resolve())
+    assert metadata["data_roots"]["ancillary"] == str(ancillary.resolve())
+
+
 def test_request_gated_failure_bucket_review_writes_metrics_and_diagnostic_artifacts(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     run = run_candidate_with_gvccs_data(candidate, tmp_path / "runs", "tests/fixtures/gvccs_like", max_samples=4)

@@ -108,7 +108,7 @@ def train_research_problem_run(
         outputs_dir=path / "outputs",
         artifact_run_dir=path,
         training_adapter=adapter,
-        data_config=provider_config.data_config,
+        data_config=provider_config.effective_data_config(),
         max_samples=max_samples,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,

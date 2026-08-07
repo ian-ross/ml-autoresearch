@@ -252,6 +252,10 @@ _Avoid_: Run submission, smoke test, training
 The boundary that contains untrusted Candidate Experiment code while it is imported, smoke-tested, trained, and evaluated.
 _Avoid_: Agent boundary, static validation
 
+**Research Problem Data Root**:
+A Harness-configured, provider-owned logical name for one immutable host data directory. Docker-backed Research Problem operations project named roots read-only at `/data/<name>`; legacy single-root providers continue to use `/data`.
+_Avoid_: Candidate data path, symlink union, OverlayFS merge
+
 **Approved Weight Artifact**:
 Future architecture for an audited pretrained weight artifact made available to the Harness under a stable identifier for use by approved Candidate Experiments. Current code does not implement the registry/workflow.
 _Avoid_: Download URL, arbitrary checkpoint path, candidate-managed weights

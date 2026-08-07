@@ -14,7 +14,7 @@ This repository currently contains the local tracer-bullet Harness with a Docker
 - create Harness-owned Run directories
 - smoke-test candidate models through the controlled `build_model(input_spec, output_spec)` interface
 - train one epoch on deterministic synthetic data or the configured trusted Research Problem data
-- for Docker Research Problem training, mount the trusted Research Problem package read-only and mount the host data root read-only at `/data` when configured
+- for Docker Research Problem training/evaluation, mount the trusted Research Problem package read-only and project approved named host data roots read-only at `/data/<name>`; legacy single-root providers remain mounted at `/data`
 - write local Run artifacts such as metrics, metadata, logs, model summaries, and prediction samples
 - record validated Research Ledger events for proposals, candidates, Runs, evaluations, capability requests, reports, and pauses
 - inspect local Runs through Harness-owned metadata and artifacts

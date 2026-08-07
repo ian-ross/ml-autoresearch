@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import traceback
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Mapping
 
 from ml_autoresearch.problem_support.segmentation import (
     evaluate_binary_segmentation_validation_split as _evaluate_binary_segmentation_validation_split,
@@ -56,6 +57,7 @@ def evaluate_run(
     split: Literal["val"] = "val",
     backend: Literal["native"] = "native",
     data_root: str | Path | None = None,
+    data_roots: Mapping[str, str | Path] | None = None,
     threshold: float = DEFAULT_EVALUATION_THRESHOLD,
     max_artifact_samples: int = DEFAULT_MAX_ARTIFACT_SAMPLES,
     ledger_path: str | Path | None = None,
@@ -102,6 +104,7 @@ def evaluate_run(
             threshold=threshold,
             max_artifact_samples=max_artifact_samples,
             data_root=data_root,
+            data_roots=data_roots,
         )
         requested_event = None
         if ledger_path is not None:
@@ -111,7 +114,17 @@ def evaluate_run(
                 request_path=request_path,
                 run_id=source_run_id,
             )
-        resolved_data_root = _resolve_data_root(metadata, data_root)
+        resolved_data_roots = _resolve_data_roots(metadata, data_roots)
+        if resolved_data_roots and data_root is not None:
+            if "training" not in resolved_data_roots:
+                raise EvaluationError("--data-root requires a named training data root")
+            resolved_data_roots["training"] = Path(data_root)
+            resolved_data_roots = _validate_data_roots(resolved_data_roots)
+        resolved_data_root = _resolve_data_root(
+            metadata,
+            None if resolved_data_roots else data_root,
+            data_roots=resolved_data_roots,
+        )
         model_artifact = _model_artifact_from_best_metrics(source_run_dir)
         model_artifact_path = source_run_dir / model_artifact
         if not model_artifact_path.is_file():
@@ -119,7 +132,11 @@ def evaluate_run(
 
         if max_artifact_samples < 1:
             raise EvaluationError("max_artifact_samples must be at least 1")
-        research_problem = resolve_run_research_problem(metadata, data_root=resolved_data_root)
+        research_problem = resolve_run_research_problem(
+            metadata,
+            data_root=resolved_data_root,
+            data_roots=resolved_data_roots,
+        )
         base_metadata["research_problem"] = research_problem.metadata
         aggregate, per_sample_records, threshold_sweep, diagnostic_manifest = dispatch_evaluation_mode(
             research_problem=research_problem,
@@ -152,6 +169,7 @@ def evaluate_run(
             "status": "completed",
             "completed_at": _now_iso(),
             "data_root": str(resolved_data_root),
+            "data_roots": {name: str(path) for name, path in sorted(resolved_data_roots.items())},
             "model_artifact": model_artifact,
             "artifacts": {
                 "aggregate_metrics": "aggregate_metrics.json",
@@ -257,6 +275,7 @@ def _write_manual_evaluation_request(
     threshold: float,
     max_artifact_samples: int,
     data_root: str | Path | None,
+    data_roots: Mapping[str, str | Path] | None,
 ) -> Path:
     request_path = evaluation_dir / "evaluation_request.json"
     request = {
@@ -273,6 +292,11 @@ def _write_manual_evaluation_request(
             "threshold": threshold,
             "max_artifact_samples": max_artifact_samples,
             "data_root_override": str(data_root) if data_root is not None else None,
+            "data_roots_override": (
+                {name: str(path) for name, path in sorted(data_roots.items())}
+                if data_roots is not None
+                else None
+            ),
         },
     }
     request_path.write_text(json.dumps(request, indent=2, sort_keys=True) + "\n")
@@ -283,7 +307,12 @@ def _manual_evaluation_request_id(evaluation_id: str) -> str:
     return f"manual_{evaluation_id}"
 
 
-def resolve_run_research_problem(metadata: dict[str, object], *, data_root: Path | None = None) -> ResolvedEvaluationResearchProblem:
+def resolve_run_research_problem(
+    metadata: dict[str, object],
+    *,
+    data_root: Path | None = None,
+    data_roots: Mapping[str, Path] | None = None,
+) -> ResolvedEvaluationResearchProblem:
     """Resolve the Research Problem Spec used by a completed Run for evaluation dispatch."""
 
     raw_research_problem = metadata.get("research_problem")
@@ -304,6 +333,12 @@ def resolve_run_research_problem(metadata: dict[str, object], *, data_root: Path
             raise EvaluationError("source Run research_problem provider metadata is missing resolved_package_root")
         if not isinstance(contract_version, str) or not contract_version:
             raise EvaluationError("source Run research_problem metadata is missing contract_version")
+        raw_data_config = raw_research_problem.get("data_config", {})
+        if not isinstance(raw_data_config, dict):
+            raise EvaluationError("source Run research_problem.data_config must be a mapping")
+        provider_data_config = dict(raw_data_config)
+        if not data_roots and data_root is not None:
+            provider_data_config["dataset_root"] = str(data_root)
         try:
             loaded = load_research_problem_provider(
                 ResearchProblemProviderConfig(
@@ -311,12 +346,18 @@ def resolve_run_research_problem(metadata: dict[str, object], *, data_root: Path
                     package_root=Path(root),
                     provider_target=target,
                     expected_contract_version=contract_version,
-                    data_config={"dataset_root": str(data_root)} if data_root is not None else {},
+                    data_config=provider_data_config,
+                    data_roots=dict(data_roots or {}),
                 )
             )
         except ResearchProblemProviderLoadError as exc:
             raise EvaluationError(str(exc)) from exc
-        return ResolvedEvaluationResearchProblem(spec=loaded.spec, metadata=loaded.run_metadata())
+        resolved_metadata = loaded.run_metadata()
+        if data_roots:
+            resolved_metadata["data_roots"] = {
+                name: str(path) for name, path in sorted(data_roots.items())
+            }
+        return ResolvedEvaluationResearchProblem(spec=loaded.spec, metadata=resolved_metadata)
 
     raise EvaluationError("source Run research_problem provider metadata is required")
 
@@ -417,9 +458,64 @@ def _model_artifact_from_best_metrics(run_dir: Path) -> str:
     return model_artifact
 
 
-def _resolve_data_root(metadata: dict[str, object], override: str | Path | None) -> Path:
+def _resolve_data_roots(
+    metadata: dict[str, object],
+    overrides: Mapping[str, str | Path] | None,
+) -> dict[str, Path]:
+    if overrides is not None:
+        roots = {name: Path(path) for name, path in overrides.items()}
+        return _validate_data_roots(roots)
+    research_problem = metadata.get("research_problem")
+    raw_roots = research_problem.get("data_roots") if isinstance(research_problem, dict) else None
+    if raw_roots is None:
+        return {}
+    if not isinstance(raw_roots, dict):
+        raise EvaluationError("source Run research_problem.data_roots must be a mapping")
+    roots: dict[str, Path] = {}
+    for name, raw_root in raw_roots.items():
+        if not isinstance(name, str) or not isinstance(raw_root, dict):
+            raise EvaluationError("source Run contains an invalid named Research Problem data root")
+        host_path = raw_root.get("host_path")
+        if not isinstance(host_path, str) or not host_path:
+            raise EvaluationError(f"source Run data root {name!r} is missing host_path")
+        if raw_root.get("readonly") is not True or raw_root.get("container_path") != f"/data/{name}":
+            raise EvaluationError(f"source Run data root {name!r} has invalid mount policy")
+        roots[name] = Path(host_path)
+    return _validate_data_roots(roots)
+
+
+def _validate_data_roots(roots: Mapping[str, Path]) -> dict[str, Path]:
+    resolved: dict[str, Path] = {}
+    sources: set[Path] = set()
+    for name, path in sorted(roots.items()):
+        if re.fullmatch(r"[a-z][a-z0-9_-]*", name) is None:
+            raise EvaluationError(f"invalid Research Problem data root name: {name!r}")
+        if not path.exists():
+            raise EvaluationError(f"Research Problem data root {name!r} does not exist: {path}")
+        if not path.is_dir():
+            raise EvaluationError(f"Research Problem data root {name!r} is not a directory: {path}")
+        source = path.resolve(strict=True)
+        if source in sources:
+            raise EvaluationError("Research Problem data roots must resolve to distinct directories")
+        sources.add(source)
+        resolved[name] = source
+    return resolved
+
+
+def _resolve_data_root(
+    metadata: dict[str, object],
+    override: str | Path | None,
+    *,
+    data_roots: Mapping[str, Path] | None = None,
+) -> Path:
     if override is not None:
         return Path(override)
+    resolved_roots = dict(data_roots) if data_roots is not None else _resolve_data_roots(metadata, None)
+    if resolved_roots:
+        training_root = resolved_roots.get("training")
+        if training_root is None:
+            raise EvaluationError("named Research Problem data roots must include 'training' for evaluation")
+        return training_root
     dataset = metadata.get("dataset")
     if not isinstance(dataset, dict):
         raise EvaluationError("source Run metadata does not contain Research Problem data root; pass --data-root")

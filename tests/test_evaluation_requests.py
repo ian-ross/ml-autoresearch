@@ -153,6 +153,42 @@ def test_post_run_evaluation_requires_valid_request_and_links_artifacts_to_reque
     assert rows[1]["artifact_metadata_path"] == str((runs_root / "run_123" / "outputs" / "evaluations" / "eval_eval-threshold-sweep-run-123" / "evaluation_metadata.json").resolve())
 
 
+def test_native_post_run_evaluation_reloads_named_data_roots(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    run_dir = write_run(runs_root)
+    training_root = tmp_path / "training"
+    ancillary_root = tmp_path / "ancillary"
+    training_root.mkdir()
+    ancillary_root.mkdir()
+    metadata_path = run_dir / "run_metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["research_problem"]["data_config"] = {"manifest": "natural-earth/manifest.json"}
+    metadata["research_problem"]["data_roots"] = {
+        "training": {
+            "host_path": str(training_root),
+            "container_path": "/data/training",
+            "readonly": True,
+        },
+        "ancillary": {
+            "host_path": str(ancillary_root),
+            "container_path": "/data/ancillary",
+            "readonly": True,
+        },
+    }
+    metadata_path.write_text(json.dumps(metadata))
+
+    result = run_post_run_evaluation(
+        write_request(tmp_path / "request.yaml"),
+        runs_root=runs_root,
+        ledger_path=tmp_path / "ledger.jsonl",
+    )
+
+    assert result["evaluation"]["research_problem"]["data_roots"] == {
+        "ancillary": str(ancillary_root),
+        "training": str(training_root),
+    }
+
+
 def test_failed_evaluation_request_validation_does_not_create_artifacts_or_success_ledger_event(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     write_run(runs_root)

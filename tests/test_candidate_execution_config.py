@@ -96,6 +96,103 @@ data_config = {{ dataset_root = "{dataset_root}" }}
     assert config.research_problem_provider.data_config == {"dataset_root": str(dataset_root)}
 
 
+def test_candidate_execution_config_loads_named_research_problem_data_roots(tmp_path: Path) -> None:
+    package_root = tmp_path / "configured-problem"
+    training_root = tmp_path / "training"
+    ancillary_root = tmp_path / "ancillary"
+    package_root.mkdir()
+    training_root.mkdir()
+    ancillary_root.mkdir()
+    (tmp_path / "ml-autoresearch.toml").write_text(
+        f'''
+[research_problem]
+id = "multi_root_problem"
+package_root = "{package_root}"
+provider_target = "problem:build_spec"
+expected_contract_version = "v0"
+data_config = {{ manifest = "natural-earth/manifest.json" }}
+
+[research_problem.data_roots]
+training = "training"
+ancillary = "{ancillary_root}"
+'''.lstrip()
+    )
+
+    config = load_candidate_execution_config(tmp_path)
+
+    assert config.research_problem_provider is not None
+    assert config.research_problem_provider.data_roots == {
+        "ancillary": ancillary_root.resolve(),
+        "training": training_root.resolve(),
+    }
+    assert config.research_problem_provider.effective_data_config() == {
+        "manifest": "natural-earth/manifest.json",
+        "data_roots": {
+            "ancillary": str(ancillary_root.resolve()),
+            "training": str(training_root.resolve()),
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "data_roots, match",
+    [
+        ('"bad/name" = "training"', "names must match"),
+        ('training = "missing"', "does not exist"),
+    ],
+)
+def test_candidate_execution_config_rejects_invalid_named_data_roots(
+    tmp_path: Path, data_roots: str, match: str
+) -> None:
+    package_root = tmp_path / "problem"
+    training_root = tmp_path / "training"
+    package_root.mkdir()
+    training_root.mkdir()
+    (tmp_path / "ml-autoresearch.toml").write_text(
+        f'''
+[research_problem]
+id = "multi_root_problem"
+package_root = "{package_root}"
+provider_target = "problem:build_spec"
+expected_contract_version = "v0"
+
+[research_problem.data_roots]
+{data_roots}
+'''.lstrip()
+    )
+
+    with pytest.raises(CandidateExecutionConfigError, match=match):
+        load_candidate_execution_config(tmp_path)
+
+
+def test_candidate_execution_config_rejects_named_root_aliases_and_legacy_override(tmp_path: Path) -> None:
+    package_root = tmp_path / "problem"
+    training_root = tmp_path / "training"
+    package_root.mkdir()
+    training_root.mkdir()
+    alias = tmp_path / "training-alias"
+    alias.symlink_to(training_root, target_is_directory=True)
+    (tmp_path / "ml-autoresearch.toml").write_text(
+        f'''
+[candidate_execution]
+data_root = "{training_root}"
+
+[research_problem]
+id = "multi_root_problem"
+package_root = "{package_root}"
+provider_target = "problem:build_spec"
+expected_contract_version = "v0"
+
+[research_problem.data_roots]
+training = "{training_root}"
+ancillary = "{alias}"
+'''.lstrip()
+    )
+
+    with pytest.raises(CandidateExecutionConfigError, match="resolve to the same directory|cannot be combined"):
+        load_candidate_execution_config(tmp_path)
+
+
 def test_candidate_execution_config_requires_workspace_config(tmp_path: Path) -> None:
     with pytest.raises(CandidateExecutionConfigError, match="missing Workspace Configuration"):
         load_candidate_execution_config(tmp_path)

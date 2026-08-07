@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -30,6 +31,7 @@ class DataMount:
 
     path: Path
     target: str
+    root_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,15 @@ def load_agent_boundary_config(project_root: Path) -> AgentBoundaryConfig:
         distro=distro,
         image=image,
         allow_egress=allow_egress,
-        data_mounts=_load_data_mounts(data.get("data_mounts", []), project_root),
+        data_mounts=_load_data_mounts(
+            data.get("data_mounts", []),
+            project_root,
+            (
+                candidate_config.research_problem_provider.data_roots
+                if candidate_config.research_problem_provider is not None
+                else {}
+            ),
+        ),
         runs_root=candidate_config.runs_root,
         research_problem=_load_agent_boundary_research_problem(candidate_config),
         research_problem_provider=candidate_config.research_problem_provider,
@@ -118,7 +128,11 @@ def _string_setting(settings: dict[str, Any], key: str, default: str) -> str:
     return value
 
 
-def _load_data_mounts(raw_mounts: object, project_root: Path) -> tuple[DataMount, ...]:
+def _load_data_mounts(
+    raw_mounts: object,
+    project_root: Path,
+    research_problem_data_roots: dict[str, Path],
+) -> tuple[DataMount, ...]:
     if not isinstance(raw_mounts, list):
         raise AgentBoundaryError("data_mounts must be an array of tables")
     mounts: list[DataMount] = []
@@ -130,8 +144,22 @@ def _load_data_mounts(raw_mounts: object, project_root: Path) -> tuple[DataMount
         if not isinstance(name, str) or not name:
             raise AgentBoundaryError(f"data mount {index} name must be a non-empty string")
         path_value = raw_mount.get("path")
-        if not isinstance(path_value, str) or not path_value:
-            raise AgentBoundaryError(f"data mount {name} path must be a non-empty string")
+        root_name = raw_mount.get("root")
+        if path_value is not None and root_name is not None:
+            raise AgentBoundaryError(f"data mount {name} must configure either path or root, not both")
+        if root_name is not None:
+            if not isinstance(root_name, str) or not root_name:
+                raise AgentBoundaryError(f"data mount {name} root must be a non-empty string")
+            try:
+                source_path = research_problem_data_roots[root_name]
+            except KeyError as exc:
+                raise AgentBoundaryError(f"data mount {name} references unknown Research Problem data root: {root_name}") from exc
+        else:
+            if not isinstance(path_value, str) or not path_value:
+                raise AgentBoundaryError(f"data mount {name} path must be a non-empty string")
+            source_path = Path(path_value).expanduser()
+            if not source_path.is_absolute():
+                source_path = project_root / source_path
         readonly = raw_mount.get("readonly", True)
         if readonly is not True:
             raise AgentBoundaryError(f"data mount {name} must be read-only")
@@ -142,19 +170,24 @@ def _load_data_mounts(raw_mounts: object, project_root: Path) -> tuple[DataMount
         if target in targets:
             raise AgentBoundaryError(f"overlapping data mount target: {target}")
         targets.add(target)
-        source_path = Path(path_value).expanduser()
-        if not source_path.is_absolute():
-            source_path = project_root / source_path
         if not source_path.exists():
             raise AgentBoundaryError(f"data mount path does not exist: {source_path}")
-        mounts.append(DataMount(path=source_path, target=target))
+        if not source_path.is_dir():
+            raise AgentBoundaryError(f"data mount path is not a directory: {source_path}")
+        mounts.append(DataMount(path=source_path.resolve(strict=True), target=target, root_name=root_name))
     return tuple(mounts)
 
 
 def _validate_data_target(target: str) -> None:
-    parts = Path(target).parts
-    if len(parts) != 3 or parts[0] != "/" or parts[1] != "data" or not parts[2]:
-        raise AgentBoundaryError("data mount targets must be non-overlapping direct children of /data")
+    parts = target.split("/")
+    valid_child = (
+        len(parts) == 3
+        and parts[:2] == ["", "data"]
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", parts[2]) is not None
+        and parts[2] not in {".", ".."}
+    )
+    if not valid_child:
+        raise AgentBoundaryError("data mount targets must be canonical non-overlapping direct children of /data")
 
 
 def prepare_agent_boundary(project_root: Path = Path(".")) -> dict[str, str]:
@@ -376,6 +409,17 @@ def _write_agent_candidate_execution_config(workspace_dir: Path, config: AgentBo
     if data_config:
         entries = ", ".join(f'{key} = "{_toml_escape(str(value))}"' for key, value in sorted(data_config.items()))
         lines.append(f"data_config = {{ {entries} }}")
+    visible_roots = {
+        mount.root_name: mount.target
+        for mount in config.data_mounts
+        if mount.root_name is not None
+    }
+    if visible_roots:
+        lines.extend(["", "[research_problem.data_roots]"])
+        lines.extend(
+            f'{name} = "{_toml_escape(target)}"'
+            for name, target in sorted(visible_roots.items())
+        )
     (workspace_dir / WORKSPACE_CONFIG_FILENAME).write_text("\n".join(lines) + "\n")
 
 

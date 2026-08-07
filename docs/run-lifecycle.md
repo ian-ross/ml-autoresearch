@@ -68,7 +68,7 @@ The Harness copies accepted candidate source into the Run directory. Later phase
 
 `resolved_manifest.yaml` is the Harness-owned normalized manifest for the Run.
 
-Observation commands read metrics and summaries from `outputs/`. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths. `/outputs` is a run-scoped writable bind mount and `/scratch` is bounded tmpfs. Docker Research Problem training mounts the trusted Research Problem package read-only at `/research_problem_package`; when configured, the data root is mounted read-only at `/data`. `/outputs` and `/scratch` remain the only writable paths.
+Observation commands read metrics and summaries from `outputs/`. Docker smoke testing and synthetic training mount Harness-owned files read-only and expose only `/outputs` plus `/scratch` as writable paths. `/outputs` is a run-scoped writable bind mount and `/scratch` is bounded tmpfs. Docker Research Problem training mounts the trusted Research Problem package read-only at `/research-problem`. Named Research Problem Data Roots are mounted independently and read-only at `/data/<name>`; the compatibility-only single `dataset_root` path remains `/data`. `/outputs` and `/scratch` remain the only writable paths.
 
 ## Run command
 
@@ -92,6 +92,23 @@ ml-autoresearch run-candidate \
 ```
 
 Provider and dataset metadata are defined by the workspace-local `ml-autoresearch.toml` and echoed in `run_metadata.json`.
+
+Research Problems with independently provisioned data use named roots:
+
+```toml
+[research_problem]
+id = "example_problem"
+package_root = "."
+provider_target = "example_problem.research_problem:build_spec"
+expected_contract_version = "v0"
+data_config = { ancillary_manifest = "natural-earth/manifest.json" }
+
+[research_problem.data_roots]
+training = "/srv/example/training"
+ancillary = "/srv/example/ancillary"
+```
+
+The trusted provider receives `data_config["data_roots"]` as a logical mapping. Native execution resolves it to the host directories; Docker execution rewrites it to `/data/training` and `/data/ancillary` and creates one read-only bind mount per root. Names must match `[a-z][a-z0-9_-]*`, sources must be existing distinct directories, and mount targets cannot be configured by Candidate Experiment code. Named-root Runs persist host source, container target, and read-only policy under `run_metadata.json` → `research_problem.data_roots`; Post-Run Evaluation reloads that mapping. A manual `--data-root` override changes only the named `training` root. Existing GVCCS-style `data_config = { dataset_root = "..." }` configuration remains supported without migration and continues to map to `/data`.
 
 ## Rejected submissions
 
@@ -159,7 +176,7 @@ Docker-backed smoke tests, synthetic training, and configured Research Problem t
 - no network (`--network none`);
 - read-only root filesystem;
 - only `/outputs` and `/scratch` are writable container paths (`/outputs` is a run-scoped bind mount; `/scratch` is bounded tmpfs);
-- Harness-owned inputs are read-only mounts (`/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, and `/data` for configured Research Problem data);
+- Harness-owned inputs are read-only mounts (`/candidate`, `/resolved_manifest.yaml`, `/run_metadata.json`, `/data/<name>` for named Research Problem Data Roots, or legacy `/data` for a single `dataset_root`);
 - bounded resources: memory, CPU, process count, and tmpfs scratch policy are set by the Harness defaults;
 - Linux capabilities are dropped and `no-new-privileges` is set;
 - GPU access is disabled by default and can only be enabled by Harness-owned configuration;
