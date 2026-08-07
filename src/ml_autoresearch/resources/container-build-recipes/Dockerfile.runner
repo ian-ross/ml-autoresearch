@@ -33,6 +33,17 @@ RUN python -m pip install --no-cache-dir \
     "pydantic>=2,<3" \
     "PyYAML>=6,<7" \
     "typer>=0.12,<1"
+ARG ML_AUTORESEARCH_RUNNER_REQUIREMENTS_JSON="[]"
+RUN python - <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+requirements = json.loads(os.environ["ML_AUTORESEARCH_RUNNER_REQUIREMENTS_JSON"])
+if requirements:
+    subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", *requirements], check=True)
+PY
 RUN python -m pip install --no-cache-dir --no-deps .
 RUN mkdir -p /candidate /outputs /scratch \
     && cat > /candidate/manifest.yaml <<'EOF'

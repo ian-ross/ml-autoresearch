@@ -35,6 +35,7 @@ class RuntimeImageBuildResult:
 
     workspace_root: Path
     runner_image_tag: str
+    runner_requirements: tuple[str, ...]
     agent_image_path: Path
     recipes_path: Path
     harness_identity: dict[str, object]
@@ -45,6 +46,7 @@ class RuntimeImageBuildResult:
         return {
             "workspace_root": str(self.workspace_root),
             "runner_image_tag": self.runner_image_tag,
+            "runner_requirements": list(self.runner_requirements),
             "agent_image_path": str(self.agent_image_path),
             "recipes_path": str(self.recipes_path),
             "harness_identity": self.harness_identity,
@@ -65,14 +67,28 @@ def build_runtime_images(
     root = Path(workspace_root).resolve()
     _require_workspace_config(root)
     identity = current_harness_identity(root)
+    config = _load_workspace_toml(root)
+    runner_requirements = _configured_runner_requirements(config)
     runner_tag = default_runner_image_tag(root, identity)
+    agent_oci_tag = default_agent_oci_image_tag(root, identity)
     agent_path = root / AGENT_IMAGE_RELATIVE
     recipes = stage_workspace_container_build_recipes(root).destination
+    _configure_staged_gondolin_recipe(recipes, agent_oci_tag)
     docker_build_context = _docker_build_context(root, identity)
 
     commands = [
-        ["docker", "build", "-f", str(recipes / "Dockerfile.runner"), "-t", runner_tag, str(docker_build_context)],
-        ["docker", "build", "-f", str(recipes / "Dockerfile.agent"), "-t", default_agent_oci_image_tag(root, identity), str(docker_build_context)],
+        [
+            "docker",
+            "build",
+            "-f",
+            str(recipes / "Dockerfile.runner"),
+            "-t",
+            runner_tag,
+            "--build-arg",
+            f"ML_AUTORESEARCH_RUNNER_REQUIREMENTS_JSON={json.dumps(runner_requirements)}",
+            str(docker_build_context),
+        ],
+        ["docker", "build", "-f", str(recipes / "Dockerfile.agent"), "-t", agent_oci_tag, str(docker_build_context)],
         [
             "gondolin",
             "build",
@@ -89,13 +105,19 @@ def build_runtime_images(
             runner(command)
             executed.append(tuple(command))
 
-    _write_runtime_metadata(root / RUNNER_IMAGE_RELATIVE, "runner", identity, {"tag": runner_tag})
+    _write_runtime_metadata(
+        root / RUNNER_IMAGE_RELATIVE,
+        "runner",
+        identity,
+        {"tag": runner_tag, "requirements": list(runner_requirements)},
+    )
     _write_runtime_metadata(agent_path, "agent", identity, {"path": str(agent_path)})
     if update_config:
         _update_workspace_config(root, runner_tag=runner_tag, agent_image_path=agent_path)
     return RuntimeImageBuildResult(
         workspace_root=root,
         runner_image_tag=runner_tag,
+        runner_requirements=runner_requirements,
         agent_image_path=agent_path,
         recipes_path=recipes,
         harness_identity=identity,
@@ -112,6 +134,7 @@ def validate_runtime_images(workspace_root: str | Path = Path(".")) -> dict[str,
     config = _load_workspace_toml(root)
     identity = current_harness_identity(root)
     runner_tag = _configured_runner_tag(config) or default_runner_image_tag(root, identity)
+    runner_requirements = _configured_runner_requirements(config)
     agent_path = _configured_agent_path(config, root) or root / AGENT_IMAGE_RELATIVE
 
     runner_metadata = _read_runtime_metadata(root / RUNNER_IMAGE_RELATIVE, "Candidate Execution Boundary runner image")
@@ -121,6 +144,10 @@ def validate_runtime_images(workspace_root: str | Path = Path(".")) -> dict[str,
     if runner_metadata.get("tag") != runner_tag:
         raise RuntimeImageError(
             f"configured runner image {runner_tag!r} does not match built runner image {runner_metadata.get('tag')!r}"
+        )
+    if runner_metadata.get("requirements") != list(runner_requirements):
+        raise RuntimeImageError(
+            "configured runtime_images.runner_requirements do not match the built runner image metadata"
         )
     if Path(str(agent_metadata.get("path", ""))).resolve() != agent_path.resolve():
         raise RuntimeImageError(
@@ -215,6 +242,19 @@ def default_agent_oci_image_tag(workspace_root: str | Path, identity: dict[str, 
     return f"ml-autoresearch-agent:{_slug(f'{root.name}-{identity_part}', max_length=120)}"
 
 
+def _configure_staged_gondolin_recipe(recipes: Path, agent_oci_tag: str) -> None:
+    config_path = recipes / "gondolin-build-config.json"
+    try:
+        config = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeImageError(f"invalid staged Gondolin build configuration {config_path}: {exc}") from exc
+    oci = config.get("oci")
+    if not isinstance(oci, dict):
+        raise RuntimeImageError(f"staged Gondolin build configuration {config_path} must contain an oci object")
+    oci["image"] = agent_oci_tag
+    config_path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
+
+
 def _docker_build_context(workspace_root: Path, identity: dict[str, object]) -> Path:
     if identity.get("kind") == "source":
         path = identity.get("path")
@@ -252,6 +292,23 @@ def _validation_failure_message(root: Path, reason: str) -> str:
         f"if needed, then `ml-autoresearch validate-runtime-images --workspace-root {root}`. "
         "Advanced operators may bypass with --skip-runtime-image-validation."
     )
+
+
+def _configured_runner_requirements(config: dict[str, object]) -> tuple[str, ...]:
+    runtime_images = config.get("runtime_images", {})
+    if not isinstance(runtime_images, dict):
+        raise RuntimeImageError("[runtime_images] must be a table")
+    raw_requirements = runtime_images.get("runner_requirements", [])
+    if not isinstance(raw_requirements, list):
+        raise RuntimeImageError("runtime_images.runner_requirements must be an array of non-empty strings")
+    requirements: list[str] = []
+    for value in raw_requirements:
+        if not isinstance(value, str) or not value.strip():
+            raise RuntimeImageError("runtime_images.runner_requirements must be an array of non-empty strings")
+        requirements.append(value.strip())
+    if len(requirements) != len(set(requirements)):
+        raise RuntimeImageError("runtime_images.runner_requirements must not contain duplicates")
+    return tuple(requirements)
 
 
 def _configured_runner_tag(config: dict[str, object]) -> str | None:
@@ -302,8 +359,11 @@ def _source_identity(source_path: Path, *, source: str) -> dict[str, object]:
     git_status = _git_output(source_path, ["status", "--porcelain"])
     if git_commit:
         state = "dirty" if git_status else "clean"
-        fingerprint = hashlib.sha256(f"{source_path}\0{git_commit}\0{git_status}".encode()).hexdigest()[:16]
-        return {
+        dirty_content_sha256 = _git_dirty_content_sha256(source_path) if git_status else None
+        fingerprint = hashlib.sha256(
+            f"{source_path}\0{git_commit}\0{git_status}\0{dirty_content_sha256 or ''}".encode()
+        ).hexdigest()[:16]
+        identity: dict[str, object] = {
             "kind": "source",
             "path": str(source_path),
             "source": source,
@@ -311,8 +371,41 @@ def _source_identity(source_path: Path, *, source: str) -> dict[str, object]:
             "git_state": state,
             "fingerprint": fingerprint,
         }
+        if dirty_content_sha256 is not None:
+            identity["dirty_content_sha256"] = dirty_content_sha256
+        return identity
     fingerprint = hashlib.sha256(str(source_path).encode()).hexdigest()[:16]
     return {"kind": "source", "path": str(source_path), "source": source, "git_state": "not-a-git-worktree", "fingerprint": fingerprint}
+
+
+def _git_dirty_content_sha256(cwd: Path) -> str:
+    digest = hashlib.sha256()
+    diff = subprocess.run(
+        ["git", "diff", "--binary", "HEAD", "--"],
+        cwd=cwd,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    digest.update(diff.stdout)
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=cwd,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    for raw_relative in sorted(part for part in untracked.stdout.split(b"\0") if part):
+        relative = raw_relative.decode("utf-8", errors="surrogateescape")
+        path = cwd / relative
+        digest.update(b"untracked\0" + raw_relative + b"\0")
+        if path.is_symlink():
+            digest.update(os.readlink(path).encode("utf-8", errors="surrogateescape"))
+        elif path.is_file():
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _git_output(cwd: Path, args: Sequence[str]) -> str | None:

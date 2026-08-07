@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from conftest import invoke_typer_cli
@@ -8,6 +9,7 @@ from ml_autoresearch.cli import app
 from ml_autoresearch.runtime_images import (
     RuntimeImageError,
     build_runtime_images,
+    current_harness_identity,
     require_runtime_image_validation,
     validate_runtime_images,
 )
@@ -53,6 +55,37 @@ def test_build_runtime_images_update_config_records_workspace_specific_identitie
     assert f'image = "{result.agent_image_path}"' in updated
     assert "ml-autoresearch-runner:" in result.runner_image_tag
     assert tmp_path.name.lower()[:8] in result.runner_image_tag
+
+
+def test_build_runtime_images_passes_trusted_workspace_runner_requirements_to_docker(tmp_path: Path) -> None:
+    config = _workspace_config(tmp_path)
+    config.write_text(
+        config.read_text()
+        + '\n[runtime_images]\nrunner_requirements = ["zarr>=3.2.1,<4", "numcodecs>=0.16,<1"]\n'
+    )
+    commands: list[list[str]] = []
+
+    build_runtime_images(tmp_path, execute=True, command_runner=lambda command: commands.append(command))
+
+    runner_build = next(command for command in commands if "Dockerfile.runner" in " ".join(command))
+    build_arg = runner_build[runner_build.index("--build-arg") + 1]
+    assert build_arg.startswith("ML_AUTORESEARCH_RUNNER_REQUIREMENTS_JSON=")
+    assert '"zarr>=3.2.1,<4"' in build_arg
+    assert '"numcodecs>=0.16,<1"' in build_arg
+    metadata = json.loads((tmp_path / ".ml-autoresearch" / "images" / "runner" / "runtime-image.json").read_text())
+    assert metadata["requirements"] == ["zarr>=3.2.1,<4", "numcodecs>=0.16,<1"]
+
+
+def test_build_runtime_images_points_gondolin_recipe_at_the_workspace_agent_image(tmp_path: Path) -> None:
+    _workspace_config(tmp_path)
+
+    result = build_runtime_images(tmp_path, execute=False)
+
+    gondolin_config = json.loads((result.recipes_path / "gondolin-build-config.json").read_text())
+    image = gondolin_config["oci"]["image"]
+    assert image.startswith("ml-autoresearch-agent:")
+    assert image != "ml-autoresearch-agent:local"
+    assert tmp_path.name.lower() in image
 
 
 def test_validate_runtime_images_writes_stamp_with_harness_and_image_identity(tmp_path: Path) -> None:
@@ -148,6 +181,29 @@ def test_dev_source_override_changes_identity_and_validation_metadata(tmp_path: 
     assert stamp["dev_override"]["enabled"] is True
     assert stamp["dev_override"]["source"] == "environment"
     assert require_runtime_image_validation(tmp_path)["harness_identity"] == stamp["harness_identity"]
+
+
+def test_dev_source_identity_changes_when_dirty_file_contents_change(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "harness-src"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
+    marker = source / "marker.txt"
+    marker.write_text("committed\n")
+    subprocess.run(["git", "add", "marker.txt"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-qm", "initial"], cwd=source, check=True)
+    _workspace_config(tmp_path)
+    monkeypatch.setenv("ML_AUTORESEARCH_RUNTIME_IMAGE_SOURCE_OVERRIDE", str(source))
+
+    marker.write_text("dirty-one\n")
+    first = current_harness_identity(tmp_path)
+    marker.write_text("dirty-two\n")
+    second = current_harness_identity(tmp_path)
+
+    assert first["git_state"] == "dirty"
+    assert second["git_state"] == "dirty"
+    assert first["fingerprint"] != second["fingerprint"]
 
 
 def test_dev_source_override_uses_harness_source_as_docker_build_context(tmp_path: Path, monkeypatch) -> None:

@@ -38,6 +38,14 @@ def test_runner_dockerfile_installs_runtime_dependencies_before_package_install(
     assert "typer>=0.12,<1" in dockerfile
 
 
+def test_runner_dockerfile_installs_workspace_trusted_requirements_from_json_build_arg() -> None:
+    dockerfile = RUNNER_DOCKERFILE.read_text()
+
+    assert 'ARG ML_AUTORESEARCH_RUNNER_REQUIREMENTS_JSON="[]"' in dockerfile
+    assert 'json.loads(os.environ["ML_AUTORESEARCH_RUNNER_REQUIREMENTS_JSON"])' in dockerfile
+    assert 'subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", *requirements]' in dockerfile
+
+
 def test_runner_dockerfile_smoke_checks_mask_only_synthetic_training_contract() -> None:
     dockerfile = RUNNER_DOCKERFILE.read_text()
 
