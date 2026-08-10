@@ -407,7 +407,9 @@ def _write_agent_candidate_execution_config(workspace_dir: Path, config: AgentBo
         f'expected_contract_version = "{_toml_escape(provider.expected_contract_version)}"',
     ]
     if data_config:
-        entries = ", ".join(f'{key} = "{_toml_escape(str(value))}"' for key, value in sorted(data_config.items()))
+        entries = ", ".join(
+            f"{_toml_key(key)} = {_toml_value(value)}" for key, value in sorted(data_config.items())
+        )
         lines.append(f"data_config = {{ {entries} }}")
     visible_roots = {
         mount.root_name: mount.target
@@ -619,6 +621,36 @@ def _clear_snapshot_contents(snapshot_dir: Path) -> None:
 
 def _toml_bool(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _toml_key(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        return value
+    return f'"{_toml_escape(value)}"'
+
+
+def _toml_value(value: object) -> str:
+    if isinstance(value, str):
+        return f'"{_toml_escape(value)}"'
+    if isinstance(value, bool):
+        return _toml_bool(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    if isinstance(value, dict):
+        entries: list[str] = []
+        for key, item in sorted(value.items()):
+            if not isinstance(key, str):
+                raise AgentBoundaryError("research_problem.data_config mapping keys must be strings")
+            entries.append(f"{_toml_key(key)} = {_toml_value(item)}")
+        return "{ " + ", ".join(entries) + " }"
+    raise AgentBoundaryError(
+        "unsupported research_problem.data_config value type in Agent Workspace TOML: "
+        f"{type(value).__name__}"
+    )
 
 
 def _toml_escape(value: str) -> str:

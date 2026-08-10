@@ -1,4 +1,5 @@
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -265,6 +266,59 @@ path = "{data_root}"
     assert not old_dropin.exists()
     assert (tmp_path / "agent-work" / ".pi" / "fort.d" / "README.md").is_file()
 
+
+
+def test_prepare_agent_boundary_preserves_typed_research_problem_data_config(tmp_path: Path, monkeypatch):
+    data_root = tmp_path / "gvccs-data"
+    data_root.mkdir()
+    write_project(
+        tmp_path,
+        f'''
+[[data_mounts]]
+name = "gvccs"
+path = "{data_root}"
+''',
+    )
+    config_path = tmp_path / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            f'data_config = {{ dataset_root = "{data_root}" }}\n',
+            f'''[research_problem.data_config]
+dataset_root = "{data_root}"
+geographic_filter_required = true
+postprocessing_batch_size = 8
+threshold = 0.5
+channel_names = ["C08", "C11"]
+filter_options = {{ enabled = true, max_components = 4 }}
+
+[[research_problem.data_config.sources]]
+layout = "mit"
+patch_size = 256
+
+[[research_problem.data_config.sources]]
+layout = "google"
+patch_size = 256
+''',
+        )
+    )
+    configure_fake_pi_fort(tmp_path, monkeypatch)
+
+    completed = run_cli(tmp_path, "prepare-agent-boundary")
+
+    assert completed.returncode == 0, completed.stderr
+    generated = tomllib.loads((tmp_path / "agent-work" / "ml-autoresearch.toml").read_text())
+    assert generated["research_problem"]["data_config"] == {
+        "dataset_root": "/data/gvccs",
+        "geographic_filter_required": True,
+        "postprocessing_batch_size": 8,
+        "threshold": 0.5,
+        "channel_names": ["C08", "C11"],
+        "filter_options": {"enabled": True, "max_components": 4},
+        "sources": [
+            {"layout": "mit", "patch_size": 256},
+            {"layout": "google", "patch_size": 256},
+        ],
+    }
 
 
 def test_prepare_agent_boundary_rejects_colliding_research_problem_snapshot_paths(tmp_path: Path, monkeypatch):
