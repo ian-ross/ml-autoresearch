@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ml_autoresearch.execution import DockerBackend, NativeBackend
+from ml_autoresearch.execution import DockerBackend, NativeBackend, backend_metadata
 from ml_autoresearch.runs import RunStatus, submit_candidate
 
 
@@ -113,6 +113,31 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert f"{run_dir / 'outputs'}:/outputs:rw,z" in joined
     assert "type=tmpfs,destination=/scratch,tmpfs-size=2g,tmpfs-mode=1777" in joined
     assert "/var/run/docker.sock" not in joined
+
+
+def test_docker_backend_pins_harness_configured_gpu_device(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    run_dir = tmp_path / "runs" / "run_1"
+    (run_dir / "candidate").mkdir(parents=True)
+    (run_dir / "outputs" / "logs").mkdir(parents=True)
+    (run_dir / "scratch").mkdir()
+    (run_dir / "resolved_manifest.yaml").write_text("name: x\n")
+    (run_dir / "run_metadata.json").write_text("{}\n")
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(command)
+        if command[:2] == ["docker", "info"]:
+            return subprocess.CompletedProcess(command, 0, '["name=seccomp,profile=builtin"]', "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    backend = DockerBackend("custom:tag", enable_gpu=True, gpu_device="1")
+
+    backend.smoke_test(run_dir)
+
+    docker_run = calls[2]
+    assert docker_run[docker_run.index("--gpus") + 1] == "device=1"
+    assert backend_metadata(backend)["gpu_device"] == "1"
 
 
 def test_docker_backend_mounts_research_problem_package_at_manifest_path_for_smoke(

@@ -20,10 +20,12 @@ def test_candidate_execution_config_selects_docker_gpu_policy_and_data_root(tmp_
 backend = "docker"
 docker_image = "custom:tag"
 docker_enable_gpu = true
+docker_gpu_device = "0"
 docker_rootless_container_root = true
 data_root = "{data_root}"
 max_samples = 8
 max_prediction_samples = 4
+max_parallel_runs = 2
 prediction_sample_policy = "adjacent_and_scattered"
 '''.lstrip()
     )
@@ -35,10 +37,12 @@ prediction_sample_policy = "adjacent_and_scattered"
     assert config.data_root == data_root
     assert config.max_samples == 8
     assert config.max_prediction_samples == 4
+    assert config.max_parallel_runs == 2
     assert config.prediction_sample_policy == "adjacent_and_scattered"
     assert isinstance(backend, DockerBackend)
     assert backend.docker_image == "custom:tag"
     assert backend.enable_gpu is True
+    assert backend.gpu_device == "0"
     assert backend.rootless_container_root is True
 
 
@@ -251,6 +255,18 @@ ledger_path = "{external_ledger}"
         (
             '[candidate_execution]\nbackend = "docker"\ndocker_user = "1000:1000"\ndocker_rootless_container_root = true\n',
             "choose either",
+        ),
+        (
+            '[candidate_execution]\nbackend = "docker"\ndocker_gpu_device = "0"\n',
+            "docker_gpu_device requires docker_enable_gpu",
+        ),
+        (
+            '[candidate_execution]\nmax_parallel_runs = 5\n',
+            "max_parallel_runs must be at most 4",
+        ),
+        (
+            '[candidate_execution]\nbackend = "docker"\ndocker_enable_gpu = true\ndocker_gpu_device = "0,1"\n',
+            "docker_gpu_device must identify one GPU",
         ),
     ],
 )

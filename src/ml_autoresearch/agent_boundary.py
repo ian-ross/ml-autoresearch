@@ -43,6 +43,7 @@ class AgentBoundaryConfig:
     allow_egress: bool
     data_mounts: tuple[DataMount, ...]
     runs_root: Path
+    candidate_execution: CandidateExecutionConfig
     research_problem: LoadedResearchProblemSpec
     research_problem_provider: Any
 
@@ -90,6 +91,7 @@ def load_agent_boundary_config(project_root: Path) -> AgentBoundaryConfig:
             ),
         ),
         runs_root=candidate_config.runs_root,
+        candidate_execution=candidate_config,
         research_problem=_load_agent_boundary_research_problem(candidate_config),
         research_problem_provider=candidate_config.research_problem_provider,
     )
@@ -205,7 +207,7 @@ def prepare_agent_boundary(project_root: Path = Path(".")) -> dict[str, str]:
     _refresh_research_problem_snapshot(research_problem_dir, config.research_problem)
     _ensure_workspace(workspace_dir)
     _write_research_problem_brief_index(workspace_dir, config.research_problem)
-    _write_agent_workspace_instructions(workspace_dir, config.research_problem)
+    _write_agent_workspace_instructions(workspace_dir, config.research_problem, config.candidate_execution)
     _write_agent_candidate_execution_config(workspace_dir, config)
     _write_managed_fort_config(project_root, workspace_dir, config)
     _install_autoresearch_skills(project_root, workspace_dir)
@@ -446,7 +448,11 @@ def _is_raw_dataset_root_key(key: str) -> bool:
     return key in {"dataset_root", "data_root"}
 
 
-def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: LoadedResearchProblemSpec) -> None:
+def _write_agent_workspace_instructions(
+    workspace_dir: Path,
+    research_problem: LoadedResearchProblemSpec,
+    candidate_execution: CandidateExecutionConfig,
+) -> None:
     brief_index = _render_research_problem_brief_index(research_problem)
     (workspace_dir / "AGENTS.md").write_text(
         "# Agent Control Boundary path map\n"
@@ -481,6 +487,15 @@ def _write_agent_workspace_instructions(workspace_dir: Path, research_problem: L
         "## Dataset profile artifacts\n"
         "\n"
         "Dataset profile artifacts, when supplied by the Harness or active Research Problem package, are trusted agent-visible context under `/research-problem/profile/` and linked from `RESEARCH_PROBLEM_BRIEF_INDEX.md`. Use them as reproducible dataset intelligence for proposals and analysis; they are not raw training data or authoritative Run Results. If a needed statistic or qualitative view is missing, write a Capability Request instead of probing `/data`.\n"
+        "\n"
+        "## Harness-owned Experiment Batch policy\n"
+        "\n"
+        "- At most 4 related Candidate Experiments may be submitted in one batch.\n"
+        f"- The configured parallel Run cap is {candidate_execution.max_parallel_runs}; the Harness, not Candidate code or the agent, owns and enforces this cap.\n"
+        "- Use an Experiment Batch only for a small, shared-hypothesis comparison whose candidates differ by controlled factors and have comparable, trusted resource profiles.\n"
+        "- Unprofiled architecture families must be submitted sequentially. Do not infer safe concurrency from parameter count alone.\n"
+        "- If requested concurrency or GPU placement is not available in the trusted policy, submit sequentially or create a Capability Request; never implement Candidate-owned scheduling.\n"
+        "- Prepare one batch handoff with `ml-autoresearch-agent prepare-experiment-batch-submission --batch <draft> --submissions-root batch-submissions`.\n"
         "\n"
         "## Writable handoff locations\n"
         "\n"

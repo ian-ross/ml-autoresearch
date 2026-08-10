@@ -115,12 +115,14 @@ def _select_backend(
     docker_enable_gpu: bool = False,
     docker_user: str | None = None,
     docker_rootless_container_root: bool = False,
+    docker_gpu_device: str | None = None,
 ) -> ExecutionBackend:
     try:
         return select_execution_backend(
             name,
             docker_image,
             docker_enable_gpu=docker_enable_gpu,
+            docker_gpu_device=docker_gpu_device,
             docker_user=docker_user,
             docker_rootless_container_root=docker_rootless_container_root,
         )
@@ -818,8 +820,12 @@ def run_experiment_batch_command(
     docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
     docker_enable_gpu: Annotated[
         bool,
-        typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access by passing --gpus all to Docker runs."),
+        typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access."),
     ] = False,
+    docker_gpu_device: Annotated[
+        str | None,
+        typer.Option("--docker-gpu-device", help="Harness-owned single GPU index/UUID to expose to Docker."),
+    ] = None,
     docker_user: Annotated[str | None, typer.Option("--docker-user", help="Container uid:gid for Docker runs.")] = None,
     docker_rootless_container_root: Annotated[
         bool,
@@ -844,6 +850,7 @@ def run_experiment_batch_command(
             backend_name=backend,
             docker_image=docker_image,
             docker_enable_gpu=docker_enable_gpu,
+            docker_gpu_device=docker_gpu_device,
             docker_user=docker_user,
             docker_rootless_container_root=docker_rootless_container_root,
             max_parallel_runs=max_parallel_runs,
@@ -886,8 +893,12 @@ def run_candidate_command(
     docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
     docker_enable_gpu: Annotated[
         bool,
-        typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access by passing --gpus all to Docker runs."),
+        typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access."),
     ] = False,
+    docker_gpu_device: Annotated[
+        str | None,
+        typer.Option("--docker-gpu-device", help="Harness-owned single GPU index/UUID to expose to Docker."),
+    ] = None,
     docker_user: Annotated[
         str | None,
         typer.Option(
@@ -941,6 +952,7 @@ def run_candidate_command(
             backend_name=backend,
             docker_image=docker_image,
             docker_enable_gpu=docker_enable_gpu,
+            docker_gpu_device=docker_gpu_device,
             docker_user=docker_user,
             docker_rootless_container_root=docker_rootless_container_root,
             max_samples=max_samples,

@@ -160,6 +160,7 @@ def render_autonomy_step_prompt(project_root: Path | None = None) -> str:
         f"{campaign_state}"
         "Allowed primary handoff outcomes (choose exactly one if you hand off work):\n"
         "- one Candidate Submission under submissions/\n"
+        "- one Experiment Batch Submission under batch-submissions/\n"
         "- one Research Note under research-notes/\n"
         "- one Capability Request under capability-requests/\n"
         "- one Evaluation Request under evaluation-requests/\n"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import math
+import time
 import traceback
 from pathlib import Path
 
@@ -197,11 +198,20 @@ def _train_manifest_epochs_run(
     best_epoch_model_path = outputs_dir / "models" / "best_epoch_model.pt"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [start_line]
+    run_started_at = time.perf_counter()
+    device: torch.device | None = None
+    hardware_profile: dict[str, object] = {"device_type": "unknown"}
+    batch_size: int | None = None
+    total_trained_samples = 0
+    total_validation_samples = 0
+    training_wall_seconds = 0.0
+    validation_wall_seconds = 0.0
 
     try:
         torch.manual_seed(SYNTHETIC_FIXTURE_SEED)
         manifest = yaml.safe_load(resolved_manifest_path.read_text())
         training = manifest["training"]
+        batch_size = int(training["batch_size"])
         data_policy = manifest.get("data", {})
         sampling_policy = data_policy.get("sampling_policy", "sequential")
         augmentation_policy = data_policy.get("augmentation_policy_effective", data_policy.get("augmentation_policy", "none"))
@@ -211,6 +221,7 @@ def _train_manifest_epochs_run(
         output_spec = output_spec_from_resolved_manifest(resolved_manifest_path)
 
         device = _select_training_device()
+        hardware_profile = _start_resource_profile(device)
         module = _import_candidate_model(candidate_dir)
         model = module.build_model(dict(input_spec), dict(output_spec))
         if not isinstance(model, torch.nn.Module):
@@ -220,7 +231,6 @@ def _train_manifest_epochs_run(
         optimizer = torch.optim.AdamW(model.parameters(), lr=float(training["learning_rate"]))
         scheduler_policy = _resolved_scheduler_policy(training)
         early_stopping_policy = _resolved_early_stopping_policy(training)
-        batch_size = int(training["batch_size"])
         train_loader = train_loader_factory(batch_size, sampling_policy, augmentation_policy)
         primary_output_name = _primary_output_name(output_spec, training_adapter)
         selection_metric, selection_mode = _selection_policy(training_adapter)
@@ -243,6 +253,7 @@ def _train_manifest_epochs_run(
             train_mask_loss_total = 0.0
             train_aux_loss_totals: dict[str, float] = {}
             trained_samples = 0
+            training_phase_started = _resource_phase_started(device)
             for batch_index, (inputs, targets) in enumerate(train_loader):
                 inputs = inputs.to(device, non_blocking=True)
                 targets = targets.to(device, non_blocking=True)
@@ -255,6 +266,7 @@ def _train_manifest_epochs_run(
                 loss.backward()
                 optimizer.step()
                 trained_samples += int(inputs.shape[0])
+                total_trained_samples += int(inputs.shape[0])
                 train_loss_total += float(loss.item()) * inputs.shape[0]
                 train_mask_loss_total += float(mask_loss.item()) * inputs.shape[0]
                 for name, auxiliary_loss in auxiliary_losses.items():
@@ -272,7 +284,9 @@ def _train_manifest_epochs_run(
                     timeout_requested = True
                     lines.append("Wall-clock timeout requested by Harness; stopping at end-of-batch checkpoint.")
                     break
+            training_wall_seconds += _resource_phase_elapsed(device, training_phase_started)
 
+            validation_phase_started = _resource_phase_started(device)
             final = _evaluate(
                 model,
                 val_loader,
@@ -282,6 +296,8 @@ def _train_manifest_epochs_run(
                 primary_loss_name=primary_loss_name,
                 training_adapter=training_adapter,
             )
+            validation_wall_seconds += _resource_phase_elapsed(device, validation_phase_started)
+            total_validation_samples += val_sample_count
             final["epoch"] = epoch
             final["hardware/device"] = device.type
             final["training/learning_rate"] = _current_learning_rate(optimizer)
@@ -378,6 +394,20 @@ def _train_manifest_epochs_run(
         )
         artifacts["best_metrics"] = "outputs/best_metrics.json"
         artifacts["best_epoch_model"] = "outputs/models/best_epoch_model.pt"
+        artifacts["resource_profile"] = "outputs/resource_profile.json"
+        resource_profile = _write_resource_profile(
+            outputs_dir,
+            status="completed",
+            batch_size=batch_size,
+            device=device,
+            hardware=hardware_profile,
+            run_wall_seconds=time.perf_counter() - run_started_at,
+            training_wall_seconds=training_wall_seconds,
+            validation_wall_seconds=validation_wall_seconds,
+            training_samples_processed=total_trained_samples,
+            validation_samples_processed=total_validation_samples,
+        )
+        final["resource_profile"] = resource_profile
         final["artifacts"] = artifacts
         final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
         if timeout_requested:
@@ -388,12 +418,126 @@ def _train_manifest_epochs_run(
         return final
     except Exception as exc:  # noqa: BLE001 - persist clear Harness failure details.
         reason = str(exc)
+        try:
+            _write_resource_profile(
+                outputs_dir,
+                status="failed",
+                batch_size=batch_size,
+                device=device,
+                hardware=hardware_profile,
+                run_wall_seconds=time.perf_counter() - run_started_at,
+                training_wall_seconds=training_wall_seconds,
+                validation_wall_seconds=validation_wall_seconds,
+                training_samples_processed=total_trained_samples,
+                validation_samples_processed=total_validation_samples,
+                failure_reason=reason,
+            )
+        except OSError as profile_error:
+            lines.append(f"Resource profile write failed: {profile_error}")
         lines.append(f"{failure_prefix}: {reason}")
         lines.append(traceback.format_exc())
         log_path.write_text("\n".join(lines) + "\n")
         if isinstance(exc, TrainingError):
             raise
         raise TrainingError(reason) from exc
+
+
+def _start_resource_profile(device: torch.device) -> dict[str, object]:
+    hardware: dict[str, object] = {"device_type": device.type}
+    if device.type != "cuda":
+        return hardware
+    try:
+        device_index = device.index if device.index is not None else torch.cuda.current_device()
+        torch.cuda.synchronize(device)
+        torch.cuda.reset_peak_memory_stats(device)
+        properties = torch.cuda.get_device_properties(device_index)
+        free_memory, total_memory = torch.cuda.mem_get_info(device_index)
+        hardware.update(
+            {
+                "cuda_device_index": device_index,
+                "cuda_device_name": properties.name,
+                "cuda_compute_capability": f"{properties.major}.{properties.minor}",
+                "cuda_total_memory_bytes": int(total_memory),
+                "cuda_memory_free_at_start_bytes": int(free_memory),
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - profiling must not make a valid Run fail.
+        hardware["instrumentation_error"] = str(exc)
+    return hardware
+
+
+def _resource_phase_started(device: torch.device) -> float:
+    _synchronize_resource_device(device)
+    return time.perf_counter()
+
+
+def _resource_phase_elapsed(device: torch.device, started_at: float) -> float:
+    _synchronize_resource_device(device)
+    return max(0.0, time.perf_counter() - started_at)
+
+
+def _synchronize_resource_device(device: torch.device | None) -> None:
+    if device is None or device.type != "cuda":
+        return
+    try:
+        torch.cuda.synchronize(device)
+    except Exception:  # noqa: BLE001 - retain training/failure evidence after CUDA errors.
+        return
+
+
+def _write_resource_profile(
+    outputs_dir: Path,
+    *,
+    status: str,
+    batch_size: int | None,
+    device: torch.device | None,
+    hardware: dict[str, object],
+    run_wall_seconds: float,
+    training_wall_seconds: float,
+    validation_wall_seconds: float,
+    training_samples_processed: int,
+    validation_samples_processed: int,
+    failure_reason: str | None = None,
+) -> dict[str, object]:
+    resolved_hardware = dict(hardware)
+    _synchronize_resource_device(device)
+    if device is not None and device.type == "cuda":
+        try:
+            resolved_hardware["cuda_peak_memory_allocated_bytes"] = int(torch.cuda.max_memory_allocated(device))
+            resolved_hardware["cuda_peak_memory_reserved_bytes"] = int(torch.cuda.max_memory_reserved(device))
+        except Exception as exc:  # noqa: BLE001 - preserve the rest of the resource profile.
+            resolved_hardware.setdefault("instrumentation_error", str(exc))
+
+    performance = {
+        "run_wall_seconds": round(max(0.0, run_wall_seconds), 6),
+        "training_wall_seconds": round(max(0.0, training_wall_seconds), 6),
+        "validation_wall_seconds": round(max(0.0, validation_wall_seconds), 6),
+        "training_samples_processed": training_samples_processed,
+        "validation_samples_processed": validation_samples_processed,
+    }
+    if training_wall_seconds > 0:
+        performance["training_samples_per_second"] = round(training_samples_processed / training_wall_seconds, 6)
+    if validation_wall_seconds > 0:
+        performance["validation_samples_per_second"] = round(validation_samples_processed / validation_wall_seconds, 6)
+
+    profile: dict[str, object] = {
+        "schema_version": "training_resource_profile.v1",
+        "status": status,
+        "batch_size": batch_size,
+        "hardware": resolved_hardware,
+        "performance": performance,
+    }
+    if failure_reason is not None:
+        profile["failure_reason"] = failure_reason
+
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    latest_path = outputs_dir / "resource_profile.json"
+    latest_path.write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n")
+    attempts_dir = outputs_dir / "resource_profiles"
+    attempts_dir.mkdir(exist_ok=True)
+    attempt_name = "unknown" if batch_size is None else str(batch_size)
+    (attempts_dir / f"batch_size_{attempt_name}.json").write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n")
+    return profile
 
 
 def _prediction_sample_selector(training_adapter: object | None, policy: str, max_samples: int):

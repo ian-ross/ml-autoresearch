@@ -30,6 +30,7 @@ class CandidateExecutionConfig:
     backend: Literal["native", "docker"] = "native"
     docker_image: str = DEFAULT_DOCKER_IMAGE
     docker_enable_gpu: bool = False
+    docker_gpu_device: str | None = None
     docker_user: str | None = None
     docker_rootless_container_root: bool = False
     data_root: Path | None = None
@@ -37,6 +38,7 @@ class CandidateExecutionConfig:
     ledger_path: Path | None = None
     max_samples: int | None = None
     max_prediction_samples: int = 2
+    max_parallel_runs: int = 1
     prediction_sample_policy: Literal["first_n", "adjacent_and_scattered"] = "first_n"
     research_problem_provider: ResearchProblemProviderConfig | None = None
 
@@ -59,6 +61,13 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
     backend = _literal(settings, "backend", {"native", "docker"}, "native")
     docker_image = _string(settings, "docker_image", DEFAULT_DOCKER_IMAGE)
     docker_enable_gpu = _bool(settings, "docker_enable_gpu", False)
+    docker_gpu_device = _optional_string(settings, "docker_gpu_device")
+    if docker_gpu_device is not None and re.fullmatch(
+        r"(?:[0-9]+|GPU-[A-Za-z0-9-]+|MIG-[A-Za-z0-9-]+)", docker_gpu_device
+    ) is None:
+        raise CandidateExecutionConfigError(
+            "candidate_execution.docker_gpu_device must identify one GPU by numeric index, GPU UUID, or MIG UUID"
+        )
     docker_user = _optional_string(settings, "docker_user")
     docker_rootless_container_root = _bool(settings, "docker_rootless_container_root", False)
     data_root = _optional_path(settings, "data_root", root)
@@ -74,6 +83,9 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         )
     max_samples = _optional_int(settings, "max_samples", minimum=1)
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
+    max_parallel_runs = _int(settings, "max_parallel_runs", 1, minimum=1)
+    if max_parallel_runs > 4:
+        raise CandidateExecutionConfigError("candidate_execution.max_parallel_runs must be at most 4")
     prediction_sample_policy = _literal(
         settings,
         "prediction_sample_policy",
@@ -84,12 +96,16 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
     if backend == "native":
         if docker_enable_gpu:
             raise CandidateExecutionConfigError("candidate_execution.docker_enable_gpu requires backend = \"docker\"")
+        if docker_gpu_device is not None:
+            raise CandidateExecutionConfigError("candidate_execution.docker_gpu_device requires backend = \"docker\"")
         if docker_user is not None:
             raise CandidateExecutionConfigError("candidate_execution.docker_user requires backend = \"docker\"")
         if docker_rootless_container_root:
             raise CandidateExecutionConfigError(
                 "candidate_execution.docker_rootless_container_root requires backend = \"docker\""
             )
+    if docker_gpu_device is not None and not docker_enable_gpu:
+        raise CandidateExecutionConfigError("candidate_execution.docker_gpu_device requires docker_enable_gpu = true")
     if docker_user is not None and docker_rootless_container_root:
         raise CandidateExecutionConfigError(
             "choose either candidate_execution.docker_user or candidate_execution.docker_rootless_container_root, not both"
@@ -99,6 +115,7 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         backend=backend,  # type: ignore[arg-type]
         docker_image=docker_image,
         docker_enable_gpu=docker_enable_gpu,
+        docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
         data_root=data_root,
@@ -106,6 +123,7 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         ledger_path=ledger_path,
         max_samples=max_samples,
         max_prediction_samples=max_prediction_samples,
+        max_parallel_runs=max_parallel_runs,
         prediction_sample_policy=prediction_sample_policy,  # type: ignore[arg-type]
         research_problem_provider=research_problem_provider,
     )
@@ -136,6 +154,7 @@ def execution_backend_from_config(config: CandidateExecutionConfig) -> Execution
     return DockerBackend(
         config.docker_image,
         enable_gpu=config.docker_enable_gpu,
+        gpu_device=config.docker_gpu_device,
         container_user=config.docker_user,
         rootless_container_root=config.docker_rootless_container_root,
     )

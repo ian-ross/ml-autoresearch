@@ -212,6 +212,7 @@ class DockerBackend:
     scratch_size: str = DEFAULT_DOCKER_SCRATCH_SIZE
     shm_size: str = DEFAULT_DOCKER_SHM_SIZE
     enable_gpu: bool = False
+    gpu_device: str | None = None
     container_user: str | None = None
     rootless_container_root: bool = False
 
@@ -506,7 +507,7 @@ class DockerBackend:
         if evaluations_writable:
             command.extend(["--volume", f"{run_dir / 'outputs' / 'evaluations'}:/outputs/evaluations:rw,z"])
         if self.enable_gpu:
-            command.extend(["--gpus", "all"])
+            command.extend(["--gpus", self._docker_gpu_request()])
         if data_root is not None:
             command.extend(["--volume", f"{data_root}:/data:ro,z"])
         for name, source in sorted((data_roots or {}).items()):
@@ -552,7 +553,7 @@ class DockerBackend:
         for name, source in sorted(data_roots.items()):
             command.extend(["--volume", f"{source}:/data/{name}:ro,z"])
         if self.enable_gpu:
-            command.extend(["--gpus", "all"])
+            command.extend(["--gpus", self._docker_gpu_request()])
         if provider_package_root is not None:
             command.extend([
                 "--env",
@@ -630,6 +631,9 @@ class DockerBackend:
                 "ML_AUTORESEARCH_DATALOADER_PREFETCH_FACTOR",
             ),
         ]
+
+    def _docker_gpu_request(self) -> str:
+        return "all" if self.gpu_device is None else f"device={self.gpu_device}"
 
     def _container_user(self, *, docker_is_rootless: bool = False) -> str:
         if self.rootless_container_root or (docker_is_rootless and self.container_user is None):
@@ -910,6 +914,8 @@ def backend_metadata(backend: ExecutionBackend) -> dict[str, object]:
                 "shm_size": backend.shm_size,
             },
         }
+        if backend.enable_gpu and backend.gpu_device is not None:
+            metadata["gpu_device"] = backend.gpu_device
         if backend.wall_clock_timeout_seconds is not None:
             metadata["wall_clock_budget"] = {
                 "timeout_seconds": backend.wall_clock_timeout_seconds,

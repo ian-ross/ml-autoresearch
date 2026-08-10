@@ -171,6 +171,7 @@ def test_gvccs_training_artifact_names_and_key_metrics_stay_stable(tmp_path: Pat
         "prediction_samples": "outputs/prediction_samples/samples.json",
         "best_metrics": "outputs/best_metrics.json",
         "best_epoch_model": "outputs/models/best_epoch_model.pt",
+        "resource_profile": "outputs/resource_profile.json",
     }
 
     final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())

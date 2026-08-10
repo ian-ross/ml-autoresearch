@@ -186,6 +186,7 @@ data_config = {{ dataset_root = "data" }}
 backend = "native"
 runs_root = "{request.runs_root}"
 ledger_path = "research-ledger.jsonl"
+max_parallel_runs = 1
 max_prediction_samples = 2
 prediction_sample_policy = "first_n"
 '''

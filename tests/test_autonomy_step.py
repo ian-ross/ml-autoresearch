@@ -115,6 +115,7 @@ assert 'Read AGENTS.md first' in prompt
 assert 'campaign-manager skill' in prompt
 assert 'Multiple primary handoff outcomes are forbidden' in prompt
 assert 'exactly one primary research handoff outcome' in prompt
+assert 'one Experiment Batch Submission under batch-submissions/' in prompt
 assert Path('AGENTS.md').is_file()
 Path('research-notes').mkdir(exist_ok=True)
 Path('research-notes/2026-05-22-agent-note.md').write_text('# Agent Note\\n\\n## Summary\\nOne note.\\n\\n## Decision\\nContinue.\\n')

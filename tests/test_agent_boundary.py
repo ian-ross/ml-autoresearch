@@ -60,6 +60,7 @@ def write_fake_research_problem_provider(root: Path) -> None:
     (root / "ml-autoresearch.toml").write_text(
         "[candidate_execution]\n"
         "ledger_path = \"research-ledger.jsonl\"\n"
+        "max_parallel_runs = 2\n"
         "\n"
         "[research_problem]\n"
         "id = \"tiny_problem\"\n"
@@ -206,6 +207,10 @@ path = "{data_root}"
     assert "write new draft Research Notes under `research-notes/`" in instructions
     assert "One Autonomy Step means one primary handoff outcome, then stop." in instructions
     assert "Do not\nproduce a second Candidate Submission" in instructions
+    assert "## Harness-owned Experiment Batch policy" in instructions
+    assert "At most 4 related Candidate Experiments" in instructions
+    assert "configured parallel Run cap is 2" in instructions
+    assert "Unprofiled architecture families must be submitted sequentially" in instructions
     assert "Use `ml-autoresearch-agent`, not `ml-autoresearch`" in instructions
     assert "## Python and uv execution safety" in instructions
     assert "UV_PROJECT_ENVIRONMENT=/tmp/ml-autoresearch-agent-venv uv run" in instructions
@@ -238,6 +243,8 @@ path = "{data_root}"
     skill_text = skill_path.read_text()
     assert "name: campaign-manager" in skill_text
     assert "# Campaign Manager" in skill_text
+    batch_skill = tmp_path / "agent-work" / ".pi" / "skills" / "experiment-batch-writer" / "SKILL.md"
+    assert "name: experiment-batch-writer" in batch_skill.read_text()
     assert not stale_skill_file.exists()
     assert unrelated_skill_file.read_text() == "# Local Helper\n"
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -29,6 +30,7 @@ def select_execution_backend(
     docker_image: str = DEFAULT_DOCKER_IMAGE,
     *,
     docker_enable_gpu: bool = False,
+    docker_gpu_device: str | None = None,
     docker_user: str | None = None,
     docker_rootless_container_root: bool = False,
 ) -> ExecutionBackend:
@@ -37,17 +39,26 @@ def select_execution_backend(
     if name == "native":
         if docker_enable_gpu:
             raise ValueError("--docker-enable-gpu requires --backend docker")
+        if docker_gpu_device is not None:
+            raise ValueError("--docker-gpu-device requires --backend docker")
         if docker_user is not None:
             raise ValueError("--docker-user requires --backend docker")
         if docker_rootless_container_root:
             raise ValueError("--docker-rootless-container-root requires --backend docker")
         return NativeBackend()
     if name == "docker":
+        if docker_gpu_device is not None and not docker_enable_gpu:
+            raise ValueError("--docker-gpu-device requires --docker-enable-gpu")
+        if docker_gpu_device is not None and re.fullmatch(
+            r"(?:[0-9]+|GPU-[A-Za-z0-9-]+|MIG-[A-Za-z0-9-]+)", docker_gpu_device
+        ) is None:
+            raise ValueError("--docker-gpu-device must identify one GPU by numeric index, GPU UUID, or MIG UUID")
         if docker_user is not None and docker_rootless_container_root:
             raise ValueError("choose either --docker-user or --docker-rootless-container-root, not both")
         return DockerBackend(
             docker_image,
             enable_gpu=docker_enable_gpu,
+            gpu_device=docker_gpu_device,
             container_user=docker_user,
             rootless_container_root=docker_rootless_container_root,
         )
@@ -145,6 +156,7 @@ def run_candidate_from_workspace(
     backend_name: str = "docker",
     docker_image: str = DEFAULT_DOCKER_IMAGE,
     docker_enable_gpu: bool = False,
+    docker_gpu_device: str | None = None,
     docker_user: str | None = None,
     docker_rootless_container_root: bool = False,
     max_samples: int | None = None,
@@ -164,6 +176,7 @@ def run_candidate_from_workspace(
         backend_name,
         docker_image,
         docker_enable_gpu=docker_enable_gpu,
+        docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
     )
@@ -196,6 +209,7 @@ def run_experiment_batch_from_workspace(
     backend_name: str = "docker",
     docker_image: str = DEFAULT_DOCKER_IMAGE,
     docker_enable_gpu: bool = False,
+    docker_gpu_device: str | None = None,
     docker_user: str | None = None,
     docker_rootless_container_root: bool = False,
     max_parallel_runs: int = 4,
@@ -214,6 +228,7 @@ def run_experiment_batch_from_workspace(
         backend_name,
         docker_image,
         docker_enable_gpu=docker_enable_gpu,
+        docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
     )
@@ -321,7 +336,7 @@ def _run_ingested_experiment_batch(root: Path, batch_path: Path) -> dict[str, ob
         runs_root=config.runs_root,
         provider_config=provider_config,
         backend=execution_backend_from_config(config),
-        max_parallel_runs=4,
+        max_parallel_runs=config.max_parallel_runs,
         max_samples=config.max_samples,
         max_prediction_samples=config.max_prediction_samples,
         prediction_sample_policy=config.prediction_sample_policy,

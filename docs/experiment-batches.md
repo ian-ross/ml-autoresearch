@@ -5,7 +5,8 @@ An Experiment Batch is a synchronous, Harness-owned way to run a small set of re
 ## Constraints
 
 - Batch size is capped at 4 Candidate Experiments.
-- Parallel execution is capped at 4 Runs.
+- Parallel execution has a hard cap of 4 Runs and a conservative workspace default of 1; `[candidate_execution].max_parallel_runs` may lower or raise the active cap within that range only after operator resource review.
+- GPU placement is Harness-owned. `[candidate_execution].docker_gpu_device` can pin Docker Runs to one reviewed device; Candidate code and Agent handoffs cannot select devices.
 - A batch is one primary research action, not an arbitrary sweep.
 - Static Candidate Experiment validation is all-or-nothing before execution starts.
 - Once execution starts, a failed Run does not cancel sibling Runs.
@@ -33,7 +34,9 @@ Agents can package a batch as one primary handoff with `prepare-experiment-batch
 
 ## Execution
 
-`run-experiment-batch` executes each candidate through the configured Research Problem in the workspace-local `ml-autoresearch.toml`. Batch execution is synchronous from the caller's perspective: the command returns only after all sibling Runs complete or fail. The Harness records `experiment_batch_created`, `batch_candidate_created`, `batch_run_started`, and `experiment_batch_completed` Research Ledger events while preserving existing per-Run audit events.
+`run-experiment-batch` executes each candidate through the configured Research Problem in the workspace-local `ml-autoresearch.toml`. Ingested Agent handoffs use the Harness-owned `candidate_execution.max_parallel_runs` value; direct operator commands may request a lower cap but remain hard-capped at 4. Batch execution is synchronous from the caller's perspective: the command returns only after all sibling Runs complete or fail. The Harness records `experiment_batch_created`, `batch_candidate_created`, `batch_run_started`, and `experiment_batch_completed` Research Ledger events while preserving existing per-Run audit events.
+
+Every successful or failed training attempt writes `outputs/resource_profile.json` and a batch-size-keyed record under `outputs/resource_profiles/`. Profiles include device identity, peak PyTorch CUDA allocated/reserved memory when available, phase timing, throughput, and failure evidence. Resource-retry metadata remains Harness-owned in Run metadata. These measurements support operator concurrency decisions; they do not grant Candidate code resource-policy authority.
 
 ## Artifacts
 

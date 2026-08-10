@@ -120,7 +120,8 @@ def test_synthetic_fixture_dataset_is_deterministic():
     assert first_mask.shape == (1, 128, 128)
 
 
-def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: Path):
+def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     candidate = write_trainable_candidate(tmp_path)
 
     run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs")
@@ -136,6 +137,7 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
     assert metadata["training_failure_reason"] is None
     assert metadata["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
     assert metadata["artifacts"]["best_metrics"] == "outputs/best_metrics.json"
+    assert metadata["artifacts"]["resource_profile"] == "outputs/resource_profile.json"
     assert (run_dir / "outputs" / "logs" / "training.log").read_text()
     assert (run_dir / "outputs" / "metrics.jsonl").read_text()
     final = json.loads((run_dir / "outputs" / "final_metrics.json").read_text())
@@ -143,6 +145,16 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
     assert final["artifacts"]["prediction_samples"] == "outputs/prediction_samples/samples.json"
     assert final["artifacts"]["best_metrics"] == "outputs/best_metrics.json"
     assert final["artifacts"]["best_epoch_model"] == "outputs/models/best_epoch_model.pt"
+    profile = final["resource_profile"]
+    assert profile["status"] == "completed"
+    assert profile["batch_size"] == 2
+    assert profile["hardware"] == {"device_type": "cpu"}
+    assert profile["performance"]["training_samples_processed"] == final["sample_counts"]["train"]
+    assert profile["performance"]["validation_samples_processed"] == final["sample_counts"]["validation"]
+    assert profile["performance"]["run_wall_seconds"] > 0
+    assert profile["performance"]["training_samples_per_second"] > 0
+    assert json.loads((run_dir / "outputs" / "resource_profile.json").read_text()) == profile
+    assert json.loads((run_dir / "outputs" / "resource_profiles" / "batch_size_2.json").read_text()) == profile
     best_model_path = run_dir / "outputs" / "models" / "best_epoch_model.pt"
     assert best_model_path.is_file()
     checkpoint = torch.load(best_model_path, map_location="cpu", weights_only=True)
@@ -182,6 +194,26 @@ def test_run_candidate_with_synthetic_fixture_writes_result_artifacts(tmp_path: 
         with Image.open(png) as image:
             sizes.append(image.size)
     assert sizes == [(128, 128)] * 5
+
+
+def test_failed_training_persists_resource_profile_for_retry_diagnosis(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    candidate = write_trainable_candidate(tmp_path)
+
+    def fail_loss(*args, **kwargs):
+        raise RuntimeError("profile boom")
+
+    monkeypatch.setattr("ml_autoresearch.training._primary_loss", fail_loss)
+
+    run = run_candidate_with_synthetic_fixture(candidate, tmp_path / "runs")
+
+    assert run.status == RunStatus.FAILED
+    profile = json.loads((run.run_dir / "outputs" / "resource_profile.json").read_text())
+    assert profile["status"] == "failed"
+    assert profile["batch_size"] == 2
+    assert profile["failure_reason"] == "profile boom"
+    assert profile["hardware"] == {"device_type": "cpu"}
+    assert (run.run_dir / "outputs" / "resource_profiles" / "batch_size_2.json").is_file()
 
 
 def test_synthetic_fixture_training_applies_selected_augmentation_policy(tmp_path: Path):
@@ -323,7 +355,20 @@ def test_synthetic_fixture_training_uses_cuda_when_available(tmp_path: Path, mon
             return self
         return original_tensor_to(self, *args, **kwargs)
 
+    monkeypatch.setenv("ML_AUTORESEARCH_DATALOADER_NUM_WORKERS", "0")
+    monkeypatch.setenv("ML_AUTORESEARCH_DATALOADER_PIN_MEMORY", "false")
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda device=None: None)
+    monkeypatch.setattr(torch.cuda, "reset_peak_memory_stats", lambda device=None: None)
+    monkeypatch.setattr(torch.cuda, "max_memory_allocated", lambda device=None: 3_000_000_000)
+    monkeypatch.setattr(torch.cuda, "max_memory_reserved", lambda device=None: 4_000_000_000)
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda device=None: (30_000_000_000, 40_000_000_000))
+    monkeypatch.setattr(
+        torch.cuda,
+        "get_device_properties",
+        lambda device=None: type("Properties", (), {"name": "Test GPU", "total_memory": 40_000_000_000, "major": 8, "minor": 0})(),
+    )
     monkeypatch.setattr(torch.nn.Module, "to", record_module_to)
     monkeypatch.setattr(torch.Tensor, "to", record_tensor_to)
 
@@ -332,6 +377,17 @@ def test_synthetic_fixture_training_uses_cuda_when_available(tmp_path: Path, mon
     assert run.status == RunStatus.COMPLETED
     final = json.loads((run.run_dir / "outputs" / "final_metrics.json").read_text())
     assert final["hardware/device"] == "cuda"
+    profile = final["resource_profile"]
+    assert profile["hardware"] == {
+        "cuda_compute_capability": "8.0",
+        "cuda_device_index": 0,
+        "cuda_device_name": "Test GPU",
+        "cuda_memory_free_at_start_bytes": 30_000_000_000,
+        "cuda_peak_memory_allocated_bytes": 3_000_000_000,
+        "cuda_peak_memory_reserved_bytes": 4_000_000_000,
+        "cuda_total_memory_bytes": 40_000_000_000,
+        "device_type": "cuda",
+    }
     assert moved_modules
     assert moved_tensors
 
