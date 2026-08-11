@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 import json
 
+from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig
 
 OperationName = Literal[
@@ -36,6 +37,7 @@ class OperationRequest:
     run_dir: Path = Path("/")
     provider_config: ResearchProblemProviderConfig | None = None
     max_samples: int | None = None
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT
     max_prediction_samples: int = 2
     prediction_sample_policy: str = "first_n"
     data_root: Path | None = None
@@ -49,6 +51,7 @@ class OperationRequest:
         payload: dict[str, object] = {
             "operation": self.operation,
             "run_dir": str(self.run_dir),
+            "max_parameters": self.max_parameters,
             "max_prediction_samples": self.max_prediction_samples,
             "prediction_sample_policy": self.prediction_sample_policy,
             "max_artifact_samples": self.max_artifact_samples,
@@ -81,6 +84,7 @@ class OperationRequest:
             run_dir=Path(payload.get("run_dir", "/")),
             provider_config=provider_config,
             max_samples=payload.get("max_samples"),
+            max_parameters=int(payload.get("max_parameters", DEFAULT_MAX_PARAMETER_COUNT)),
             max_prediction_samples=int(payload.get("max_prediction_samples", 2)),
             prediction_sample_policy=str(payload.get("prediction_sample_policy", "first_n")),
             data_root=Path(payload["data_root"]) if payload.get("data_root") is not None else None,
@@ -102,7 +106,7 @@ def execute_operation_request(request: OperationRequest) -> OperationResponse:
     if request.operation == "smoke_test":
         from ml_autoresearch.smoke import smoke_test_run
 
-        result = smoke_test_run(request.run_dir)
+        result = smoke_test_run(request.run_dir, max_parameters=request.max_parameters)
         return OperationResponse(
             operation=request.operation,
             parameter_count=result.parameter_count,

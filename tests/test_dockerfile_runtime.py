@@ -19,6 +19,7 @@ def test_runner_dockerfile_installs_pinned_pytorch_cuda_121_for_python_312() -> 
 
     assert "https://download.pytorch.org/whl/cu121" in dockerfile
     assert "torch==2.5.1+cu121" in dockerfile
+    assert "torchvision==0.20.1+cu121" in dockerfile
 
 
 def test_runner_dockerfile_installs_package_without_replacing_image_torch() -> None:

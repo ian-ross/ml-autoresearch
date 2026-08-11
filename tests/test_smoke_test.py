@@ -170,16 +170,18 @@ def test_smoke_fails_closed_on_nonfinite_output_loss_or_gradient(
     assert diagnostic["failing_quantity"] == quantity
 
 
-def test_parameter_budget_violations_are_smoke_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    import ml_autoresearch.smoke as smoke
-
-    monkeypatch.setattr(smoke, "MAX_PARAMETER_COUNT", 3)
+def test_trusted_parameter_budget_is_enforced_and_recorded(tmp_path: Path):
     candidate = write_candidate(tmp_path, VALID_MODEL)
 
-    run = submit_candidate(candidate, tmp_path / "runs")
+    rejected = submit_candidate(candidate, tmp_path / "rejected-runs", max_parameters=3)
+    accepted = submit_candidate(candidate, tmp_path / "accepted-runs", max_parameters=4)
 
-    assert run.status == RunStatus.SMOKE_FAILED
-    assert run.rejection_reason and "parameter-budget violation" in run.rejection_reason
+    assert rejected.status == RunStatus.SMOKE_FAILED
+    assert rejected.rejection_reason and "parameter-budget violation" in rejected.rejection_reason
+    assert accepted.status == RunStatus.ACCEPTED
+    summary = json.loads((accepted.run_dir / "outputs" / "model_summary.json").read_text())
+    assert summary["parameter_count"] == 4
+    assert summary["parameter_budget"] == {"max_parameters": 4}
 
 
 LINE_AUX_MANIFEST = """auxiliary_targets:

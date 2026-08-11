@@ -83,6 +83,8 @@ ml-autoresearch run-candidate --candidate path/to/candidate --workspace-root /pa
 
 When Docker options are omitted, `run-candidate` uses the validated `[candidate_execution]` `docker_image`, `docker_enable_gpu`, `docker_gpu_device`, `docker_user`, and `docker_rootless_container_root` policy. Explicit command options override that policy for the Run. Paired `--docker-enable-gpu/--no-docker-enable-gpu` and `--docker-rootless-container-root/--no-docker-rootless-container-root` flags allow explicit enablement or disablement; selecting `--docker-user` replaces configured rootless-container-root ownership for that Run.
 
+Synthetic smoke enforces the trusted `[candidate_execution].max_parameters` budget and records the effective limit with the measured count in `outputs/model_summary.json`. The default is 10,000,000 and configuration is hard-capped at 100,000,000. Candidate source and manifests cannot select or raise the budget. A higher parameter budget does not establish GPU-memory safety or a parallel resource class; materially different architectures still require separate profiling and conservative scheduling.
+
 Observe or reconcile an existing Run without submitting another Candidate:
 
 ```bash

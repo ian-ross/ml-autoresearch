@@ -15,6 +15,7 @@ import yaml
 
 from ml_autoresearch.errors import HARNESS_FAILURE_MARKER, HarnessBootstrapError
 from ml_autoresearch.operations import OperationRequest, execute_operation_request
+from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig
 
 DEFAULT_DOCKER_IMAGE = "ml-autoresearch-runner:local"
@@ -68,7 +69,12 @@ class ExecutionBackend(Protocol):
 
     name: str
 
-    def smoke_test(self, run_dir: str | Path) -> OperationResult:
+    def smoke_test(
+        self,
+        run_dir: str | Path,
+        *,
+        max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
+    ) -> OperationResult:
         """Smoke-test the copied Candidate Experiment for a Run."""
 
     def train_synthetic(
@@ -114,8 +120,15 @@ class NativeBackend:
     name: str = "native"
     developer_unsafe: bool = True
 
-    def smoke_test(self, run_dir: str | Path) -> OperationResult:
-        response = execute_operation_request(OperationRequest(operation="smoke_test", run_dir=Path(run_dir)))
+    def smoke_test(
+        self,
+        run_dir: str | Path,
+        *,
+        max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
+    ) -> OperationResult:
+        response = execute_operation_request(
+            OperationRequest(operation="smoke_test", run_dir=Path(run_dir), max_parameters=max_parameters)
+        )
         return OperationResult(
             backend=self.name,
             operation=response.operation,
@@ -217,7 +230,12 @@ class DockerBackend:
     container_user: str | None = None
     rootless_container_root: bool = False
 
-    def smoke_test(self, run_dir: str | Path) -> OperationResult:
+    def smoke_test(
+        self,
+        run_dir: str | Path,
+        *,
+        max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
+    ) -> OperationResult:
         path = Path(run_dir)
         self._prepare_writable_paths(path)
         self._ensure_image_available()
@@ -225,7 +243,11 @@ class DockerBackend:
             provider_package_root = self._research_problem_package_root_from_resolved_manifest(path)
         except (OSError, RuntimeError, ValueError) as exc:
             raise HarnessBootstrapError(f"trusted Research Problem provider bootstrap failed: {exc}") from exc
-        request = OperationRequest(operation="smoke_test", run_dir=Path("/"))
+        request = OperationRequest(
+            operation="smoke_test",
+            run_dir=Path("/"),
+            max_parameters=max_parameters,
+        )
         command = self._operation_request_command(path, request, provider_package_root=provider_package_root)
         self._run_operation(command, "Docker smoke test failed")
         return OperationResult(backend=self.name, operation="smoke_test", docker_image=self.docker_image)

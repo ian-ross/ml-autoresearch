@@ -286,6 +286,7 @@ def smoke_prepared_run_from_workspace(
         run_dir,
         backend=backend,
         ledger_path=effective_ledger,
+        max_parameters=config.max_parameters,
     )
     return run_submission_payload(run)
 
@@ -436,6 +437,7 @@ def run_candidate_from_workspace(
         effective_runs_root,
         provider_config,
         max_samples=max_samples,
+        max_parameters=config.max_parameters,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
@@ -491,6 +493,7 @@ def run_experiment_batch_from_workspace(
         backend=backend,
         max_parallel_runs=max_parallel_runs,
         max_samples=max_samples,
+        max_parameters=config.max_parameters,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=effective_ledger,
@@ -583,6 +586,7 @@ def _run_ingested_experiment_batch(root: Path, batch_path: Path) -> dict[str, ob
         backend=execution_backend_from_config(config),
         max_parallel_runs=config.max_parallel_runs,
         max_samples=config.max_samples,
+        max_parameters=config.max_parameters,
         max_prediction_samples=config.max_prediction_samples,
         prediction_sample_policy=config.prediction_sample_policy,
         ledger_path=config.ledger_path,
@@ -691,6 +695,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
             ledger_path=config.ledger_path,
             require_proposal=True,
             research_problem_registry=research_problem_registry,
+            max_parameters=config.max_parameters,
         )
         if run.status.value == "accepted":
             if config.backend == "docker":

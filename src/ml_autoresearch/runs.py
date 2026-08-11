@@ -21,6 +21,7 @@ from ml_autoresearch.candidates import CandidateValidationError, validate_candid
 from ml_autoresearch.errors import HarnessBootstrapError, ResearchProblemDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.managed_execution import cleanup_recorded_containers, read_execution_record
+from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
@@ -148,6 +149,7 @@ def run_candidate_with_synthetic_fixture(
     candidate_dir: str | Path,
     runs_root: str | Path,
     *,
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
@@ -163,6 +165,7 @@ def run_candidate_with_synthetic_fixture(
         candidate_dir,
         runs_root,
         provider_config,
+        max_parameters=max_parameters,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
@@ -177,6 +180,7 @@ def run_candidate_with_research_problem(
     provider_config: ResearchProblemProviderConfig,
     *,
     max_samples: int | None = None,
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
@@ -217,6 +221,7 @@ def run_candidate_with_research_problem(
         research_problem_registry=registry,
         ledger_path=ledger_path,
         require_proposal=require_proposal,
+        max_parameters=max_parameters,
     )
 
 
@@ -450,6 +455,7 @@ def _run_candidate_training(
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
     ledger_path: str | Path | None = None,
     require_proposal: bool = False,
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
 ) -> RunSubmission:
     resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
     run = submit_candidate(
@@ -459,6 +465,7 @@ def _run_candidate_training(
         ledger_path=resolved_ledger_path,
         require_proposal=require_proposal,
         research_problem_registry=research_problem_registry,
+        max_parameters=max_parameters,
     )
     if run.status != RunStatus.ACCEPTED:
         return run
@@ -1133,6 +1140,7 @@ def smoke_test_prepared_run(
     *,
     backend: ExecutionBackend | None = None,
     ledger_path: str | Path | None = None,
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
 ) -> RunSubmission:
     """Smoke-test one stable prepared Run without creating another Run."""
 
@@ -1160,7 +1168,14 @@ def smoke_test_prepared_run(
     resolved_ledger_path = _resolve_ledger_path(path.parent, ledger_path)
 
     try:
-        execution_backend.smoke_test(path)
+        try:
+            execution_backend.smoke_test(path, max_parameters=max_parameters)
+        except TypeError as exc:
+            # Preserve compatibility for test/developer backends implementing the
+            # pre-budget protocol. Non-default budgets require the trusted API.
+            if max_parameters != DEFAULT_MAX_PARAMETER_COUNT or "max_parameters" not in str(exc):
+                raise
+            execution_backend.smoke_test(path)
     except (SmokeTestError, RuntimeError) as exc:
         reason = str(exc)
         classification = _smoke_failure_classification(exc)
@@ -1211,6 +1226,7 @@ def submit_candidate(
     ledger_path: str | Path | None = None,
     require_proposal: bool = False,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
 ) -> RunSubmission:
     """Validate and synchronously smoke-test a local Candidate Experiment."""
 
@@ -1228,6 +1244,7 @@ def submit_candidate(
         prepared.run_dir,
         backend=backend,
         ledger_path=ledger_path,
+        max_parameters=max_parameters,
     )
 
 

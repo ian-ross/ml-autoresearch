@@ -24,6 +24,7 @@ docker_gpu_device = "0"
 docker_rootless_container_root = true
 data_root = "{data_root}"
 max_samples = 8
+max_parameters = 25000000
 max_prediction_samples = 4
 max_parallel_runs = 2
 prediction_sample_policy = "adjacent_and_scattered"
@@ -36,6 +37,7 @@ prediction_sample_policy = "adjacent_and_scattered"
     assert config.backend == "docker"
     assert config.data_root == data_root
     assert config.max_samples == 8
+    assert config.max_parameters == 25_000_000
     assert config.max_prediction_samples == 4
     assert config.max_parallel_runs == 2
     assert config.prediction_sample_policy == "adjacent_and_scattered"
@@ -263,6 +265,10 @@ ledger_path = "{external_ledger}"
         (
             '[candidate_execution]\nmax_parallel_runs = 5\n',
             "max_parallel_runs must be at most 4",
+        ),
+        (
+            '[candidate_execution]\nmax_parameters = 100000001\n',
+            "max_parameters must be at most 100000000",
         ),
         (
             '[candidate_execution]\nbackend = "docker"\ndocker_enable_gpu = true\ndocker_gpu_device = "0,1"\n',

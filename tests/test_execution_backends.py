@@ -149,7 +149,14 @@ def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path
     assert docker_run[docker_run.index("--entrypoint") + 1] == "python"
     assert docker_run[-4:-1] == ["-m", "ml_autoresearch.container_runner", "run-operation"]
     request_payload = json.loads(docker_run[-1].split("=", 1)[1])
-    assert request_payload == {"operation": "smoke_test", "run_dir": "/", "max_prediction_samples": 2, "prediction_sample_policy": "first_n", "max_artifact_samples": 12}
+    assert request_payload == {
+        "operation": "smoke_test",
+        "run_dir": "/",
+        "max_parameters": 10_000_000,
+        "max_prediction_samples": 2,
+        "prediction_sample_policy": "first_n",
+        "max_artifact_samples": 12,
+    }
     joined = "\n".join(docker_run)
     assert f"{run_dir / 'candidate'}:/candidate:ro,z" in joined
     assert f"{run_dir / 'resolved_manifest.yaml'}:/resolved_manifest.yaml:ro,z" in joined

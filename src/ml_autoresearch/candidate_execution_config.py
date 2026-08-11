@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend
+from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT, MAX_CONFIGURABLE_PARAMETER_COUNT
 from ml_autoresearch.workspace import WORKSPACE_CONFIG_FILENAME, WorkspaceConfigError
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
@@ -37,6 +38,7 @@ class CandidateExecutionConfig:
     runs_root: Path = Path("runs")
     ledger_path: Path | None = None
     max_samples: int | None = None
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT
     max_prediction_samples: int = 2
     max_parallel_runs: int = 1
     prediction_sample_policy: Literal["first_n", "adjacent_and_scattered"] = "first_n"
@@ -82,6 +84,11 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
             "candidate_execution.data_root cannot be combined with research_problem.data_roots"
         )
     max_samples = _optional_int(settings, "max_samples", minimum=1)
+    max_parameters = _int(settings, "max_parameters", DEFAULT_MAX_PARAMETER_COUNT, minimum=1)
+    if max_parameters > MAX_CONFIGURABLE_PARAMETER_COUNT:
+        raise CandidateExecutionConfigError(
+            f"candidate_execution.max_parameters must be at most {MAX_CONFIGURABLE_PARAMETER_COUNT}"
+        )
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
     max_parallel_runs = _int(settings, "max_parallel_runs", 1, minimum=1)
     if max_parallel_runs > 4:
@@ -122,6 +129,7 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         runs_root=runs_root,
         ledger_path=ledger_path,
         max_samples=max_samples,
+        max_parameters=max_parameters,
         max_prediction_samples=max_prediction_samples,
         max_parallel_runs=max_parallel_runs,
         prediction_sample_policy=prediction_sample_policy,  # type: ignore[arg-type]

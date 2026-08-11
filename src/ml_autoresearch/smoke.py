@@ -19,6 +19,7 @@ import yaml
 
 from ml_autoresearch.errors import HarnessBootstrapError, SmokeTestError
 from ml_autoresearch.finite import require_finite_named_tensors, require_finite_tensor
+from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
     ResearchProblemProviderLoadError,
@@ -34,7 +35,11 @@ INPUT_SPEC = {"mode": "single_frame_rgb", "shape": [3, 128, 128]}
 OUTPUT_SPEC = {"form": "mask_logits", "shape": [1, 128, 128]}
 SYNTHETIC_BATCH_SHAPE = [2, 3, 128, 128]
 SYNTHETIC_TARGET_SHAPE = [2, 1, 128, 128]
-MAX_PARAMETER_COUNT = 10_000_000
+
+
+# Compatibility alias for direct smoke callers and tests. Workspace-managed Runs
+# pass their trusted configured budget explicitly.
+MAX_PARAMETER_COUNT = DEFAULT_MAX_PARAMETER_COUNT
 
 
 @dataclass(frozen=True)
@@ -44,12 +49,22 @@ class SmokeTestResult:
     output_spec: dict[str, object]
 
 
-def smoke_test_run(run_dir: str | Path) -> SmokeTestResult:
+def smoke_test_run(
+    run_dir: str | Path,
+    *,
+    max_parameters: int | None = None,
+) -> SmokeTestResult:
     """Import copied candidate/model.py and run a cheap synthetic PyTorch check."""
 
     path = Path(run_dir)
     input_spec, output_spec = smoke_specs_from_resolved_manifest(path / "resolved_manifest.yaml")
-    return smoke_test_candidate(path / "candidate", path / "outputs", input_spec=input_spec, output_spec=output_spec)
+    return smoke_test_candidate(
+        path / "candidate",
+        path / "outputs",
+        input_spec=input_spec,
+        output_spec=output_spec,
+        max_parameters=max_parameters,
+    )
 
 
 def smoke_test_candidate(
@@ -58,6 +73,7 @@ def smoke_test_candidate(
     *,
     input_spec: dict[str, object] | None = None,
     output_spec: dict[str, object] | None = None,
+    max_parameters: int | None = None,
 ) -> SmokeTestResult:
     """Import a Candidate Experiment and write smoke-test outputs under outputs_dir."""
 
@@ -67,6 +83,9 @@ def smoke_test_candidate(
     output_spec = dict(output_spec or OUTPUT_SPEC)
     synthetic_batch_shape = [2, *_spec_shape(input_spec, "input_spec")]
     synthetic_target_shape = [2, *_spec_shape(output_spec, "output_spec")]
+    effective_max_parameters = MAX_PARAMETER_COUNT if max_parameters is None else int(max_parameters)
+    if effective_max_parameters < 1:
+        raise ValueError("max_parameters must be positive")
     log_path = outputs_dir / "logs" / "smoke_test.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -86,9 +105,9 @@ def smoke_test_candidate(
             raise SmokeTestError("build_model must return a torch.nn.Module")
 
         parameter_count = sum(parameter.numel() for parameter in model.parameters())
-        if parameter_count > MAX_PARAMETER_COUNT:
+        if parameter_count > effective_max_parameters:
             raise SmokeTestError(
-                f"parameter-budget violation: {parameter_count} parameters exceeds limit {MAX_PARAMETER_COUNT}"
+                f"parameter-budget violation: {parameter_count} parameters exceeds limit {effective_max_parameters}"
             )
 
         require_finite_named_tensors(
@@ -158,7 +177,7 @@ def smoke_test_candidate(
 
         summary = {
             "parameter_count": parameter_count,
-            "parameter_budget": {"max_parameters": MAX_PARAMETER_COUNT},
+            "parameter_budget": {"max_parameters": effective_max_parameters},
             "input_spec": input_spec,
             "output_spec": output_spec,
             "synthetic_batch_shape": synthetic_batch_shape,

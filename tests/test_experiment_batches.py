@@ -22,7 +22,7 @@ class FastBackend:
         self.fail_candidate = fail_candidate
         self.sleep_seconds = sleep_seconds
 
-    def smoke_test(self, run_dir):
+    def smoke_test(self, run_dir, *, max_parameters=10_000_000):
         return OperationResult(backend=self.name, operation="smoke_test")
 
     def train_research_problem(

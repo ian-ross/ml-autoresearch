@@ -492,6 +492,7 @@ def _write_agent_workspace_instructions(
         "\n"
         "- At most 4 related Candidate Experiments may be submitted in one batch.\n"
         f"- The configured parallel Run cap is {candidate_execution.max_parallel_runs}; the Harness, not Candidate code or the agent, owns and enforces this cap.\n"
+        f"- The configured Candidate smoke budget is {candidate_execution.max_parameters} parameters; Candidate source and manifests cannot select or raise it.\n"
         "- Use an Experiment Batch only for a small, shared-hypothesis comparison whose candidates differ by controlled factors and have comparable, trusted resource profiles.\n"
         "- Unprofiled architecture families must be submitted sequentially. Do not infer safe concurrency from parameter count alone.\n"
         "- If requested concurrency or GPU placement is not available in the trusted policy, submit sequentially or create a Capability Request; never implement Candidate-owned scheduling.\n"

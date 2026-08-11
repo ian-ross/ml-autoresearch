@@ -11,6 +11,7 @@ from typing import Any
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import ExecutionBackend
+from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig, ResearchProblemSpecRegistry, load_research_problem_provider
 from ml_autoresearch.runs import (
@@ -37,6 +38,7 @@ def run_experiment_batch_with_research_problem(
     backend: ExecutionBackend | None = None,
     max_parallel_runs: int = MAX_PARALLEL_RUNS,
     max_samples: int | None = None,
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     ledger_path: str | Path | None = None,
@@ -51,6 +53,7 @@ def run_experiment_batch_with_research_problem(
         runs_root=runs_root,
         backend=backend,
         max_parallel_runs=max_parallel_runs,
+        max_parameters=max_parameters,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=ledger_path,
@@ -75,6 +78,7 @@ def _run_experiment_batch(
     runs_root: str | Path,
     backend: ExecutionBackend | None,
     max_parallel_runs: int,
+    max_parameters: int,
     max_prediction_samples: int,
     prediction_sample_policy: str,
     ledger_path: str | Path | None,
@@ -150,6 +154,7 @@ def _run_experiment_batch(
                 resolved_ledger_path,
                 train_accepted,
                 research_problem_registry,
+                max_parameters,
             ): (candidate_path, manifest.name)
             for candidate_path, manifest in candidates
         }
@@ -302,6 +307,7 @@ def _submit_and_train_batch_candidate(
     ledger_path: Path,
     train_accepted,
     research_problem_registry=None,
+    max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
 ):
     run = submit_candidate(
         candidate_path,
@@ -310,6 +316,7 @@ def _submit_and_train_batch_candidate(
         ledger_path=ledger_path,
         require_proposal=False,
         research_problem_registry=research_problem_registry,
+        max_parameters=max_parameters,
     )
     _tag_run_with_batch(run.run_dir, batch_id=batch_id, candidate_id=candidate_id)
     if run.status == RunStatus.ACCEPTED:
