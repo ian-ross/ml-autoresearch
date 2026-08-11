@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 
 import pytest
+import torch
 
 from ml_autoresearch.batches import (
     ExperimentBatchError,
@@ -41,12 +42,25 @@ class FastBackend:
             raise TrainingError("intentional candidate failure")
         outputs = path / "outputs"
         (outputs / "logs").mkdir(parents=True, exist_ok=True)
+        (outputs / "models").mkdir(parents=True, exist_ok=True)
         (outputs / "logs" / "training.log").write_text("trained\n")
         (outputs / "metrics.jsonl").write_text('{"val/dice": 0.5}\n')
+        model_artifact = "outputs/models/best_epoch_model.pt"
         (outputs / "best_metrics.json").write_text(
-            json.dumps({"selection_metric": "val/dice", "selection_value": 0.5, "metrics": {"val/dice": 0.5}}) + "\n"
+            json.dumps(
+                {
+                    "selection_metric": "val/dice",
+                    "selection_value": 0.5,
+                    "metrics": {"val/dice": 0.5},
+                    "model_artifact": model_artifact,
+                }
+            )
+            + "\n"
         )
-        (outputs / "final_metrics.json").write_text(json.dumps({"val/dice": 0.5}) + "\n")
+        (outputs / "final_metrics.json").write_text(
+            json.dumps({"val/dice": 0.5, "artifacts": {"best_epoch_model": model_artifact}}) + "\n"
+        )
+        torch.save({"model_state_dict": {"weight": torch.tensor([1.0])}}, outputs / "models" / "best_epoch_model.pt")
         return OperationResult(backend=self.name, operation="train_research_problem")
 
 

@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import torch
 import yaml
 
 from ml_autoresearch.execution import OperationResult
@@ -72,10 +73,21 @@ class SimulatedResourceBackend:
             raise RuntimeError(f"CUDA out of memory while allocating test tensor at batch_size={batch_size}")
         outputs = path / "outputs"
         (outputs / "logs" / "training.log").write_text("simulated success\n")
+        (outputs / "models").mkdir(parents=True, exist_ok=True)
         (outputs / "metrics.jsonl").write_text('{"split":"val","val/dice":0.5}\n')
-        final = {"val/dice": 0.5, "artifacts": {"best_metrics": "outputs/best_metrics.json"}}
+        model_artifact = "outputs/models/best_epoch_model.pt"
+        final = {
+            "val/dice": 0.5,
+            "artifacts": {
+                "best_metrics": "outputs/best_metrics.json",
+                "best_epoch_model": model_artifact,
+            },
+        }
         (outputs / "final_metrics.json").write_text(json.dumps(final) + "\n")
-        (outputs / "best_metrics.json").write_text(json.dumps({"selection_metric": "val/dice", "selection_value": 0.5}) + "\n")
+        (outputs / "best_metrics.json").write_text(
+            json.dumps({"selection_metric": "val/dice", "selection_value": 0.5, "model_artifact": model_artifact}) + "\n"
+        )
+        torch.save({"model_state_dict": {"weight": torch.tensor([1.0])}}, outputs / "models" / "best_epoch_model.pt")
         return OperationResult(backend=self.name, operation="train_research_problem")
 
 

@@ -375,10 +375,30 @@ class DockerBackend:
     def _run_training_operation(
         self, command: list[str], run_dir: Path, failure_prefix: str, operation: str
     ) -> OperationResult:
-        if self.wall_clock_timeout_seconds is None:
-            self._run_operation(command, failure_prefix)
-            return OperationResult(backend=self.name, operation=operation, docker_image=self.docker_image)
-        timeout_metadata = self._run_operation_with_graceful_timeout(command, run_dir, failure_prefix)
+        durable_command = _without_auto_remove(command)
+        container_name = _docker_arg_value(durable_command, "--name")
+        if container_name is not None:
+            _record_container_state(run_dir, container_name, state="starting")
+        try:
+            if self.wall_clock_timeout_seconds is None:
+                self._run_operation(durable_command, failure_prefix)
+                timeout_metadata = None
+            else:
+                timeout_metadata = self._run_operation_with_graceful_timeout(
+                    durable_command, run_dir, failure_prefix
+                )
+        except Exception as exc:
+            if container_name is not None:
+                _record_container_state(
+                    run_dir,
+                    container_name,
+                    state="exited_failure",
+                    exit_code=1,
+                    error=str(exc),
+                )
+            raise
+        if container_name is not None:
+            _record_container_state(run_dir, container_name, state="exited_success", exit_code=0)
         return OperationResult(
             backend=self.name,
             operation=operation,
@@ -860,6 +880,48 @@ def validate_docker_gpu(docker_image: str = DEFAULT_DOCKER_IMAGE) -> subprocess.
         check=False,
         capture_output=True,
         text=True,
+    )
+
+
+def _without_auto_remove(command: list[str]) -> list[str]:
+    """Keep training containers inspectable until Harness finalization cleans them up."""
+
+    durable = list(command)
+    try:
+        durable.remove("--rm")
+    except ValueError:
+        pass
+    return durable
+
+
+def _record_container_state(
+    run_dir: Path,
+    container_name: str,
+    *,
+    state: str,
+    exit_code: int | None = None,
+    error: str | None = None,
+) -> None:
+    from ml_autoresearch.managed_execution import read_execution_record, update_execution_record
+
+    existing = read_execution_record(run_dir) or {}
+    raw_history = existing.get("containers") if isinstance(existing, dict) else None
+    history = [dict(item) for item in raw_history if isinstance(item, dict)] if isinstance(raw_history, list) else []
+    entry = next((item for item in history if item.get("name") == container_name), None)
+    if entry is None:
+        entry = {"attempt": len(history) + 1, "name": container_name}
+        history.append(entry)
+    entry["state"] = state
+    if exit_code is not None:
+        entry["exit_code"] = exit_code
+    if error is not None:
+        entry["error"] = error[:4096]
+    update_execution_record(
+        run_dir,
+        backend="docker",
+        state=f"container_{state}",
+        active_container=entry,
+        containers=history,
     )
 
 

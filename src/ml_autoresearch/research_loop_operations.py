@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -148,6 +149,150 @@ def run_submission_payload(run) -> dict[str, object]:
     }
 
 
+def prepare_candidate_run_from_workspace(
+    candidate: str | Path,
+    *,
+    workspace_root: str | Path = Path("."),
+    runs_root: str | Path | None = None,
+    backend_name: str = "docker",
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
+    docker_enable_gpu: bool = False,
+    docker_gpu_device: str | None = None,
+    docker_user: str | None = None,
+    docker_rootless_container_root: bool = False,
+    ledger_path: Path | None = None,
+    require_proposal: bool = True,
+) -> dict[str, object]:
+    """Create, validate, and smoke-test a stable Run before managed training."""
+
+    from ml_autoresearch.runs import submit_candidate
+
+    config, _provider_config = load_configured_provider(workspace_root, label="run-candidate")
+    effective_runs_root = config.runs_root if runs_root is None else Path(runs_root)
+    effective_ledger = effective_ledger_path(config, override=ledger_path)
+    backend = select_execution_backend(
+        backend_name,
+        docker_image,
+        docker_enable_gpu=docker_enable_gpu,
+        docker_gpu_device=docker_gpu_device,
+        docker_user=docker_user,
+        docker_rootless_container_root=docker_rootless_container_root,
+    )
+    registry = load_configured_research_problem_registry(workspace_root)
+    run = submit_candidate(
+        candidate,
+        effective_runs_root,
+        backend=backend,
+        ledger_path=effective_ledger,
+        require_proposal=require_proposal,
+        research_problem_registry=registry,
+    )
+    return run_submission_payload(run)
+
+
+def train_prepared_run_from_workspace(
+    run_dir: str | Path,
+    *,
+    workspace_root: str | Path = Path("."),
+    backend_name: str = "docker",
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
+    docker_enable_gpu: bool = False,
+    docker_gpu_device: str | None = None,
+    docker_user: str | None = None,
+    docker_rootless_container_root: bool = False,
+    max_samples: int | None = None,
+    max_prediction_samples: int | None = None,
+    prediction_sample_policy: str | None = None,
+    ledger_path: Path | None = None,
+) -> dict[str, object]:
+    """Train one previously accepted stable Run without creating another Run."""
+
+    from ml_autoresearch.runs import train_accepted_run_with_research_problem
+
+    config, provider_config = load_configured_provider(workspace_root, label="continue-run")
+    effective_ledger = effective_ledger_path(config, override=ledger_path)
+    backend = select_execution_backend(
+        backend_name,
+        docker_image,
+        docker_enable_gpu=docker_enable_gpu,
+        docker_gpu_device=docker_gpu_device,
+        docker_user=docker_user,
+        docker_rootless_container_root=docker_rootless_container_root,
+    )
+    max_samples, max_prediction_samples, prediction_sample_policy = effective_execution_options(
+        config,
+        max_samples=max_samples,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+    )
+    run = train_accepted_run_with_research_problem(
+        run_dir,
+        provider_config,
+        max_samples=max_samples,
+        max_prediction_samples=max_prediction_samples,
+        prediction_sample_policy=prediction_sample_policy,
+        backend=backend,
+        ledger_path=effective_ledger,
+    )
+    return run_submission_payload(run)
+
+
+def start_prepared_run_from_workspace(
+    run_dir: str | Path,
+    *,
+    workspace_root: str | Path,
+) -> dict[str, object]:
+    """Start the configured detached supervisor for one accepted stable Run."""
+
+    from ml_autoresearch.managed_execution import start_run_supervisor
+
+    config = load_candidate_execution_config(workspace_root)
+    command = [
+        sys.executable,
+        "-m",
+        "ml_autoresearch.cli",
+        "continue-run",
+        "--run-dir",
+        str(run_dir),
+        "--workspace-root",
+        str(Path(workspace_root).resolve()),
+        "--backend",
+        config.backend,
+        "--docker-image",
+        config.docker_image,
+        "--max-prediction-samples",
+        str(config.max_prediction_samples),
+        "--prediction-sample-policy",
+        config.prediction_sample_policy,
+    ]
+    if config.docker_enable_gpu:
+        command.append("--docker-enable-gpu")
+    if config.docker_gpu_device is not None:
+        command.extend(["--docker-gpu-device", config.docker_gpu_device])
+    if config.docker_user is not None:
+        command.extend(["--docker-user", config.docker_user])
+    if config.docker_rootless_container_root:
+        command.append("--docker-rootless-container-root")
+    if config.max_samples is not None:
+        command.extend(["--max-samples", str(config.max_samples)])
+    if config.ledger_path is not None:
+        command.extend(["--ledger-path", str(config.ledger_path)])
+    path = Path(run_dir)
+    record = start_run_supervisor(
+        path,
+        command=command,
+        log_path=path / "outputs" / "logs" / "supervisor.log",
+        backend=config.backend,
+    )
+    return {
+        "run_id": path.name,
+        "run_dir": str(path),
+        "run_status": "training",
+        "execution_state": record["state"],
+        "pid": record["supervisor"]["pid"],
+    }
+
+
 def run_candidate_from_workspace(
     candidate: str | Path,
     *,
@@ -289,7 +434,7 @@ def execute_ingested_next_action(root: str | Path, ingestion: dict[str, object])
     root_path = Path(root)
     handoff_type = ingestion.get("handoff_type")
     next_action = ingestion.get("next_action")
-    if handoff_type == "candidate_submission" and next_action == "run_candidate":
+    if handoff_type == "candidate_submission" and next_action in {"run_candidate", "reconcile_run"}:
         return _execute_ingested_candidate_next_action(root_path, ingestion)
     if handoff_type == "experiment_batch_submission" and next_action == "run_experiment_batch":
         batch_path = required_relative_path(root_path, ingestion, "canonical_path")
@@ -345,7 +490,12 @@ def _run_ingested_experiment_batch(root: Path, batch_path: Path) -> dict[str, ob
 
 
 def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, object]) -> dict[str, object]:
-    from ml_autoresearch.runs import RunSubmission, submit_candidate, train_accepted_run_with_research_problem
+    from ml_autoresearch.runs import (
+        RunSubmission,
+        reconcile_run,
+        submit_candidate,
+        train_accepted_run_with_research_problem,
+    )
 
     candidate_path = required_relative_path(root, ingestion, "canonical_path")
     config = load_candidate_execution_config(root)
@@ -355,10 +505,47 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
     if config.ledger_path is None:
         raise ResearchLoopOperationError("configure candidate_execution.ledger_path before executing candidate next actions")
     backend = execution_backend_from_config(config)
+    if ingestion.get("next_action") == "reconcile_run":
+        run_id = ingestion.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            raise ResearchLoopOperationError("reconcile_run action is missing run_id")
+        reconciled = reconcile_run(config.runs_root / run_id, ledger_path=config.ledger_path)
+        if reconciled.status == RunStatus.ACCEPTED:
+            if config.backend == "docker":
+                managed = start_prepared_run_from_workspace(reconciled.run_dir, workspace_root=root)
+                return {
+                    "status": "running",
+                    "executed": True,
+                    "action": "reconcile_run",
+                    **managed,
+                    "rejection_reason": None,
+                    "failure_classification": None,
+                }
+            reconciled = train_accepted_run_with_research_problem(
+                reconciled.run_dir,
+                provider_config,
+                max_samples=config.max_samples,
+                max_prediction_samples=config.max_prediction_samples,
+                prediction_sample_policy=config.prediction_sample_policy,
+                backend=backend,
+                ledger_path=config.ledger_path,
+            )
+        return {
+            "status": "completed" if reconciled.status in {RunStatus.COMPLETED, RunStatus.FAILED} else "running",
+            "executed": True,
+            "action": "reconcile_run",
+            "run_id": reconciled.run_id,
+            "run_dir": str(reconciled.run_dir),
+            "run_status": reconciled.status.value,
+            "rejection_reason": reconciled.rejection_reason,
+            "failure_classification": (
+                reconciled.failure_classification.value if reconciled.failure_classification is not None else None
+            ),
+        }
     research_problem_registry = load_configured_research_problem_registry(root)
     previous_result = ingestion.get("next_action_result")
     run = None
-    if isinstance(previous_result, dict) and previous_result.get("run_status") == "accepted":
+    if isinstance(previous_result, dict):
         previous_run_dir = previous_result.get("run_dir")
         if isinstance(previous_run_dir, str) and previous_run_dir:
             previous_run_path = Path(previous_run_dir)
@@ -367,6 +554,16 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
                 previous_metadata = json.loads(previous_metadata_path.read_text())
                 previous_status = previous_metadata.get("status")
                 if previous_status == RunStatus.ACCEPTED.value:
+                    if config.backend == "docker":
+                        managed = start_prepared_run_from_workspace(previous_run_path, workspace_root=root)
+                        return {
+                            "status": "running",
+                            "executed": True,
+                            "action": "run_candidate",
+                            **managed,
+                            "rejection_reason": None,
+                            "failure_classification": None,
+                        }
                     run = train_accepted_run_with_research_problem(
                         previous_run_path,
                         provider_config,
@@ -384,7 +581,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
                     )
                 else:
                     raise ResearchLoopOperationError(
-                        f"recorded accepted Run has unknown status {previous_status!r}: {previous_run_path}"
+                        f"recorded Run has unknown status {previous_status!r}: {previous_run_path}"
                     )
     if run is None:
         run = submit_candidate(
@@ -396,6 +593,16 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
             research_problem_registry=research_problem_registry,
         )
         if run.status.value == "accepted":
+            if config.backend == "docker":
+                managed = start_prepared_run_from_workspace(run.run_dir, workspace_root=root)
+                return {
+                    "status": "running",
+                    "executed": True,
+                    "action": "run_candidate",
+                    **managed,
+                    "rejection_reason": None,
+                    "failure_classification": None,
+                }
             run = train_accepted_run_with_research_problem(
                 run.run_dir,
                 provider_config,

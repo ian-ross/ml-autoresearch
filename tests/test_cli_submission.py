@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from ml_autoresearch.cli import app
@@ -323,7 +324,7 @@ def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
     assert 0 < samples["sample_count"] <= 3
 
 
-def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
+def test_run_candidate_cli_can_detach_training_with_stable_run_id(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
     write_fake_execution_config(tmp_path)
@@ -338,21 +339,121 @@ def test_run_candidate_cli_can_daemonize_training(tmp_path: Path):
         str(tmp_path),
         "--backend",
         "native",
-        "--daemonize",
+        "--detach",
         "--no-require-proposal",
     )
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
-    assert payload["status"] == "daemonized"
+    assert payload["status"] == "running"
+    assert payload["run_id"]
+    run_dir = Path(payload["run_dir"])
+    assert run_dir == runs_root / payload["run_id"]
     log_path = Path(payload["log_path"])
     assert log_path.exists()
-
-    # Completion of native synthetic training is covered by the foreground run-candidate tests.
-    # The daemonization contract only needs to prove that the CLI detaches a child command,
-    # omits --daemonize from that child, and prepares a log file for it.
     assert payload["pid"] > 0
+    assert payload["execution_state"] == "supervisor_running"
+    assert "continue-run" in payload["command"]
     assert "--daemonize" not in payload["command"]
+
+    observed = run_cli_subprocess(
+        "run-status",
+        "--run-id",
+        payload["run_id"],
+        "--workspace-root",
+        str(tmp_path),
+        "--runs-root",
+        str(runs_root),
+    )
+    assert observed.returncode == 0, observed.stderr
+    status_payload = json.loads(observed.stdout)
+    assert status_payload["run_id"] == payload["run_id"]
+    assert status_payload["execution"] is not None
+    assert len(list(runs_root.glob("run_*"))) == 1
+
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        metadata = json.loads((run_dir / "run_metadata.json").read_text())
+        execution = json.loads((run_dir / "execution.json").read_text())
+        if metadata["status"] in {"completed", "failed"} and execution["state"] == "finalized":
+            break
+        time.sleep(0.05)
+    assert metadata["status"] == "completed"
+    assert len(list(runs_root.glob("run_*"))) == 1
+    assert execution["state"] == "finalized"
+    assert execution["terminal_status"] == "completed"
+
+
+def test_run_candidate_help_keeps_daemonize_as_detach_alias() -> None:
+    completed = run_cli("run-candidate", "--help")
+
+    assert completed.returncode == 0
+    assert "--detach" in completed.stdout
+    assert "--daemonize" in completed.stdout
+
+
+def test_foreground_caller_interruption_does_not_stop_managed_run_or_create_duplicate(tmp_path: Path) -> None:
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    write_fake_execution_config(tmp_path)
+    provider_path = tmp_path / "fake_problem" / "research_problem.py"
+    provider_path.write_text(
+        provider_path.read_text()
+        .replace("import torch\n", "import torch\nimport time\n")
+        .replace(
+            "    def compute_primary_loss(self, loss_name, logits, target_mask):\n",
+            "    def compute_primary_loss(self, loss_name, logits, target_mask):\n        time.sleep(0.25)\n",
+        )
+    )
+    caller = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "ml_autoresearch.cli",
+            "run-candidate",
+            "--candidate",
+            str(candidate),
+            "--runs-root",
+            str(runs_root),
+            "--workspace-root",
+            str(tmp_path),
+            "--backend",
+            "native",
+            "--no-require-proposal",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + 15
+    run_dir = None
+    while time.monotonic() < deadline:
+        run_dirs = list(runs_root.glob("run_*")) if runs_root.exists() else []
+        if run_dirs and (run_dirs[0] / "execution.json").is_file():
+            execution = json.loads((run_dirs[0] / "execution.json").read_text())
+            if execution["state"] in {"supervisor_running", "training"}:
+                run_dir = run_dirs[0]
+                break
+        time.sleep(0.05)
+    assert run_dir is not None
+
+    caller.kill()
+    caller.wait(timeout=5)
+
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        metadata = json.loads((run_dir / "run_metadata.json").read_text())
+        execution = json.loads((run_dir / "execution.json").read_text())
+        if metadata["status"] in {"completed", "failed"} and execution["state"] == "finalized":
+            break
+        time.sleep(0.05)
+
+    assert metadata["status"] == "completed"
+    assert execution["state"] == "finalized"
+    assert len(list(runs_root.glob("run_*"))) == 1
+    ledger = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    terminal = [event for event in ledger if event["event_type"] in {"run_completed", "run_failed"}]
+    assert [event["event_type"] for event in terminal] == ["run_completed"]
 
 
 def test_run_candidate_cli_requires_configured_ledger_path_when_not_overridden(tmp_path: Path):

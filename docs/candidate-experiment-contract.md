@@ -137,6 +137,8 @@ training:
 
 When enabled, `patience` must be less than `max_epochs`; `min_delta` is the minimum selection-metric improvement needed to reset patience. The Harness records the resolved scheduler and early-stopping policy, stop reason, completed epochs, and best-checkpoint restoration status.
 
+Finite-state validation is mandatory Harness policy and is not Candidate-selectable. Smoke testing checks initial parameters, outputs, synthetic loss, gradients, and parameters after backward. Training checks every batch's expected outputs, primary/auxiliary/total losses, gradients before the optimizer step, and parameters after it. Validation and terminal artifact checks reject non-finite losses, aggregate or selection metrics, and checkpoint tensors. These failures stop promptly, are not Resource Failures, and cannot be disabled from Candidate code, manifests, or Research Problem adapters.
+
 ## Experiment Proposal contract
 
 `submit-candidate` and `run-candidate` default to autonomous-mode proposal validation (`--require-proposal`). Use `--no-require-proposal` only for manual compatibility flows that intentionally omit a candidate-local proposal. When proposal validation is enabled, the Candidate Experiment directory must include `PROPOSAL.md` with these required sections or metadata keys:

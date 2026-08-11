@@ -105,7 +105,8 @@ def test_docker_backend_constructs_structurally_contained_synthetic_training_com
     assert calls[0] == ["docker", "image", "inspect", "custom:tag"]
     assert calls[1] == ["docker", "info", "--format", "{{json .SecurityOptions}}"]
     docker_run = calls[2]
-    assert docker_run[:3] == ["docker", "run", "--rm"]
+    assert docker_run[:2] == ["docker", "run"]
+    assert "--rm" not in docker_run
     assert "--userns=host" in docker_run
     assert "--network" in docker_run
     assert docker_run[docker_run.index("--network") + 1] == "none"
@@ -144,6 +145,10 @@ def test_docker_backend_constructs_structurally_contained_synthetic_training_com
     assert f"{_package_root.resolve(strict=True)}:/research-problem:ro,z" in joined
     assert "type=tmpfs,destination=/scratch,tmpfs-size=2g,tmpfs-mode=1777" in joined
     assert "/var/run/docker.sock" not in joined
+    execution = json.loads((run_dir / "execution.json").read_text())
+    assert execution["state"] == "container_exited_success"
+    assert execution["active_container"]["name"] == docker_run[docker_run.index("--name") + 1]
+    assert execution["active_container"]["exit_code"] == 0
 
 
 class NoArtifactBackend:

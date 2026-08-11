@@ -170,6 +170,17 @@ uv run ml-autoresearch run-candidate \
   --workspace-root .
 ```
 
+Long Runs use a detached Harness supervisor after a stable Run ID has been created. Foreground mode follows that supervisor. To return immediately while preserving the same managed lifecycle:
+
+```bash
+uv run ml-autoresearch run-candidate \
+  --candidate candidates/my_candidate \
+  --workspace-root . \
+  --detach
+```
+
+The JSON response contains the Run ID, supervisor PID, execution state, and durable supervisor log path. Do not relaunch after caller disconnection.
+
 Run with explicit policy overrides while reusing the same configured Research Problem provider:
 
 ```bash
@@ -215,6 +226,9 @@ uv run ml-autoresearch list-runs --runs-root runs --json
 uv run ml-autoresearch run-summary --runs-root runs --run-id <run_id>
 uv run ml-autoresearch run-summary --runs-root runs --run-id <run_id> --json
 
+uv run ml-autoresearch run-status --workspace-root . --run-id <run_id>
+uv run ml-autoresearch reconcile-run --workspace-root . --run-id <run_id>
+
 uv run ml-autoresearch get-best-runs --runs-root runs
 uv run ml-autoresearch get-best-runs --runs-root runs --metric val/dice --limit 10 --json
 ```
@@ -228,9 +242,12 @@ A completed local Run reserves `runs/<run_id>/` for Harness-owned files plus an 
 ```text
 candidate/                 copied Candidate Experiment source
 resolved_manifest.yaml     Harness-normalized manifest
-run_metadata.json          Run status, timestamps, sources, dataset metadata, artifact references
+run_metadata.json          authoritative Run status, timestamps, dataset metadata, artifact references
+execution.json             managed supervisor and Docker-container execution state
 outputs/
   model_summary.json       model parameter summary
+  nonfinite_diagnostic.json
+                            bounded count-only diagnostic when finite-state validation fails
   metrics.jsonl            batch/epoch metric stream
   final_metrics.json       final completed epoch Result metrics
   best_metrics.json        best validation epoch metrics selected by max val/dice

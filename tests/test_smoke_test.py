@@ -100,6 +100,38 @@ def test_smoke_failures_are_recorded_in_metadata_and_log(tmp_path: Path, model_p
     assert expected_reason in (run.run_dir / "outputs" / "logs" / "smoke_test.log").read_text()
 
 
+@pytest.mark.parametrize(
+    ("model_py", "checkpoint", "quantity"),
+    [
+        (
+            "import torch\nfrom torch import nn\nclass Bad(nn.Module):\n    def __init__(self):\n        super().__init__(); self.scale = nn.Parameter(torch.tensor(1.0))\n    def forward(self, x):\n        return {'mask_logits': x[:, :1] + self.scale * torch.tensor(float('nan'))}\ndef build_model(i, o): return Bad()\n",
+            "forward_outputs",
+            "output.mask_logits",
+        ),
+        (
+            "import torch\nfrom torch import nn\nclass Bad(nn.Module):\n    def __init__(self):\n        super().__init__(); self.scale = nn.Parameter(torch.tensor(1.0))\n    def forward(self, x):\n        return {'mask_logits': torch.full_like(x[:, :1], 3e38) * self.scale}\ndef build_model(i, o): return Bad()\n",
+            "loss",
+            "loss.synthetic",
+        ),
+        (
+            "import torch\nfrom torch import nn\nclass BadGradient(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, value, x): return value * x[:, :1]\n    @staticmethod\n    def backward(ctx, gradient): return torch.tensor(float('inf')), None\nclass Bad(nn.Module):\n    def __init__(self):\n        super().__init__(); self.scale = nn.Parameter(torch.tensor(1.0))\n    def forward(self, x): return {'mask_logits': BadGradient.apply(self.scale, x)}\ndef build_model(i, o): return Bad()\n",
+            "gradients",
+            "gradient.scale",
+        ),
+    ],
+)
+def test_smoke_fails_closed_on_nonfinite_output_loss_or_gradient(
+    tmp_path: Path, model_py: str, checkpoint: str, quantity: str
+) -> None:
+    run = submit_candidate(write_candidate(tmp_path, model_py), tmp_path / "runs")
+
+    assert run.status == RunStatus.SMOKE_FAILED
+    diagnostic = json.loads((run.run_dir / "outputs" / "nonfinite_diagnostic.json").read_text())
+    assert diagnostic["phase"] == "smoke"
+    assert diagnostic["checkpoint"] == checkpoint
+    assert diagnostic["failing_quantity"] == quantity
+
+
 def test_parameter_budget_violations_are_smoke_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import ml_autoresearch.smoke as smoke
 

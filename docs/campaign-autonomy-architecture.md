@@ -26,7 +26,7 @@ Authoritative execution happens through Harness-owned commands outside the VM. H
 - `autonomy-step` prepares a prompt, runs or supports a bounded agent step, ingests exactly one handoff when present, and can execute one next Harness-owned action with `--execute-next-action`.
 - `run-autonomous-iteration` wraps bounded repeated operation around the same handoff and execution rules.
 
-Each step records recovery state: prompt, result JSON, handoff markers such as `.INGESTED.json`, and ledger events.
+Each step records recovery state: prompt, result JSON, handoff markers such as `.INGESTED.json`, and ledger events. Candidate next actions also create a stable Run before long Docker training and return its Run ID. Until that Run has one terminal event, `execute-open-actions` maps the Candidate handoff to `reconcile_run` for the same Run rather than submitting another Candidate. Active execution is observed; exited execution is reconciled; retraining is never a reconciliation action.
 
 ## Reports, pauses, and resumes
 
@@ -44,7 +44,7 @@ Capability Requests and Evaluation Requests are not self-approving. They create 
 
 ## Failure classification and repair lineage
 
-Run failures use the vocabulary in `docs/run-lifecycle.md`. Repair Candidates are new Candidate Experiments with explicit lineage to the original proposal/candidate/run. A repair may fix a candidate bug or contract issue while preserving the original hypothesis and comparison target; scientific changes require a new proposal.
+Run failures use the vocabulary in `docs/run-lifecycle.md`. Non-finite Candidate state is a fail-fast Candidate failure, not a Resource Failure, and does not receive batch-size retry. Repair Candidates are new Candidate Experiments with explicit lineage to the original proposal/candidate/run. A repair may fix a candidate bug or contract issue while preserving the original hypothesis and comparison target; scientific changes require a new proposal.
 
 ## Current non-goals
 

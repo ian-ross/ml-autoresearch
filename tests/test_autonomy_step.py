@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
 
 from ml_autoresearch.autonomy_step import find_open_executable_actions, render_autonomy_step_prompt, run_autonomy_step
 from ml_autoresearch.cli import app
@@ -397,12 +398,25 @@ class FakeNativeBackend:
         self.provider_ids.append(provider_config.id)
         outputs = Path(run_dir, "outputs")
         (outputs / "logs").mkdir(parents=True, exist_ok=True)
+        (outputs / "models").mkdir(parents=True, exist_ok=True)
         (outputs / "logs" / "training.log").write_text("trained\n")
         (outputs / "metrics.jsonl").write_text('{"val/dice": 0.5}\n')
+        model_artifact = "outputs/models/best_epoch_model.pt"
         (outputs / "best_metrics.json").write_text(
-            json.dumps({"selection_metric": "val/dice", "selection_value": 0.5, "metrics": {"val/dice": 0.5}}) + "\n"
+            json.dumps(
+                {
+                    "selection_metric": "val/dice",
+                    "selection_value": 0.5,
+                    "metrics": {"val/dice": 0.5},
+                    "model_artifact": model_artifact,
+                }
+            )
+            + "\n"
         )
-        (outputs / "final_metrics.json").write_text('{"val/dice": 0.5}\n')
+        (outputs / "final_metrics.json").write_text(
+            json.dumps({"val/dice": 0.5, "artifacts": {"best_epoch_model": model_artifact}}) + "\n"
+        )
+        torch.save({"model_state_dict": {"weight": torch.tensor([1.0])}}, outputs / "models" / "best_epoch_model.pt")
         return OperationResult(backend=self.name, operation="train_research_problem")
 
     def evaluate_run(self, run_dir: str | Path, *, data_root: str | Path | None = None, max_artifact_samples: int = 12) -> OperationResult:
@@ -453,6 +467,48 @@ def test_execute_next_action_refuses_when_older_open_candidate_exists(tmp_path: 
     assert "open Harness actions" in completed.stderr
     assert "run_candidate" in completed.stderr
     assert "agent_candidate" in completed.stderr
+
+
+def test_open_candidate_action_with_started_run_reconciles_same_run_instead_of_resubmitting(tmp_path: Path) -> None:
+    ledger = tmp_path / "research-ledger.jsonl"
+    events = [
+        {
+            "event_type": "agent_handoff_ingested",
+            "created_at": "2026-08-11T00:00:00Z",
+            "handoff_type": "candidate_submission",
+            "artifact_id": "candidate-1",
+            "candidate_id": "candidate-1",
+            "source_path": "agent-work/submissions/candidate-1",
+            "canonical_path": "candidates/candidate-1",
+        },
+        {
+            "event_type": "candidate_submitted",
+            "created_at": "2026-08-11T00:00:01Z",
+            "candidate_id": "candidate-1",
+            "run_id": "run_stable",
+        },
+        {
+            "event_type": "run_started",
+            "created_at": "2026-08-11T00:00:02Z",
+            "candidate_id": "candidate-1",
+            "run_id": "run_stable",
+        },
+    ]
+    ledger.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+    actions = find_open_executable_actions(tmp_path)
+
+    assert actions == [
+        {
+            "handoff_type": "candidate_submission",
+            "canonical_path": "candidates/candidate-1",
+            "created_at": "2026-08-11T00:00:00Z",
+            "ledger_index": 0,
+            "action": "reconcile_run",
+            "candidate_id": "candidate-1",
+            "run_id": "run_stable",
+        }
+    ]
 
 
 def test_execute_open_actions_runs_pending_candidate_in_ledger_order(tmp_path: Path, monkeypatch):

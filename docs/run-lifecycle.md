@@ -48,8 +48,10 @@ runs/
     │   └── model.py
     ├── resolved_manifest.yaml
     ├── run_metadata.json
+    ├── execution.json                     # managed supervisor/container state for long Runs
     └── outputs/
         ├── model_summary.json              # after smoke test
+        ├── nonfinite_diagnostic.json        # bounded count-only evidence when finite-state checks fail
         ├── metrics.jsonl                   # after training
         ├── final_metrics.json              # final completed epoch metrics after training
         ├── best_metrics.json               # best validation epoch metrics selected by max val/dice
@@ -60,6 +62,7 @@ runs/
             ├── validation.log
             ├── smoke_test.log              # after smoke test
             ├── training.log                # after training
+            ├── supervisor.log              # detached managed-execution process output
             ├── resource_retry.log          # Resource Failure retry events, when applicable
             └── harness_timeout.log         # Docker training timeout events, when applicable
 ```
@@ -76,7 +79,16 @@ Observation commands read metrics and summaries from `outputs/`. Docker smoke te
 ml-autoresearch run-candidate --candidate path/to/candidate --workspace-root /path/to/research-workspace
 ```
 
-`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only for manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The command prints JSON containing `run_id`, `run_dir`, `status`, `rejection_reason`, and `failure_classification`; it exits non-zero unless the full run completes. Execution loads the configured trusted Research Problem provider from `ml-autoresearch.toml` when present, passes that package into native or Docker-backed operations, and records Research Problem and dataset metadata in `run_metadata.json`.
+`run-candidate` defaults to `--backend docker` and `--require-proposal`. Use `--backend native` only as an explicit developer-unsafe escape hatch. Use `--no-require-proposal` only for manual compatibility flows or legacy fixtures with no candidate-local `PROPOSAL.md`. The Harness creates and smoke-tests a stable Run first, then starts the same detached managed supervisor for both foreground and detached operation. A foreground caller waits for and reconciles that supervisor; caller interruption does not own or terminate the Run. `--detach` returns immediately with the stable `run_id`, `run_dir`, supervisor PID, execution state, and durable log path; `--daemonize` remains a compatibility alias. The command prints terminal Run JSON in foreground mode and exits non-zero unless the full Run completes. Execution loads the configured trusted Research Problem provider from `ml-autoresearch.toml` when present, passes that package into native or Docker-backed operations, and records Research Problem and dataset metadata in `run_metadata.json`.
+
+Observe or reconcile an existing Run without submitting another Candidate:
+
+```bash
+ml-autoresearch run-status --workspace-root . --run-id <run_id>
+ml-autoresearch reconcile-run --workspace-root . --run-id <run_id>
+```
+
+`run-status` is read-only. `reconcile-run` validates existing artifacts and repairs terminal Run metadata/Research Ledger state exactly once; it never retrains. Repeating reconciliation is supported. If an accepted Run was prepared but training never started, autonomy recovery may start that same Run identity. An active supervisor or container is observed rather than relaunched.
 
 Harness-owned autonomous next actions read the Research Workspace Root's `ml-autoresearch.toml` for Candidate Execution Boundary policy. This Workspace Configuration captures the backend, Docker image, GPU policy, rootless/user policy, active Research Problem id, provider package path/target, Research Problem data config, runs root, ledger path, and bounded artifact/sample defaults used when `execute-next-action` submits or continues a Candidate Experiment Run.
 
@@ -146,6 +158,8 @@ Existing detailed fields (`rejection_reason`, `smoke_failure_reason`, and `train
 
 For Resource Failures during Harness-owned training, the implementation may retry with a smaller effective batch size up to three times while preserving the requested batch size in `resolved_manifest.yaml` as `training.batch_size_requested`. The attempted effective batch size is recorded as `training.batch_size_effective` and reflected in `training.batch_size` for the retried operation. `run_metadata.json` stores `training_lifecycle.resource_retry` with attempt details, and `outputs/logs/resource_retry.log` records a human-readable retry trace.
 
+A non-finite Candidate output, loss, gradient, parameter, validation value, metric artifact, or checkpoint is not a Resource Failure and is never batch-size retried. Candidate numerical failures use `candidate_bug`; a trusted adapter returning non-finite aggregate metrics from finite tensors uses `harness_failure`. The reason begins with `non_finite_training_state`, and `outputs/nonfinite_diagnostic.json` records only the phase, bounded checkpoint, epoch/batch, failing quantity, and finite/NaN/infinity counts—never raw samples or tensor values.
+
 ## Repair Candidate policy
 
 Repair Candidate lineage from the manifest is persisted in `run_metadata.json` as `repair_lineage` and in `candidate_created` Research Ledger events. The lineage records the original proposal, original candidate, motivating failed Run, and Run Failure Classification. Autonomous mode (`--require-proposal`) enforces the initial limit of at most two Repair Candidates per original proposal. Repairs are valid only when they preserve the original hypothesis and Comparison Target; scientific changes require a new Experiment Proposal and lineage.
@@ -184,7 +198,9 @@ Docker-backed smoke tests, synthetic training, and configured Research Problem t
 
 For Docker-backed training Runs with a Harness wall-clock budget, timeout handling is graceful first: the Harness writes `/scratch/ml_autoresearch_timeout_requested`, records the event in `outputs/logs/harness_timeout.log`, and allows a bounded grace period. The in-container Harness-owned training loop checks the sentinel at end-of-batch boundaries, evaluates the best available model state, writes `metrics.jsonl`, `final_metrics.json`, `best_metrics.json`, `models/best_epoch_model.pt`, training logs, and supported artifacts, then exits cleanly. If the grace period expires, the Harness force-kills the container and records forced timeout failure in Harness-owned metadata.
 
-Run metadata remains authoritative for lifecycle state. Candidate Experiment code may write operation outputs under `/outputs`, but it cannot authoritatively set normal completion, graceful timeout completion, or forced timeout failure.
+Run metadata remains authoritative for lifecycle state. Candidate Experiment code may write operation outputs under `/outputs`, but it cannot authoritatively set normal completion, graceful timeout completion, or forced timeout failure. Docker training omits `--rm` so the Harness can inspect an exited or still-running container after supervisor/caller interruption. `execution.json` records each container identity; terminalization removes recorded containers only after artifact validation and the idempotent metadata/ledger transition.
+
+Trusted finite-state checks run on every training batch for expected outputs, individual and total losses, gradients before `optimizer.step`, and parameters after the step. Validation checks outputs and losses per batch plus aggregate/selection metrics before checkpointing. Smoke testing checks initial parameters, synthetic outputs/loss, gradients, and post-backward parameters. Terminal validation rejects non-finite metrics or checkpoint tensors even when a backend otherwise reports success.
 
 ### Remaining limitations and non-goals
 

@@ -196,6 +196,18 @@ _Avoid_: General helper, utility module when it can smuggle non-architecture beh
 One execution attempt of a Candidate Experiment by the Candidate Experiment Runner.
 _Avoid_: Experiment when referring only to execution
 
+**Managed Run Execution**:
+Harness-owned supervision of a long Run after a stable Run identity exists, allowing callers to detach while execution state remains observable and recoverable.
+_Avoid_: Caller-owned Docker process, relaunching after disconnection
+
+**Run Execution Record**:
+The durable Harness-owned `execution.json` record for one Managed Run Execution, including supervisor, backend/container attempt, timestamps, logs, observed state, and cleanup information. It is operational state, not a Research Ledger event or Candidate artifact.
+_Avoid_: Run metadata replacement, Candidate status file
+
+**Run Reconciliation**:
+An idempotent Harness operation that observes one existing Run, validates terminal artifacts, repairs missing terminal metadata or Research Ledger state, and never retrains or creates another Run.
+_Avoid_: Resubmission, retry, duplicate finalization
+
 **Result**:
 The metrics and artifacts produced by a Run, with final-epoch metrics distinguished from best-validation metrics.
 _Avoid_: Run when referring only to observed outputs
@@ -433,6 +445,9 @@ _Avoid_: Video-level prediction, arbitrary video segment
 - A **Candidate Experiment** contains one **Model Architecture**.
 - Candidate helper code is limited to **Architecture Helpers** used by the **Model Architecture**.
 - A **Candidate Experiment** may produce zero or more **Runs**.
+- A **Managed Run Execution** starts only after the Harness has created a stable **Run** identity.
+- A **Run Execution Record** makes supervisor and Docker-container state observable independently of the initiating caller.
+- **Run Reconciliation** terminalizes an existing **Run** idempotently and never creates a duplicate **Run** or retrains it.
 - A **Run** produces at most one **Result**.
 - A completed **Run** may have zero or more **Post-Run Evaluations**.
 - During autonomous operation, the agent may invoke approved, bounded, Harness-owned **Post-Run Evaluations** on prior Runs without creating new Candidate Experiments.

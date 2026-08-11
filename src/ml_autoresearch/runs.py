@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import secrets
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Callable
@@ -17,6 +20,7 @@ import yaml
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.errors import ResearchProblemDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
+from ml_autoresearch.managed_execution import cleanup_recorded_containers, read_execution_record
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
@@ -81,6 +85,32 @@ def is_resource_failure(exc: BaseException | str) -> bool:
 
     text = str(exc).lower()
     return any(marker in text for marker in _RESOURCE_FAILURE_MARKERS)
+
+
+def _training_failure_classification(
+    exc: BaseException,
+    *,
+    run_dir: Path | None = None,
+) -> RunFailureClassification:
+    """Classify trusted training exceptions without letting Candidate code choose policy."""
+
+    if isinstance(exc, ResearchProblemDataError):
+        return RunFailureClassification.HARNESS_FAILURE
+    hint = getattr(exc, "failure_classification", None)
+    if hint is None and run_dir is not None and "non_finite_training_state" in str(exc):
+        diagnostic_path = run_dir / "outputs" / "nonfinite_diagnostic.json"
+        if diagnostic_path.is_file():
+            try:
+                diagnostic = json.loads(diagnostic_path.read_text())
+            except json.JSONDecodeError:
+                diagnostic = {}
+            if isinstance(diagnostic, dict):
+                hint = diagnostic.get("failure_classification")
+    if hint in {RunFailureClassification.CANDIDATE_BUG.value, RunFailureClassification.HARNESS_FAILURE.value}:
+        return RunFailureClassification(hint)
+    if is_resource_failure(exc):
+        return RunFailureClassification.RESOURCE_FAILURE
+    return RunFailureClassification.CANDIDATE_BUG
 
 
 @dataclass(frozen=True)
@@ -339,10 +369,11 @@ def _run_candidate_synthetic_training(
             repair_lineage=repair_lineage,
         )
         _record_run_failed(resolved_ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
+        _cleanup_execution_containers(run.run_dir)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
     except (TrainingError, RuntimeError) as exc:
         reason = str(exc)
-        classification = RunFailureClassification.RESOURCE_FAILURE if is_resource_failure(exc) else RunFailureClassification.CANDIDATE_BUG
+        classification = _training_failure_classification(exc, run_dir=run.run_dir)
         failure_lifecycle = exc.lifecycle if isinstance(exc, ResourceRetryExhaustedError) else None
         _write_metadata(
             run.run_dir,
@@ -360,6 +391,7 @@ def _run_candidate_synthetic_training(
             repair_lineage=repair_lineage,
         )
         _record_run_failed(resolved_ledger_path, run.run_id, reason, classification)
+        _cleanup_execution_containers(run.run_dir)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, classification)
 
     _write_metadata(
@@ -381,6 +413,7 @@ def _run_candidate_synthetic_training(
         training_policy=_training_policy_from_training_result(training_result, run.run_dir),
     )
     _record_run_completed(resolved_ledger_path, run.run_id, run.run_dir)
+    _cleanup_execution_containers(run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 
@@ -477,14 +510,11 @@ def _train_accepted_run(
             repair_lineage=repair_lineage,
         )
         _record_run_failed(ledger_path, run.run_id, reason, RunFailureClassification.RESOURCE_FAILURE)
+        _cleanup_execution_containers(run.run_dir)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, RunFailureClassification.RESOURCE_FAILURE)
     except (TrainingError, RuntimeError, ResearchProblemDataError) as exc:
         reason = str(exc)
-        classification = (
-            RunFailureClassification.HARNESS_FAILURE
-            if isinstance(exc, ResearchProblemDataError)
-            else RunFailureClassification.RESOURCE_FAILURE if is_resource_failure(exc) else RunFailureClassification.CANDIDATE_BUG
-        )
+        classification = _training_failure_classification(exc, run_dir=run.run_dir)
         failure_lifecycle = exc.lifecycle if isinstance(exc, ResourceRetryExhaustedError) else None
         _write_training_failure_log(run.run_dir, reason)
         _write_metadata(
@@ -505,6 +535,7 @@ def _train_accepted_run(
             repair_lineage=repair_lineage,
         )
         _record_run_failed(ledger_path, run.run_id, reason, classification)
+        _cleanup_execution_containers(run.run_dir)
         return RunSubmission(run.run_id, run.run_dir, RunStatus.FAILED, reason, classification)
 
     _write_metadata(
@@ -528,7 +559,142 @@ def _train_accepted_run(
         training_policy=_training_policy_from_training_result(training_result, run.run_dir),
     )
     _record_run_completed(ledger_path, run.run_id, run.run_dir)
+    _cleanup_execution_containers(run.run_dir)
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
+
+
+def reconcile_run(
+    run_dir: str | Path,
+    *,
+    ledger_path: str | Path | None = None,
+) -> RunSubmission:
+    """Idempotently validate and terminalize one existing Run without retraining."""
+
+    path = Path(run_dir)
+    resolved_ledger = _resolve_ledger_path(path.parent, ledger_path)
+    with _run_finalization_lock(path):
+        metadata = _read_metadata(path)
+        run_id = str(metadata.get("run_id") or path.name)
+        status = str(metadata.get("status"))
+        if status in {RunStatus.REJECTED.value, RunStatus.SMOKE_FAILED.value}:
+            return RunSubmission(
+                run_id,
+                path,
+                RunStatus(status),
+                str(metadata.get("rejection_reason") or metadata.get("smoke_failure_reason") or "") or None,
+                validate_run_failure_classification(metadata.get("failure_classification")),
+            )
+        if status == RunStatus.FAILED.value:
+            classification = (
+                validate_run_failure_classification(metadata.get("failure_classification"))
+                or RunFailureClassification.UNKNOWN
+            )
+            reason = str(metadata.get("training_failure_reason") or "unknown failure")
+            _ensure_terminal_event_once(
+                resolved_ledger,
+                run_id=run_id,
+                event_type="run_failed",
+                reason=reason,
+                failure_classification=classification,
+                run_dir=path,
+            )
+            _cleanup_execution_containers(path)
+            return RunSubmission(run_id, path, RunStatus.FAILED, reason, classification)
+        if status == RunStatus.ACCEPTED.value:
+            return RunSubmission(run_id, path, RunStatus.ACCEPTED)
+        if status == RunStatus.TRAINING.value:
+            execution = read_execution_record(path)
+            if isinstance(execution, dict) and (
+                execution.get("supervisor_alive") is True
+                or execution.get("observed_state") == "container_running"
+            ):
+                return RunSubmission(run_id, path, RunStatus.TRAINING)
+            if isinstance(execution, dict):
+                container_observation = execution.get("container_observation")
+                active_container = execution.get("active_container")
+                exit_code = (
+                    container_observation.get("exit_code")
+                    if isinstance(container_observation, dict) and container_observation.get("status") == "exited"
+                    else active_container.get("exit_code")
+                    if isinstance(active_container, dict) and active_container.get("state") == "exited_failure"
+                    else None
+                )
+                if isinstance(exit_code, int) and exit_code != 0:
+                    container_error = (
+                        container_observation.get("error")
+                        if isinstance(container_observation, dict)
+                        else active_container.get("error") if isinstance(active_container, dict) else None
+                    )
+                    reason = (
+                        f"managed Docker operation exited with status {exit_code}: "
+                        f"{container_error or 'no container error detail'}"
+                    )
+                    oom_killed = bool(
+                        isinstance(container_observation, dict) and container_observation.get("oom_killed") is True
+                    )
+                    classification = (
+                        RunFailureClassification.RESOURCE_FAILURE
+                        if oom_killed or is_resource_failure(reason)
+                        else RunFailureClassification.CANDIDATE_BUG
+                    )
+                    _update_terminal_metadata(
+                        path,
+                        metadata,
+                        status=RunStatus.FAILED,
+                        reason=reason,
+                        failure_classification=classification,
+                    )
+                    _ensure_terminal_event_once(
+                        resolved_ledger,
+                        run_id=run_id,
+                        event_type="run_failed",
+                        reason=reason,
+                        failure_classification=classification,
+                        run_dir=path,
+                    )
+                    _cleanup_execution_containers(path)
+                    return RunSubmission(run_id, path, RunStatus.FAILED, reason, classification)
+        try:
+            artifacts = _validate_training_outputs(path, None)
+        except (TrainingError, RuntimeError) as exc:
+            reason = f"Run reconciliation artifact validation failed: {exc}"
+            classification = _training_failure_classification(exc, run_dir=path)
+            if (
+                classification == RunFailureClassification.CANDIDATE_BUG
+                and not str(exc).startswith("non_finite_training_state:")
+            ):
+                classification = RunFailureClassification.HARNESS_FAILURE
+            _update_terminal_metadata(
+                path,
+                metadata,
+                status=RunStatus.FAILED,
+                reason=reason,
+                failure_classification=classification,
+            )
+            _ensure_terminal_event_once(
+                resolved_ledger,
+                run_id=run_id,
+                event_type="run_failed",
+                reason=reason,
+                failure_classification=classification,
+                run_dir=path,
+            )
+            _cleanup_execution_containers(path)
+            return RunSubmission(run_id, path, RunStatus.FAILED, reason, classification)
+        _update_terminal_metadata(
+            path,
+            metadata,
+            status=RunStatus.COMPLETED,
+            artifacts=artifacts,
+        )
+        _ensure_terminal_event_once(
+            resolved_ledger,
+            run_id=run_id,
+            event_type="run_completed",
+            run_dir=path,
+        )
+        _cleanup_execution_containers(path)
+        return RunSubmission(run_id, path, RunStatus.COMPLETED)
 
 
 def list_runs(runs_root: str | Path) -> list[dict[str, object]]:
@@ -903,6 +1069,84 @@ def submit_candidate(
     return RunSubmission(run_id, run_dir, RunStatus.ACCEPTED)
 
 
+@contextmanager
+def _run_finalization_lock(run_dir: Path):
+    """Serialize terminal metadata and Research Ledger transitions for one Run."""
+
+    lock_path = run_dir / ".finalization.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _update_terminal_metadata(
+    run_dir: Path,
+    metadata: dict[str, object],
+    *,
+    status: RunStatus,
+    reason: str | None = None,
+    failure_classification: RunFailureClassification | None = None,
+    artifacts: dict[str, object] | None = None,
+) -> None:
+    updated = dict(metadata)
+    updated["status"] = status.value
+    updated["updated_at"] = _now_iso()
+    updated["training_failure_reason"] = reason
+    updated["failure_classification"] = failure_classification.value if failure_classification is not None else None
+    if artifacts is not None:
+        updated["artifacts"] = artifacts
+    temporary = run_dir / f".run_metadata.{os.getpid()}.tmp"
+    temporary.write_text(json.dumps(updated, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    os.replace(temporary, run_dir / "run_metadata.json")
+
+
+def _ensure_terminal_event_once(
+    ledger_path: Path,
+    *,
+    run_id: str,
+    event_type: str,
+    run_dir: Path,
+    reason: str | None = None,
+    failure_classification: RunFailureClassification = RunFailureClassification.UNKNOWN,
+) -> None:
+    terminal_events: list[dict[str, object]] = []
+    if ledger_path.is_file():
+        for line in ledger_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(event, dict)
+                and event.get("run_id") == run_id
+                and event.get("event_type") in {"run_completed", "run_failed"}
+            ):
+                terminal_events.append(event)
+    if len(terminal_events) > 1:
+        raise ResearchLedgerError(f"Run {run_id} has duplicate terminal Research Ledger events")
+    if terminal_events:
+        existing_type = terminal_events[0].get("event_type")
+        if existing_type != event_type:
+            raise ResearchLedgerError(
+                f"Run {run_id} terminal state conflicts with existing {existing_type} Research Ledger event"
+            )
+        return
+    if event_type == "run_completed":
+        _record_run_completed(ledger_path, run_id, run_dir)
+        return
+    _record_run_failed(ledger_path, run_id, reason or "unknown failure", failure_classification)
+
+
+def _cleanup_execution_containers(run_dir: Path) -> None:
+    cleanup_recorded_containers(run_dir)
+
+
 def _outputs_dir(run_dir: Path) -> Path:
     return run_dir / "outputs"
 
@@ -1066,13 +1310,53 @@ def _record_candidate_created_event(
     record_research_event("candidate_created", fields, ledger_path=resolved_ledger_path)
 
 
+@contextmanager
+def _ledger_terminal_lock(ledger_path: Path):
+    lock_path = ledger_path.with_name(f".{ledger_path.name}.terminal.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _terminal_events_for_run(ledger_path: Path, run_id: str) -> list[dict[str, object]]:
+    if not ledger_path.is_file():
+        return []
+    events: list[dict[str, object]] = []
+    for line in ledger_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(event, dict)
+            and event.get("run_id") == run_id
+            and event.get("event_type") in {"run_completed", "run_failed"}
+        ):
+            events.append(event)
+    return events
+
+
 def _record_run_completed(ledger_path: Path, run_id: str, run_dir: Path) -> None:
-    metrics_path = run_dir / "outputs" / "final_metrics.json"
-    record_research_event(
-        "run_completed",
-        {"run_id": run_id, "metrics_path": str(metrics_path)},
-        ledger_path=ledger_path,
-    )
+    with _ledger_terminal_lock(ledger_path):
+        terminal_events = _terminal_events_for_run(ledger_path, run_id)
+        if len(terminal_events) > 1:
+            raise ResearchLedgerError(f"Run {run_id} has duplicate terminal Research Ledger events")
+        if terminal_events:
+            if terminal_events[0].get("event_type") != "run_completed":
+                raise ResearchLedgerError(f"Run {run_id} already has a conflicting run_failed event")
+            return
+        metrics_path = run_dir / "outputs" / "final_metrics.json"
+        record_research_event(
+            "run_completed",
+            {"run_id": run_id, "metrics_path": str(metrics_path)},
+            ledger_path=ledger_path,
+        )
 
 
 def _record_run_failed(
@@ -1081,15 +1365,23 @@ def _record_run_failed(
     reason: str,
     failure_classification: RunFailureClassification = RunFailureClassification.UNKNOWN,
 ) -> None:
-    record_research_event(
-        "run_failed",
-        {
-            "run_id": run_id,
-            "error": reason or "unknown failure",
-            "failure_classification": failure_classification.value,
-        },
-        ledger_path=ledger_path,
-    )
+    with _ledger_terminal_lock(ledger_path):
+        terminal_events = _terminal_events_for_run(ledger_path, run_id)
+        if len(terminal_events) > 1:
+            raise ResearchLedgerError(f"Run {run_id} has duplicate terminal Research Ledger events")
+        if terminal_events:
+            if terminal_events[0].get("event_type") != "run_failed":
+                raise ResearchLedgerError(f"Run {run_id} already has a conflicting run_completed event")
+            return
+        record_research_event(
+            "run_failed",
+            {
+                "run_id": run_id,
+                "error": reason or "unknown failure",
+                "failure_classification": failure_classification.value,
+            },
+            ledger_path=ledger_path,
+        )
 
 
 def _data_policy_from_training_result(training_result: object, run_dir: Path) -> dict[str, object] | None:
@@ -1217,7 +1509,9 @@ def _write_metadata(
         for batch_field in ("batch_id", "batch_candidate_id"):
             if batch_field in existing_metadata:
                 metadata[batch_field] = existing_metadata[batch_field]
-    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    temporary = run_dir / f".run_metadata.{os.getpid()}.tmp"
+    temporary.write_text(json.dumps(metadata, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    os.replace(temporary, metadata_path)
 
 
 def _read_metadata(run_dir: Path) -> dict[str, object]:
@@ -1262,6 +1556,8 @@ def _validate_synthetic_training_outputs(run_dir: Path) -> dict[str, object] | N
 
 
 def _validate_training_outputs(run_dir: Path, training_result: object) -> dict[str, object] | None:
+    from ml_autoresearch.finite import require_finite_json_numbers, require_finite_tensor
+
     outputs_dir = _outputs_dir(run_dir)
     required = [
         outputs_dir / "metrics.jsonl",
@@ -1276,14 +1572,74 @@ def _validate_training_outputs(run_dir: Path, training_result: object) -> dict[s
                 "required synthetic training artifact is missing"
             )
     try:
+        metric_records = [
+            json.loads(line)
+            for line in (outputs_dir / "metrics.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
         final_metrics = json.loads((outputs_dir / "final_metrics.json").read_text())
+        best_metrics = json.loads((outputs_dir / "best_metrics.json").read_text())
     except Exception as exc:  # noqa: BLE001
-        raise TrainingError(f"required training artifact is invalid: outputs/final_metrics.json: {exc}") from exc
-    if isinstance(training_result, dict) and isinstance(training_result.get("artifacts"), dict):
-        return training_result["artifacts"]
-    if isinstance(final_metrics, dict) and isinstance(final_metrics.get("artifacts"), dict):
-        return final_metrics["artifacts"]
-    return None
+        raise TrainingError(f"required training metric artifact is invalid: {exc}") from exc
+    for index, record in enumerate(metric_records):
+        require_finite_json_numbers(
+            record,
+            outputs_dir=outputs_dir,
+            phase="terminal_validation",
+            checkpoint="metrics_artifacts",
+            quantity_prefix=f"metric.metrics.jsonl[{index}]",
+        )
+    require_finite_json_numbers(
+        final_metrics,
+        outputs_dir=outputs_dir,
+        phase="terminal_validation",
+        checkpoint="metrics_artifacts",
+        quantity_prefix="metric.final_metrics",
+    )
+    require_finite_json_numbers(
+        best_metrics,
+        outputs_dir=outputs_dir,
+        phase="terminal_validation",
+        checkpoint="metrics_artifacts",
+        quantity_prefix="metric.best_metrics",
+    )
+    artifacts = (
+        training_result["artifacts"]
+        if isinstance(training_result, dict) and isinstance(training_result.get("artifacts"), dict)
+        else final_metrics.get("artifacts")
+        if isinstance(final_metrics, dict) and isinstance(final_metrics.get("artifacts"), dict)
+        else None
+    )
+    checkpoint_relative = artifacts.get("best_epoch_model") if isinstance(artifacts, dict) else None
+    if not isinstance(checkpoint_relative, str) and isinstance(best_metrics, dict):
+        checkpoint_relative = best_metrics.get("model_artifact")
+    if not isinstance(checkpoint_relative, str) or not checkpoint_relative:
+        raise TrainingError("required training checkpoint reference is missing")
+    relative_checkpoint = Path(checkpoint_relative)
+    if relative_checkpoint.is_absolute() or ".." in relative_checkpoint.parts:
+        raise TrainingError(f"required training checkpoint path is invalid: {checkpoint_relative}")
+    checkpoint_path = run_dir / relative_checkpoint
+    if not checkpoint_path.is_file():
+        raise TrainingError(f"required training artifact is missing: {checkpoint_relative}")
+    import torch
+
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    except Exception as exc:  # noqa: BLE001
+        raise TrainingError(f"required training checkpoint is invalid: {checkpoint_relative}: {exc}") from exc
+    state_dict = checkpoint.get("model_state_dict") if isinstance(checkpoint, dict) else None
+    if not isinstance(state_dict, dict):
+        raise TrainingError(f"required training checkpoint is invalid: {checkpoint_relative}: missing model_state_dict")
+    for tensor_name, tensor in state_dict.items():
+        if isinstance(tensor, torch.Tensor):
+            require_finite_tensor(
+                tensor,
+                outputs_dir=outputs_dir,
+                phase="terminal_validation",
+                checkpoint="checkpoint_tensors",
+                failing_quantity=f"checkpoint.model_state_dict.{tensor_name}",
+            )
+    return artifacts
 
 
 def _artifacts_from_training_result(training_result: object) -> dict[str, object] | None:

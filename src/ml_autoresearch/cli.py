@@ -42,17 +42,28 @@ from ml_autoresearch.campaign_controls import (
     record_campaign_report_written,
     record_campaign_resume,
 )
-from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError
+from ml_autoresearch.candidate_execution_config import (
+    CandidateExecutionConfigError,
+    load_candidate_execution_config,
+)
 from ml_autoresearch.capability_requests import CapabilityRequestError, create_capability_request
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, run_post_run_evaluation
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend, validate_docker_gpu
+from ml_autoresearch.managed_execution import (
+    await_supervisor_registration,
+    read_execution_record,
+    start_run_supervisor,
+    update_execution_record,
+)
 from ml_autoresearch.package_resources import PackageResourceError, stage_workspace_container_build_recipes
 from ml_autoresearch.research_loop_operations import (
     effective_execution_options,
     effective_ledger_path,
     load_configured_provider,
     resolve_research_problem_data_root,
+    prepare_candidate_run_from_workspace,
     run_candidate_from_workspace,
+    train_prepared_run_from_workspace,
     run_experiment_batch_from_workspace,
     run_submission_payload,
     select_execution_backend,
@@ -65,7 +76,7 @@ from ml_autoresearch.runtime_images import (
     runtime_image_validation_skip_warning,
     validate_runtime_images,
 )
-from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs
+from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs, reconcile_run
 from ml_autoresearch.batches import get_batch_summary, list_batches
 from ml_autoresearch.setup import (
     SUPPORTED_BINARY_SEGMENTATION,
@@ -664,13 +675,69 @@ def record_research_event_command(
     _echo_json(event)
 
 
-def _daemonize_current_run_candidate(runs_root: Path) -> None:
-    """Re-exec the current run-candidate command in a detached child process."""
+def _start_prepared_run_supervisor(
+    prepared: dict[str, object],
+    *,
+    workspace_root: Path,
+    backend: str,
+    docker_image: str,
+    docker_enable_gpu: bool,
+    docker_gpu_device: str | None,
+    docker_user: str | None,
+    docker_rootless_container_root: bool,
+    max_samples: int | None,
+    max_prediction_samples: int | None,
+    prediction_sample_policy: str | None,
+    ledger_path: Path | None,
+) -> dict[str, object]:
+    """Start detached training for an accepted stable Run and return its identity."""
 
-    daemon_logs = runs_root / "daemon_logs"
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    log_path = daemon_logs / f"run_candidate_{timestamp}.log"
-    _daemonize_current_command(log_path)
+    run_dir = Path(str(prepared["run_dir"]))
+    log_path = run_dir / "outputs" / "logs" / "supervisor.log"
+    command = [
+        sys.executable,
+        "-m",
+        "ml_autoresearch.cli",
+        "continue-run",
+        "--run-dir",
+        str(run_dir),
+        "--workspace-root",
+        str(workspace_root),
+        "--backend",
+        backend,
+        "--docker-image",
+        docker_image,
+    ]
+    if docker_enable_gpu:
+        command.append("--docker-enable-gpu")
+    if docker_gpu_device is not None:
+        command.extend(["--docker-gpu-device", docker_gpu_device])
+    if docker_user is not None:
+        command.extend(["--docker-user", docker_user])
+    if docker_rootless_container_root:
+        command.append("--docker-rootless-container-root")
+    if max_samples is not None:
+        command.extend(["--max-samples", str(max_samples)])
+    if max_prediction_samples is not None:
+        command.extend(["--max-prediction-samples", str(max_prediction_samples)])
+    if prediction_sample_policy is not None:
+        command.extend(["--prediction-sample-policy", prediction_sample_policy])
+    if ledger_path is not None:
+        command.extend(["--ledger-path", str(ledger_path)])
+    record = start_run_supervisor(
+        run_dir,
+        command=command,
+        log_path=log_path,
+        backend=backend,
+    )
+    return {
+        **prepared,
+        "status": "running",
+        "execution_state": record["state"],
+        "pid": record["supervisor"]["pid"],
+        "log_path": str(log_path),
+        "command": command,
+    }
 
 
 def _daemonize_current_evaluate_run(run_dir: Path) -> None:
@@ -872,6 +939,68 @@ def run_experiment_batch_command(
         raise typer.Exit(1)
 
 
+@app.command("continue-run", hidden=True)
+def continue_run_command(
+    run_dir: Annotated[Path, typer.Option(help="Existing accepted Run directory.")],
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root.")] = Path("."),
+    max_samples: Annotated[int | None, typer.Option("--max-samples")] = None,
+    max_prediction_samples: Annotated[int | None, typer.Option("--max-prediction-samples")] = None,
+    prediction_sample_policy: Annotated[
+        Literal["first_n", "adjacent_and_scattered"] | None,
+        typer.Option("--prediction-sample-policy"),
+    ] = None,
+    backend: Annotated[Literal["native", "docker"], typer.Option("--backend")] = "docker",
+    docker_image: Annotated[str, typer.Option("--docker-image")] = DEFAULT_DOCKER_IMAGE,
+    docker_enable_gpu: Annotated[bool, typer.Option("--docker-enable-gpu")] = False,
+    docker_gpu_device: Annotated[str | None, typer.Option("--docker-gpu-device")] = None,
+    docker_user: Annotated[str | None, typer.Option("--docker-user")] = None,
+    docker_rootless_container_root: Annotated[bool, typer.Option("--docker-rootless-container-root")] = False,
+    ledger_path: Annotated[Path | None, typer.Option("--ledger-path")] = None,
+) -> None:
+    """Internal detached supervisor entry point for an accepted stable Run."""
+
+    try:
+        await_supervisor_registration(run_dir, pid=os.getpid())
+        update_execution_record(run_dir, state="training", supervisor={"pid": os.getpid()})
+        payload = train_prepared_run_from_workspace(
+            run_dir,
+            workspace_root=workspace_root,
+            backend_name=backend,
+            docker_image=docker_image,
+            docker_enable_gpu=docker_enable_gpu,
+            docker_gpu_device=docker_gpu_device,
+            docker_user=docker_user,
+            docker_rootless_container_root=docker_rootless_container_root,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+            ledger_path=ledger_path,
+        )
+        config = load_candidate_execution_config(workspace_root)
+        reconciled = reconcile_run(
+            run_dir,
+            ledger_path=effective_ledger_path(config, override=ledger_path),
+        )
+        payload = run_submission_payload(reconciled)
+    except Exception as exc:  # noqa: BLE001 - preserve durable supervisor failure state.
+        update_execution_record(
+            run_dir,
+            state="supervisor_failed",
+            error=str(exc),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        raise
+    update_execution_record(
+        run_dir,
+        state="finalized",
+        terminal_status=payload.get("status"),
+        finished_at=datetime.now(timezone.utc).isoformat(),
+    )
+    _echo_json(payload)
+    if payload.get("status") != RunStatus.COMPLETED.value:
+        raise typer.Exit(1)
+
+
 @app.command("run-candidate")
 def run_candidate_command(
     candidate: Annotated[Path, typer.Option(help="Path to a local Candidate Experiment directory.")],
@@ -922,7 +1051,11 @@ def run_candidate_command(
     ] = True,
     daemonize: Annotated[
         bool,
-        typer.Option("--daemonize", help="Start the Candidate Experiment Run in a detached background process and return immediately."),
+        typer.Option(
+            "--detach",
+            "--daemonize",
+            help="Return after starting the managed Candidate Run; --daemonize is a compatibility alias.",
+        ),
     ] = False,
     skip_runtime_image_validation: Annotated[
         bool,
@@ -940,12 +1073,7 @@ def run_candidate_command(
     try:
         if backend == "docker":
             _enforce_runtime_image_validation("run-candidate", workspace_root, skip=skip_runtime_image_validation)
-        if daemonize:
-            config, _provider_config = _load_configured_provider(workspace_root, label="run-candidate")
-            effective_runs_root = config.runs_root if runs_root is None else runs_root
-            _daemonize_current_run_candidate(effective_runs_root)
-            return
-        payload = run_candidate_from_workspace(
+        prepared = prepare_candidate_run_from_workspace(
             candidate,
             workspace_root=workspace_root,
             runs_root=runs_root,
@@ -955,12 +1083,36 @@ def run_candidate_command(
             docker_gpu_device=docker_gpu_device,
             docker_user=docker_user,
             docker_rootless_container_root=docker_rootless_container_root,
+            ledger_path=ledger_path,
+            require_proposal=require_proposal,
+        )
+        if prepared.get("status") != RunStatus.ACCEPTED.value:
+            _echo_json(prepared)
+            raise typer.Exit(1)
+        running = _start_prepared_run_supervisor(
+            prepared,
+            workspace_root=workspace_root,
+            backend=backend,
+            docker_image=docker_image,
+            docker_enable_gpu=docker_enable_gpu,
+            docker_gpu_device=docker_gpu_device,
+            docker_user=docker_user,
+            docker_rootless_container_root=docker_rootless_container_root,
             max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
             ledger_path=ledger_path,
-            require_proposal=require_proposal,
         )
+        if daemonize:
+            _echo_json(running)
+            return
+        os.waitpid(int(running["pid"]), 0)
+        config = load_candidate_execution_config(workspace_root)
+        finalized = reconcile_run(
+            str(prepared["run_dir"]),
+            ledger_path=effective_ledger_path(config, override=ledger_path),
+        )
+        payload = run_submission_payload(finalized)
     except (RuntimeImageError, CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
         _exit_with_error(exc)
     _echo_json(payload)
@@ -1170,6 +1322,52 @@ def _run_summary_command(runs_root: Path, run_id: str, json_output: bool) -> Non
     else:
         _echo_table([summary])
     if summary.get("status") in {"missing", "corrupt", "missing_metadata"}:
+        raise typer.Exit(1)
+
+
+@app.command("run-status")
+def run_status_command(
+    run_id: Annotated[str, typer.Option(help="Run identifier to observe without launching work.")],
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root.")] = Path("."),
+    runs_root: Annotated[Path | None, typer.Option(help="Override configured Runs root.")] = None,
+) -> None:
+    """Observe durable Run metadata and managed execution state without retraining."""
+
+    try:
+        config = load_candidate_execution_config(workspace_root)
+    except CandidateExecutionConfigError as exc:
+        _exit_with_error(exc)
+    effective_runs_root = config.runs_root if runs_root is None else runs_root
+    run_dir = effective_runs_root / run_id
+    summary = get_run_summary(effective_runs_root, run_id)
+    summary["execution"] = read_execution_record(run_dir)
+    _echo_json(summary)
+    if summary.get("status") in {"missing", "corrupt", "missing_metadata"}:
+        raise typer.Exit(1)
+
+
+@app.command("reconcile-run")
+def reconcile_run_command(
+    run_id: Annotated[str, typer.Option(help="Existing Run identifier to reconcile; never creates a Run.")],
+    workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root.")] = Path("."),
+    runs_root: Annotated[Path | None, typer.Option(help="Override configured Runs root.")] = None,
+    ledger_path: Annotated[Path | None, typer.Option(help="Override configured Research Ledger path.")] = None,
+) -> None:
+    """Idempotently validate and terminalize one existing Run without retraining."""
+
+    try:
+        config = load_candidate_execution_config(workspace_root)
+        effective_runs_root = config.runs_root if runs_root is None else runs_root
+        run = reconcile_run(
+            effective_runs_root / run_id,
+            ledger_path=effective_ledger_path(config, override=ledger_path),
+        )
+    except (CandidateExecutionConfigError, ResearchLedgerError, OSError, ValueError) as exc:
+        _exit_with_error(exc)
+    payload = run_submission_payload(run)
+    payload["execution"] = read_execution_record(run.run_dir)
+    _echo_json(payload)
+    if run.status not in {RunStatus.COMPLETED, RunStatus.FAILED}:
         raise typer.Exit(1)
 
 

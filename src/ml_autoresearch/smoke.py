@@ -18,6 +18,7 @@ from torch import nn
 import yaml
 
 from ml_autoresearch.errors import SmokeTestError
+from ml_autoresearch.finite import require_finite_named_tensors, require_finite_tensor
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
     ResearchProblemProviderLoadError,
@@ -90,6 +91,15 @@ def smoke_test_candidate(
                 f"parameter-budget violation: {parameter_count} parameters exceeds limit {MAX_PARAMETER_COUNT}"
             )
 
+        require_finite_named_tensors(
+            model.named_parameters(),
+            outputs_dir=outputs_dir,
+            phase="smoke",
+            checkpoint="initial_parameters",
+            quantity_prefix="parameter",
+            batch=0,
+        )
+
         model.train()
         inputs = torch.zeros(synthetic_batch_shape, dtype=torch.float32)
         target = torch.zeros(synthetic_target_shape, dtype=torch.float32)
@@ -103,10 +113,46 @@ def smoke_test_candidate(
         primary_output_name = str(output_spec.get("form", "mask_logits"))
         mask_logits = outputs[primary_output_name]
         output_names = list(outputs.keys())
+        require_finite_named_tensors(
+            outputs.items(),
+            outputs_dir=outputs_dir,
+            phase="smoke",
+            checkpoint="forward_outputs",
+            quantity_prefix="output",
+            batch=0,
+        )
 
         try:
             loss = torch.nn.functional.mse_loss(mask_logits, target)
+            require_finite_tensor(
+                loss,
+                outputs_dir=outputs_dir,
+                phase="smoke",
+                checkpoint="loss",
+                failing_quantity="loss.synthetic",
+                batch=0,
+            )
             loss.backward()
+            require_finite_named_tensors(
+                (
+                    (parameter_name, parameter.grad)
+                    for parameter_name, parameter in model.named_parameters()
+                    if parameter.grad is not None
+                ),
+                outputs_dir=outputs_dir,
+                phase="smoke",
+                checkpoint="gradients",
+                quantity_prefix="gradient",
+                batch=0,
+            )
+            require_finite_named_tensors(
+                model.named_parameters(),
+                outputs_dir=outputs_dir,
+                phase="smoke",
+                checkpoint="parameters_after_backward",
+                quantity_prefix="parameter",
+                batch=0,
+            )
         except Exception as exc:  # noqa: BLE001
             raise SmokeTestError(f"backward pass failed: {exc}") from exc
 

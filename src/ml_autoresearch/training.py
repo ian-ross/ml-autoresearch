@@ -15,6 +15,11 @@ import yaml
 
 from ml_autoresearch.artifacts import write_prediction_sample_artifacts
 from ml_autoresearch.errors import TrainingError
+from ml_autoresearch.finite import (
+    require_finite_json_numbers,
+    require_finite_named_tensors,
+    require_finite_tensor,
+)
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig, load_research_problem_provider
 from ml_autoresearch.training_adapters import ResearchProblemTrainingAdapter
 from ml_autoresearch.problem_support.segmentation import bce_dice_loss, binary_segmentation_validation_metrics
@@ -259,12 +264,71 @@ def _train_manifest_epochs_run(
                 targets = targets.to(device, non_blocking=True)
                 optimizer.zero_grad(set_to_none=True)
                 outputs = _extract_expected_outputs(model(inputs), output_spec)
+                require_finite_named_tensors(
+                    outputs.items(),
+                    outputs_dir=outputs_dir,
+                    phase="train",
+                    checkpoint="forward_outputs",
+                    quantity_prefix="output",
+                    epoch=epoch,
+                    batch=batch_index,
+                )
                 logits = outputs[primary_output_name]
                 mask_loss = _primary_loss(primary_loss_name, logits, targets, training_adapter)
+                require_finite_tensor(
+                    mask_loss,
+                    outputs_dir=outputs_dir,
+                    phase="train",
+                    checkpoint="losses",
+                    failing_quantity="loss.primary",
+                    epoch=epoch,
+                    batch=batch_index,
+                )
                 auxiliary_losses = _auxiliary_losses(outputs, targets, auxiliary_targets, training_adapter)
+                for auxiliary_name, auxiliary_loss in auxiliary_losses.items():
+                    require_finite_tensor(
+                        auxiliary_loss,
+                        outputs_dir=outputs_dir,
+                        phase="train",
+                        checkpoint="losses",
+                        failing_quantity=f"loss.auxiliary.{auxiliary_name}",
+                        epoch=epoch,
+                        batch=batch_index,
+                    )
                 loss = mask_loss + sum(auxiliary_losses.values())
+                require_finite_tensor(
+                    loss,
+                    outputs_dir=outputs_dir,
+                    phase="train",
+                    checkpoint="losses",
+                    failing_quantity="loss.total",
+                    epoch=epoch,
+                    batch=batch_index,
+                )
                 loss.backward()
+                require_finite_named_tensors(
+                    (
+                        (parameter_name, parameter.grad)
+                        for parameter_name, parameter in model.named_parameters()
+                        if parameter.grad is not None
+                    ),
+                    outputs_dir=outputs_dir,
+                    phase="train",
+                    checkpoint="gradients",
+                    quantity_prefix="gradient",
+                    epoch=epoch,
+                    batch=batch_index,
+                )
                 optimizer.step()
+                require_finite_named_tensors(
+                    model.named_parameters(),
+                    outputs_dir=outputs_dir,
+                    phase="train",
+                    checkpoint="parameters_after_step",
+                    quantity_prefix="parameter",
+                    epoch=epoch,
+                    batch=batch_index,
+                )
                 trained_samples += int(inputs.shape[0])
                 total_trained_samples += int(inputs.shape[0])
                 train_loss_total += float(loss.item()) * inputs.shape[0]
@@ -291,6 +355,8 @@ def _train_manifest_epochs_run(
                 model,
                 val_loader,
                 device=device,
+                outputs_dir=outputs_dir,
+                epoch=epoch,
                 output_spec=output_spec,
                 auxiliary_targets=auxiliary_targets,
                 primary_loss_name=primary_loss_name,
@@ -307,9 +373,29 @@ def _train_manifest_epochs_run(
                 final[f"train/aux/{name}_loss"] = total / max(trained_samples, 1)
             if timeout_requested:
                 final["run/timeout_requested"] = True
+            validation_value = float(final[selection_metric])
+            require_finite_tensor(
+                torch.as_tensor(validation_value),
+                outputs_dir=outputs_dir,
+                phase="validation",
+                checkpoint="selection_metric",
+                failing_quantity=f"metric.{selection_metric}",
+                epoch=epoch,
+                batch=None,
+                failure_classification="harness_failure",
+            )
+            require_finite_json_numbers(
+                final,
+                outputs_dir=outputs_dir,
+                phase="validation",
+                checkpoint="aggregate_epoch_values",
+                quantity_prefix="metric",
+                epoch=epoch,
+                batch=None,
+                failure_classification="harness_failure",
+            )
             validation_record = {"split": "val", **final}
             validation_records.append(dict(validation_record))
-            validation_value = float(validation_record[selection_metric])
             is_better = validation_value > best_validation_value if selection_mode == "max" and best_validation_value is not None else validation_value < best_validation_value if best_validation_value is not None else True
             if is_better:
                 best_validation_value = validation_value
@@ -379,7 +465,7 @@ def _train_manifest_epochs_run(
             selection_metric=selection_metric,
             selection_mode=selection_mode,
         )
-        best_metrics_path.write_text(json.dumps(best_metrics, indent=2, sort_keys=True) + "\n")
+        best_metrics_path.write_text(json.dumps(best_metrics, indent=2, sort_keys=True, allow_nan=False) + "\n")
         artifacts = write_prediction_sample_artifacts(
             run_dir=artifact_run_dir,
             model=model,
@@ -409,7 +495,15 @@ def _train_manifest_epochs_run(
         )
         final["resource_profile"] = resource_profile
         final["artifacts"] = artifacts
-        final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True) + "\n")
+        require_finite_json_numbers(
+            final,
+            outputs_dir=outputs_dir,
+            phase="terminal_validation",
+            checkpoint="final_metrics_payload",
+            quantity_prefix="metric.final_metrics",
+            failure_classification="harness_failure",
+        )
+        final_metrics_path.write_text(json.dumps(final, indent=2, sort_keys=True, allow_nan=False) + "\n")
         if timeout_requested:
             lines.append("Training exited cleanly after Harness timeout request.")
         else:
@@ -532,11 +626,13 @@ def _write_resource_profile(
 
     outputs_dir.mkdir(parents=True, exist_ok=True)
     latest_path = outputs_dir / "resource_profile.json"
-    latest_path.write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n")
+    latest_path.write_text(json.dumps(profile, indent=2, sort_keys=True, allow_nan=False) + "\n")
     attempts_dir = outputs_dir / "resource_profiles"
     attempts_dir.mkdir(exist_ok=True)
     attempt_name = "unknown" if batch_size is None else str(batch_size)
-    (attempts_dir / f"batch_size_{attempt_name}.json").write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n")
+    (attempts_dir / f"batch_size_{attempt_name}.json").write_text(
+        json.dumps(profile, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    )
     return profile
 
 
@@ -708,6 +804,8 @@ def _evaluate(
     val_loader: DataLoader,
     *,
     device: torch.device,
+    outputs_dir: Path,
+    epoch: int,
     output_spec: dict[str, object] | None = None,
     auxiliary_targets: list[dict[str, object]] | None = None,
     primary_loss_name: str = "bce_dice",
@@ -723,14 +821,51 @@ def _evaluate(
     auxiliary_targets = auxiliary_targets or []
     primary_output_name = _primary_output_name(output_spec, training_adapter)
     with torch.no_grad():
-        for inputs, target in val_loader:
+        for batch_index, (inputs, target) in enumerate(val_loader):
             inputs = inputs.to(device, non_blocking=True)
             target = target.to(device, non_blocking=True)
             outputs = _extract_expected_outputs(model(inputs), output_spec)
+            require_finite_named_tensors(
+                outputs.items(),
+                outputs_dir=outputs_dir,
+                phase="validation",
+                checkpoint="forward_outputs",
+                quantity_prefix="output",
+                epoch=epoch,
+                batch=batch_index,
+            )
             logits = outputs[primary_output_name]
             mask_loss = _primary_loss(primary_loss_name, logits, target, training_adapter)
+            require_finite_tensor(
+                mask_loss,
+                outputs_dir=outputs_dir,
+                phase="validation",
+                checkpoint="losses",
+                failing_quantity="loss.primary",
+                epoch=epoch,
+                batch=batch_index,
+            )
             auxiliary_losses = _auxiliary_losses(outputs, target, auxiliary_targets, training_adapter)
+            for auxiliary_name, auxiliary_loss in auxiliary_losses.items():
+                require_finite_tensor(
+                    auxiliary_loss,
+                    outputs_dir=outputs_dir,
+                    phase="validation",
+                    checkpoint="losses",
+                    failing_quantity=f"loss.auxiliary.{auxiliary_name}",
+                    epoch=epoch,
+                    batch=batch_index,
+                )
             batch_total_loss = mask_loss + sum(auxiliary_losses.values())
+            require_finite_tensor(
+                batch_total_loss,
+                outputs_dir=outputs_dir,
+                phase="validation",
+                checkpoint="losses",
+                failing_quantity="loss.total",
+                epoch=epoch,
+                batch=batch_index,
+            )
             total_mask_loss += float(mask_loss.item()) * inputs.shape[0]
             total_loss += float(batch_total_loss.item()) * inputs.shape[0]
             for name, auxiliary_loss in auxiliary_losses.items():
@@ -739,6 +874,17 @@ def _evaluate(
             targets.append(target.detach().cpu())
     sample_count = len(val_loader.dataset)
     result = _validation_metrics(torch.cat(prediction_logits), torch.cat(targets), training_adapter, val_loader.dataset)
+    for metric_name, metric_value in result.items():
+        require_finite_tensor(
+            torch.as_tensor(metric_value),
+            outputs_dir=outputs_dir,
+            phase="validation",
+            checkpoint="aggregate_metrics",
+            failing_quantity=f"metric.{metric_name}",
+            epoch=epoch,
+            batch=None,
+            failure_classification="harness_failure",
+        )
     result["val/loss"] = total_mask_loss / sample_count
     if auxiliary_loss_totals:
         for name, total in auxiliary_loss_totals.items():
@@ -894,7 +1040,7 @@ def _select_training_device() -> torch.device:
 
 def _append_jsonl(path: Path, payload: dict[str, object]) -> None:
     with path.open("a") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        handle.write(json.dumps(payload, sort_keys=True, allow_nan=False) + "\n")
 
 
 def _timeout_requested() -> bool:

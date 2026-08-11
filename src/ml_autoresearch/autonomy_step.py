@@ -120,6 +120,7 @@ def run_autonomy_step(
             if execution.get("executed") is True:
                 ingestion["executed_next_action"] = True
                 ingestion["next_action_result"] = execution
+                _advance_managed_run_recovery(ingestion, execution)
 
     result = AutonomyStepResult(
         status=status,
@@ -289,10 +290,15 @@ def find_open_executable_actions(project_root: str | Path = Path(".")) -> list[d
             event["_ledger_index"] = index
             events.append(event)
 
-    submitted_candidates = {
-        str(event.get("candidate_id"))
+    submitted_candidate_runs = {
+        str(event.get("candidate_id")): str(event.get("run_id"))
         for event in events
-        if event.get("event_type") == "candidate_submitted" and event.get("candidate_id")
+        if event.get("event_type") == "candidate_submitted" and event.get("candidate_id") and event.get("run_id")
+    }
+    terminal_run_ids = {
+        str(event.get("run_id"))
+        for event in events
+        if event.get("event_type") in {"run_completed", "run_failed"} and event.get("run_id")
     }
     completed_evaluations = {
         str(event.get("evaluation_request_id"))
@@ -321,8 +327,19 @@ def find_open_executable_actions(project_root: str | Path = Path(".")) -> list[d
         }
         if handoff_type == "candidate_submission":
             candidate_id = event.get("candidate_id") or event.get("artifact_id")
-            if isinstance(candidate_id, str) and candidate_id and candidate_id not in submitted_candidates:
-                open_actions.append({**base, "action": "run_candidate", "candidate_id": candidate_id})
+            if isinstance(candidate_id, str) and candidate_id:
+                submitted_run_id = submitted_candidate_runs.get(candidate_id)
+                if submitted_run_id is None:
+                    open_actions.append({**base, "action": "run_candidate", "candidate_id": candidate_id})
+                elif submitted_run_id not in terminal_run_ids:
+                    open_actions.append(
+                        {
+                            **base,
+                            "action": "reconcile_run",
+                            "candidate_id": candidate_id,
+                            "run_id": submitted_run_id,
+                        }
+                    )
         elif handoff_type == "evaluation_request":
             request_id = event.get("request_id") or event.get("artifact_id")
             if isinstance(request_id, str) and request_id and request_id not in completed_evaluations:
@@ -393,6 +410,10 @@ def _ingestion_from_open_action(action: dict[str, object]) -> dict[str, object]:
         "handoff_type": action.get("handoff_type"),
         "canonical_path": action.get("canonical_path"),
         "next_action": action.get("action"),
+        "candidate_id": action.get("candidate_id"),
+        "run_id": action.get("run_id"),
+        "request_id": action.get("request_id"),
+        "batch_id": action.get("batch_id"),
         "executed_next_action": False,
     }
 
@@ -456,6 +477,7 @@ def execute_outstanding_next_action(project_root: str | Path = Path(".")) -> Aut
                 reason = None
                 ingestion["executed_next_action"] = True
                 ingestion["next_action_result"] = execution
+                _advance_managed_run_recovery(ingestion, execution)
 
     result = AutonomyStepResult(
         status=status,
@@ -472,6 +494,19 @@ def execute_outstanding_next_action(project_root: str | Path = Path(".")) -> Aut
     return result
 
 
+def _advance_managed_run_recovery(
+    ingestion: dict[str, object], execution: dict[str, object]
+) -> None:
+    """Keep an in-flight Candidate action attached to its stable Run identity."""
+
+    if (
+        ingestion.get("handoff_type") == "candidate_submission"
+        and execution.get("run_status") == "training"
+    ):
+        ingestion["next_action"] = "reconcile_run"
+        ingestion["run_id"] = execution.get("run_id")
+
+
 def _executed_next_action_artifact_exists(root: Path, ingestion: dict[str, object]) -> bool:
     """Return whether a recorded executed next action has its current canonical artifact."""
 
@@ -483,6 +518,14 @@ def _executed_next_action_artifact_exists(root: Path, ingestion: dict[str, objec
         if run_status == "accepted":
             return False
         if run_status in {"completed", "failed", "rejected", "smoke_failed"}:
+            run_dir = result.get("run_dir")
+            return isinstance(run_dir, str) and (Path(run_dir) / "run_metadata.json").is_file()
+        return False
+    if ingestion.get("handoff_type") == "candidate_submission" and ingestion.get("next_action") == "reconcile_run":
+        result = ingestion.get("next_action_result")
+        if not isinstance(result, dict):
+            return False
+        if result.get("run_status") in {"completed", "failed"}:
             run_dir = result.get("run_dir")
             return isinstance(run_dir, str) and (Path(run_dir) / "run_metadata.json").is_file()
         return False

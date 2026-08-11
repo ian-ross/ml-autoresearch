@@ -21,7 +21,7 @@ Use this top-level skill to run or review exactly one Autonomous Research Iterat
 2. If a real pause condition is already met, delegate to `../pause-decider/SKILL.md` and create the appropriate report or Capability Request for operator review.
 3. If a new hypothesis is ready, decide whether it is a promotion candidate, a family scout, or a family-development continuation; delegate to `../proposal-writer/SKILL.md`.
 4. Implement only the approved Candidate Experiment through `../candidate-implementer/SKILL.md`. When two to four related, resource-profiled variants form one controlled comparison, use `../experiment-batch-writer/SKILL.md` instead of separate Candidate handoffs.
-5. Submit/run through Harness-owned commands, then delegate observation to `../run-observer/SKILL.md`.
+5. Submit/run through Harness-owned commands, retain the returned stable Run ID, then delegate observation to `../run-observer/SKILL.md`. If the initiating caller disconnects or a Run remains non-terminal, request Harness status/reconciliation for that same Run; never relaunch the Candidate.
 6. If the Run failed or regressed, delegate to `../failure-classifier/SKILL.md` before deciding repair, new proposal, broader frontier, or operator escalation.
 7. If bounded diagnostics are needed, delegate to `../evaluation-request-writer/SKILL.md`.
 8. Capture outcomes with `../research-note-writer/SKILL.md`.
