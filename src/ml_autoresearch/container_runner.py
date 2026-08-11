@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
+from ml_autoresearch.errors import HARNESS_FAILURE_MARKER, HarnessBootstrapError, ResearchProblemDataError
 from ml_autoresearch.evaluations import DEFAULT_MAX_ARTIFACT_SAMPLES
 from ml_autoresearch.operations import OperationRequest, execute_operation_request
-from ml_autoresearch.research_problems import ResearchProblemProviderConfig
+from ml_autoresearch.research_problems import ResearchProblemProviderConfig, ResearchProblemProviderLoadError
+
+
+def _is_harness_failure(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, (HarnessBootstrapError, ResearchProblemDataError, ResearchProblemProviderLoadError)):
+            return True
+        if getattr(current, "failure_classification", None) == "harness_failure":
+            return True
+        current = current.__cause__
+    return False
 
 
 def main() -> None:
@@ -36,7 +49,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.operation == "run-operation":
-        execute_operation_request(OperationRequest.from_json(args.request_json))
+        try:
+            execute_operation_request(OperationRequest.from_json(args.request_json))
+        except Exception as exc:  # noqa: BLE001 - emit a stable trusted-boundary classification marker.
+            if _is_harness_failure(exc):
+                print(HARNESS_FAILURE_MARKER, file=sys.stderr)
+            raise
     elif args.operation == "train-synthetic":
         execute_operation_request(
             OperationRequest(

@@ -11,7 +11,13 @@ from conftest import invoke_typer_cli
 from ml_autoresearch.cli import app
 from ml_autoresearch.managed_execution import start_run_supervisor, update_execution_record
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig
-from ml_autoresearch.runs import RunStatus, reconcile_run, run_candidate_with_research_problem, submit_candidate
+from ml_autoresearch.runs import (
+    RunStatus,
+    prepare_candidate_submission,
+    reconcile_run,
+    run_candidate_with_research_problem,
+    submit_candidate,
+)
 from research_problem_helpers import write_fake_candidate_execution_config, write_fake_research_problem_package
 
 
@@ -64,6 +70,43 @@ def _provider(root: Path) -> ResearchProblemProviderConfig:
 
 def _events(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def test_reconcile_pre_training_smoke_phase_is_idempotent_for_same_run(tmp_path: Path) -> None:
+    ledger = tmp_path / "research-ledger.jsonl"
+    run = prepare_candidate_submission(_write_candidate(tmp_path), tmp_path / "runs", ledger_path=ledger)
+    command = [sys.executable, "-c", "import time; time.sleep(10)"]
+    execution = start_run_supervisor(
+        run.run_dir,
+        command=command,
+        log_path=run.run_dir / "outputs" / "logs" / "supervisor.log",
+        backend="docker",
+    )
+
+    first = reconcile_run(run.run_dir, ledger_path=ledger)
+    second = reconcile_run(run.run_dir, ledger_path=ledger)
+
+    assert first.status == second.status == RunStatus.SMOKE_TESTING
+    assert first.run_id == second.run_id == run.run_id
+    assert len(list((tmp_path / "runs").glob("run_*"))) == 1
+    assert all(
+        event["event_type"] not in {"run_completed", "run_failed"}
+        for event in _events(ledger)
+    )
+
+    os.kill(int(execution["supervisor"]["pid"]), signal.SIGTERM)
+    os.waitpid(int(execution["supervisor"]["pid"]), 0)
+    failed = reconcile_run(run.run_dir, ledger_path=ledger)
+    repeated = reconcile_run(run.run_dir, ledger_path=ledger)
+
+    assert failed.status == repeated.status == RunStatus.FAILED
+    assert failed.failure_classification == repeated.failure_classification == "harness_failure"
+    terminal = [
+        event for event in _events(ledger) if event["event_type"] in {"run_completed", "run_failed"}
+    ]
+    assert len(terminal) == 1
+    assert terminal[0]["run_id"] == run.run_id
+    assert terminal[0]["failure_classification"] == "harness_failure"
 
 
 def test_starting_managed_supervisor_twice_reuses_same_active_run_process(tmp_path: Path) -> None:

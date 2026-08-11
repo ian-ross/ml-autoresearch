@@ -18,12 +18,13 @@ from pathlib import Path
 import yaml
 
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
-from ml_autoresearch.errors import ResearchProblemDataError, SmokeTestError, TrainingError
+from ml_autoresearch.errors import HarnessBootstrapError, ResearchProblemDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.managed_execution import cleanup_recorded_containers, read_execution_record
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, ResearchLedgerError, record_research_event
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
+    ResearchProblemProviderLoadError,
     ResearchProblemSpecRegistry,
     legacy_smoke_research_problem_registry,
     load_research_problem_provider,
@@ -87,6 +88,21 @@ def is_resource_failure(exc: BaseException | str) -> bool:
     return any(marker in text for marker in _RESOURCE_FAILURE_MARKERS)
 
 
+def _smoke_failure_classification(exc: BaseException) -> RunFailureClassification:
+    """Distinguish trusted bootstrap faults from Candidate smoke failures."""
+
+    current: BaseException | None = exc
+    while current is not None:
+        hint = getattr(current, "failure_classification", None)
+        if hint == RunFailureClassification.HARNESS_FAILURE.value or isinstance(
+            current,
+            (HarnessBootstrapError, ResearchProblemProviderLoadError, ResearchProblemDataError),
+        ):
+            return RunFailureClassification.HARNESS_FAILURE
+        current = current.__cause__
+    return RunFailureClassification.CANDIDATE_BUG
+
+
 def _training_failure_classification(
     exc: BaseException,
     *,
@@ -94,8 +110,14 @@ def _training_failure_classification(
 ) -> RunFailureClassification:
     """Classify trusted training exceptions without letting Candidate code choose policy."""
 
-    if isinstance(exc, ResearchProblemDataError):
-        return RunFailureClassification.HARNESS_FAILURE
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, (HarnessBootstrapError, ResearchProblemProviderLoadError, ResearchProblemDataError)):
+            return RunFailureClassification.HARNESS_FAILURE
+        current_hint = getattr(current, "failure_classification", None)
+        if current_hint == RunFailureClassification.HARNESS_FAILURE.value:
+            return RunFailureClassification.HARNESS_FAILURE
+        current = current.__cause__
     hint = getattr(exc, "failure_classification", None)
     if hint is None and run_dir is not None and "non_finite_training_state" in str(exc):
         diagnostic_path = run_dir / "outputs" / "nonfinite_diagnostic.json"
@@ -563,6 +585,57 @@ def _train_accepted_run(
     return RunSubmission(run.run_id, run.run_dir, RunStatus.COMPLETED)
 
 
+def fail_run_as_harness_failure(
+    run_dir: str | Path,
+    reason: str,
+    *,
+    ledger_path: str | Path | None = None,
+) -> RunSubmission:
+    """Idempotently terminalize an existing non-terminal Run after trusted orchestration failure."""
+
+    path = Path(run_dir)
+    resolved_ledger = _resolve_ledger_path(path.parent, ledger_path)
+    with _run_finalization_lock(path):
+        metadata = _read_metadata(path)
+        run_id = str(metadata.get("run_id") or path.name)
+        status = str(metadata.get("status"))
+        if status == RunStatus.FAILED.value:
+            return RunSubmission(
+                run_id,
+                path,
+                RunStatus.FAILED,
+                str(metadata.get("training_failure_reason") or reason),
+                validate_run_failure_classification(metadata.get("failure_classification"))
+                or RunFailureClassification.HARNESS_FAILURE,
+            )
+        if status in {RunStatus.COMPLETED.value, RunStatus.REJECTED.value, RunStatus.SMOKE_FAILED.value}:
+            return RunSubmission(
+                run_id,
+                path,
+                RunStatus(status),
+                str(metadata.get("rejection_reason") or metadata.get("smoke_failure_reason") or "") or None,
+                validate_run_failure_classification(metadata.get("failure_classification")),
+            )
+        classification = RunFailureClassification.HARNESS_FAILURE
+        _update_terminal_metadata(
+            path,
+            metadata,
+            status=RunStatus.FAILED,
+            reason=reason,
+            failure_classification=classification,
+        )
+        _ensure_terminal_event_once(
+            resolved_ledger,
+            run_id=run_id,
+            event_type="run_failed",
+            reason=reason,
+            failure_classification=classification,
+            run_dir=path,
+        )
+        _cleanup_execution_containers(path)
+        return RunSubmission(run_id, path, RunStatus.FAILED, reason, classification)
+
+
 def reconcile_run(
     run_dir: str | Path,
     *,
@@ -576,6 +649,34 @@ def reconcile_run(
         metadata = _read_metadata(path)
         run_id = str(metadata.get("run_id") or path.name)
         status = str(metadata.get("status"))
+        if status == RunStatus.SMOKE_TESTING.value:
+            execution = read_execution_record(path)
+            if isinstance(execution, dict) and (
+                execution.get("supervisor_alive") is True
+                or execution.get("observed_state") == "container_running"
+            ):
+                return RunSubmission(run_id, path, RunStatus.SMOKE_TESTING)
+            reason = "managed pre-training smoke execution is no longer active"
+            if isinstance(execution, dict) and execution.get("error"):
+                reason = f"{reason}: {execution['error']}"
+            classification = RunFailureClassification.HARNESS_FAILURE
+            _update_terminal_metadata(
+                path,
+                metadata,
+                status=RunStatus.FAILED,
+                reason=reason,
+                failure_classification=classification,
+            )
+            _ensure_terminal_event_once(
+                resolved_ledger,
+                run_id=run_id,
+                event_type="run_failed",
+                reason=reason,
+                failure_classification=classification,
+                run_dir=path,
+            )
+            _cleanup_execution_containers(path)
+            return RunSubmission(run_id, path, RunStatus.FAILED, reason, classification)
         if status in {RunStatus.REJECTED.value, RunStatus.SMOKE_FAILED.value}:
             return RunSubmission(
                 run_id,
@@ -926,7 +1027,7 @@ def _enforce_autonomous_repair_limit(repair_lineage: dict[str, object] | None, l
 
 
 
-def submit_candidate(
+def prepare_candidate_submission(
     candidate_dir: str | Path,
     runs_root: str | Path,
     *,
@@ -935,11 +1036,7 @@ def submit_candidate(
     require_proposal: bool = False,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
 ) -> RunSubmission:
-    """Submit a local Candidate Experiment directory and create a Run record.
-
-    Validation and smoke failures are represented as rejected/smoke_failed Runs
-    so humans and agents can inspect logs and metadata for repair feedback.
-    """
+    """Validate and copy a Candidate into a stable Run before smoke execution."""
 
     source = Path(candidate_dir)
     execution_backend = backend or NativeBackend()
@@ -1028,12 +1125,47 @@ def submit_candidate(
         research_problem=research_problem,
     )
 
+    return RunSubmission(run_id, run_dir, RunStatus.SMOKE_TESTING)
+
+
+def smoke_test_prepared_run(
+    run_dir: str | Path,
+    *,
+    backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
+) -> RunSubmission:
+    """Smoke-test one stable prepared Run without creating another Run."""
+
+    path = Path(run_dir)
+    metadata = _read_metadata(path)
+    run_id = str(metadata.get("run_id") or path.name)
+    status = RunStatus(str(metadata.get("status")))
+    if status in {RunStatus.ACCEPTED, RunStatus.SMOKE_FAILED}:
+        return RunSubmission(
+            run_id,
+            path,
+            status,
+            str(metadata.get("smoke_failure_reason") or "") or None,
+            validate_run_failure_classification(metadata.get("failure_classification")),
+        )
+    if status != RunStatus.SMOKE_TESTING:
+        raise ValueError(f"smoke-testing Run required for continuation: {path}")
+
+    execution_backend = backend or NativeBackend()
+    execution_backend_metadata = metadata.get("execution_backend") or backend_metadata(execution_backend)
+    source = Path(str(metadata["candidate_source"]["path"]))
+    created_at = str(metadata["created_at"])
+    repair_lineage = metadata.get("repair_lineage") if isinstance(metadata.get("repair_lineage"), dict) else None
+    research_problem = metadata.get("research_problem") if isinstance(metadata.get("research_problem"), dict) else None
+    resolved_ledger_path = _resolve_ledger_path(path.parent, ledger_path)
+
     try:
-        execution_backend.smoke_test(run_dir)
+        execution_backend.smoke_test(path)
     except (SmokeTestError, RuntimeError) as exc:
         reason = str(exc)
+        classification = _smoke_failure_classification(exc)
         _write_metadata(
-            run_dir,
+            path,
             run_id=run_id,
             status=RunStatus.SMOKE_FAILED,
             created_at=created_at,
@@ -1042,14 +1174,15 @@ def submit_candidate(
             rejection_reason=None,
             smoke_failure_reason=reason,
             training_failure_reason=None,
-            failure_classification=RunFailureClassification.CANDIDATE_BUG,
+            failure_classification=classification,
             execution_backend=execution_backend_metadata,
             repair_lineage=repair_lineage,
+            research_problem=research_problem,
         )
-        return RunSubmission(run_id, run_dir, RunStatus.SMOKE_FAILED, reason, RunFailureClassification.CANDIDATE_BUG)
+        return RunSubmission(run_id, path, RunStatus.SMOKE_FAILED, reason, classification)
 
     _write_metadata(
-        run_dir,
+        path,
         run_id=run_id,
         status=RunStatus.ACCEPTED,
         created_at=created_at,
@@ -1060,13 +1193,42 @@ def submit_candidate(
         training_failure_reason=None,
         execution_backend=execution_backend_metadata,
         repair_lineage=repair_lineage,
+        research_problem=research_problem,
     )
     record_research_event(
         "candidate_submitted",
-        {"candidate_id": manifest.name, "run_id": run_id},
+        {"candidate_id": _candidate_id_from_run_dir(path), "run_id": run_id},
         ledger_path=resolved_ledger_path,
     )
-    return RunSubmission(run_id, run_dir, RunStatus.ACCEPTED)
+    return RunSubmission(run_id, path, RunStatus.ACCEPTED)
+
+
+def submit_candidate(
+    candidate_dir: str | Path,
+    runs_root: str | Path,
+    *,
+    backend: ExecutionBackend | None = None,
+    ledger_path: str | Path | None = None,
+    require_proposal: bool = False,
+    research_problem_registry: ResearchProblemSpecRegistry | None = None,
+) -> RunSubmission:
+    """Validate and synchronously smoke-test a local Candidate Experiment."""
+
+    prepared = prepare_candidate_submission(
+        candidate_dir,
+        runs_root,
+        backend=backend,
+        ledger_path=ledger_path,
+        require_proposal=require_proposal,
+        research_problem_registry=research_problem_registry,
+    )
+    if prepared.status != RunStatus.SMOKE_TESTING:
+        return prepared
+    return smoke_test_prepared_run(
+        prepared.run_dir,
+        backend=backend,
+        ledger_path=ledger_path,
+    )
 
 
 @contextmanager

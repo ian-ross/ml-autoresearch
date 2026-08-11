@@ -17,7 +17,7 @@ import torch
 from torch import nn
 import yaml
 
-from ml_autoresearch.errors import SmokeTestError
+from ml_autoresearch.errors import HarnessBootstrapError, SmokeTestError
 from ml_autoresearch.finite import require_finite_named_tensors, require_finite_tensor
 from ml_autoresearch.research_problems import (
     ResearchProblemProviderConfig,
@@ -273,7 +273,7 @@ def _registry_from_resolved_manifest_provider(
             registry=registry,
         )
     except ResearchProblemProviderLoadError as exc:
-        raise SmokeTestError(str(exc)) from exc
+        raise HarnessBootstrapError(str(exc)) from exc
     return registry
 
 

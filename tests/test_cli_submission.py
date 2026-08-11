@@ -392,6 +392,83 @@ def test_run_candidate_help_keeps_daemonize_as_detach_alias() -> None:
     assert "--daemonize" in completed.stdout
 
 
+def test_foreground_caller_interruption_during_smoke_keeps_same_managed_run(tmp_path: Path) -> None:
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    write_fake_execution_config(tmp_path)
+    model_path = candidate / "model.py"
+    model_path.write_text(
+        model_path.read_text()
+        .replace("from torch import nn\n", "from torch import nn\nimport time\n")
+        .replace(
+            "def build_model(input_spec, output_spec):\n",
+            "def build_model(input_spec, output_spec):\n    time.sleep(1.0)\n",
+        )
+    )
+    caller = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "ml_autoresearch.cli",
+            "run-candidate",
+            "--candidate",
+            str(candidate),
+            "--runs-root",
+            str(runs_root),
+            "--workspace-root",
+            str(tmp_path),
+            "--backend",
+            "native",
+            "--no-require-proposal",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + 15
+    run_dir = None
+    while time.monotonic() < deadline:
+        run_dirs = list(runs_root.glob("run_*")) if runs_root.exists() else []
+        if run_dirs and (run_dirs[0] / "execution.json").is_file():
+            metadata = json.loads((run_dirs[0] / "run_metadata.json").read_text())
+            execution = json.loads((run_dirs[0] / "execution.json").read_text())
+            if metadata["status"] == "smoke_testing" and execution["state"] == "smoke_testing":
+                run_dir = run_dirs[0]
+                break
+        time.sleep(0.02)
+    assert run_dir is not None
+
+    caller.kill()
+    caller.wait(timeout=5)
+
+    observed = run_cli_subprocess(
+        "run-status",
+        "--run-id",
+        run_dir.name,
+        "--workspace-root",
+        str(tmp_path),
+        "--runs-root",
+        str(runs_root),
+    )
+    assert observed.returncode == 0, observed.stderr
+    assert json.loads(observed.stdout)["run_id"] == run_dir.name
+
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        metadata = json.loads((run_dir / "run_metadata.json").read_text())
+        execution = json.loads((run_dir / "execution.json").read_text())
+        if metadata["status"] in {"completed", "failed"} and execution["state"] == "finalized":
+            break
+        time.sleep(0.05)
+
+    assert metadata["status"] == "completed"
+    assert execution["state"] == "finalized"
+    assert len(list(runs_root.glob("run_*"))) == 1
+    ledger = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    terminal = [event for event in ledger if event["event_type"] in {"run_completed", "run_failed"}]
+    assert [event["event_type"] for event in terminal] == ["run_completed"]
+
+
 def test_foreground_caller_interruption_does_not_stop_managed_run_or_create_duplicate(tmp_path: Path) -> None:
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"

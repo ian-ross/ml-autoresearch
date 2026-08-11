@@ -120,6 +120,36 @@ def _write_fake_candidate(root: Path) -> Path:
     return candidate
 
 
+def test_trusted_data_bootstrap_failure_is_harness_owned(tmp_path: Path) -> None:
+    _write_fake_problem_package(tmp_path)
+    provider_path = tmp_path / "fake_problem" / "research_problem.py"
+    provider_path.write_text(
+        provider_path.read_text().replace(
+            "    def build_datasets(self, *, data_config, resolved_manifest_path, max_samples=None):\n"
+            "        count = int(max_samples or data_config.get('sample_count', 4))\n",
+            "    def build_datasets(self, *, data_config, resolved_manifest_path, max_samples=None):\n"
+            "        from ml_autoresearch.errors import ResearchProblemDataError\n"
+            "        raise ResearchProblemDataError('trusted dataset bootstrap failed')\n",
+        )
+    )
+    candidate = _write_fake_candidate(tmp_path)
+    config = ResearchProblemProviderConfig(
+        id="fake_problem",
+        package_root=tmp_path,
+        provider_target="fake_problem.research_problem:build_spec",
+        expected_contract_version="v0",
+        data_config={"fixture": "tiny", "sample_count": 4},
+    )
+
+    run = run_candidate_with_research_problem(candidate, tmp_path / "runs", config, max_samples=4)
+
+    assert run.status == RunStatus.FAILED
+    assert run.failure_classification == "harness_failure"
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["failure_classification"] == "harness_failure"
+    assert "trusted dataset bootstrap failed" in metadata["training_failure_reason"]
+
+
 def test_run_candidate_trains_through_generic_research_problem_provider(tmp_path: Path) -> None:
     _write_fake_problem_package(tmp_path)
     candidate = _write_fake_candidate(tmp_path)

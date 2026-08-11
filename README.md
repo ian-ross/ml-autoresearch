@@ -170,7 +170,7 @@ uv run ml-autoresearch run-candidate \
   --workspace-root .
 ```
 
-Long Runs use a detached Harness supervisor after a stable Run ID has been created. Foreground mode follows that supervisor. To return immediately while preserving the same managed lifecycle:
+After Candidate validation creates a stable Run ID, a detached Harness supervisor owns both smoke and training. Foreground mode follows that supervisor, so caller loss during either phase does not require resubmission. To return immediately while preserving the same managed lifecycle:
 
 ```bash
 uv run ml-autoresearch run-candidate \
@@ -179,7 +179,9 @@ uv run ml-autoresearch run-candidate \
   --detach
 ```
 
-The JSON response contains the Run ID, supervisor PID, execution state, and durable supervisor log path. Do not relaunch after caller disconnection.
+The JSON response contains the Run ID, supervisor PID, execution state, and durable supervisor log path. `execution.json` exposes `smoke_testing` before training begins. Do not relaunch after caller disconnection; use `run-status` and idempotent `reconcile-run` with the same Run ID.
+
+Omitted Docker image, GPU, GPU-device, and ownership options come from the validated `[candidate_execution]` Workspace Configuration. Explicit CLI options override those values; paired `--docker-enable-gpu/--no-docker-enable-gpu` and `--docker-rootless-container-root/--no-docker-rootless-container-root` flags support explicit disablement.
 
 Run with explicit policy overrides while reusing the same configured Research Problem provider:
 

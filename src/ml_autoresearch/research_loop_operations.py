@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from ml_autoresearch.candidate_execution_config import (
     CONFIG_FILENAME,
+    CandidateExecutionConfig,
     CandidateExecutionConfigError,
     execution_backend_from_config,
     load_candidate_execution_config,
@@ -24,6 +26,70 @@ PredictionSamplePolicy = Literal["first_n", "adjacent_and_scattered"]
 
 class ResearchLoopOperationError(RuntimeError):
     """Raised when a Research Loop operation cannot be executed."""
+
+
+@dataclass(frozen=True)
+class EffectiveCandidateExecutionBackendOptions:
+    """Resolved CLI/config backend policy passed through every Run phase."""
+
+    backend: str
+    docker_image: str
+    docker_enable_gpu: bool
+    docker_gpu_device: str | None
+    docker_user: str | None
+    docker_rootless_container_root: bool
+
+
+def effective_candidate_execution_backend_options(
+    config: CandidateExecutionConfig,
+    *,
+    backend: str,
+    docker_image: str | None,
+    docker_enable_gpu: bool | None,
+    docker_gpu_device: str | None,
+    docker_user: str | None,
+    docker_rootless_container_root: bool | None,
+) -> EffectiveCandidateExecutionBackendOptions:
+    """Merge explicit CLI backend options over validated Workspace Configuration."""
+
+    if backend != "docker":
+        return EffectiveCandidateExecutionBackendOptions(
+            backend=backend,
+            docker_image=docker_image or DEFAULT_DOCKER_IMAGE,
+            docker_enable_gpu=False if docker_enable_gpu is None else docker_enable_gpu,
+            docker_gpu_device=docker_gpu_device,
+            docker_user=docker_user,
+            docker_rootless_container_root=(
+                False if docker_rootless_container_root is None else docker_rootless_container_root
+            ),
+        )
+
+    enable_gpu = config.docker_enable_gpu if docker_enable_gpu is None else docker_enable_gpu
+    gpu_device = config.docker_gpu_device if docker_gpu_device is None else docker_gpu_device
+    if not enable_gpu:
+        gpu_device = None
+
+    if docker_user is not None:
+        effective_user = docker_user
+        rootless_container_root = False
+    elif docker_rootless_container_root is True:
+        effective_user = None
+        rootless_container_root = True
+    elif docker_rootless_container_root is False:
+        effective_user = config.docker_user
+        rootless_container_root = False
+    else:
+        effective_user = config.docker_user
+        rootless_container_root = config.docker_rootless_container_root
+
+    return EffectiveCandidateExecutionBackendOptions(
+        backend=backend,
+        docker_image=config.docker_image if docker_image is None else docker_image,
+        docker_enable_gpu=enable_gpu,
+        docker_gpu_device=gpu_device,
+        docker_user=effective_user,
+        docker_rootless_container_root=rootless_container_root,
+    )
 
 
 def select_execution_backend(
@@ -163,9 +229,9 @@ def prepare_candidate_run_from_workspace(
     ledger_path: Path | None = None,
     require_proposal: bool = True,
 ) -> dict[str, object]:
-    """Create, validate, and smoke-test a stable Run before managed training."""
+    """Create and validate a stable Run before managed smoke and training."""
 
-    from ml_autoresearch.runs import submit_candidate
+    from ml_autoresearch.runs import prepare_candidate_submission
 
     config, _provider_config = load_configured_provider(workspace_root, label="run-candidate")
     effective_runs_root = config.runs_root if runs_root is None else Path(runs_root)
@@ -179,13 +245,47 @@ def prepare_candidate_run_from_workspace(
         docker_rootless_container_root=docker_rootless_container_root,
     )
     registry = load_configured_research_problem_registry(workspace_root)
-    run = submit_candidate(
+    run = prepare_candidate_submission(
         candidate,
         effective_runs_root,
         backend=backend,
         ledger_path=effective_ledger,
         require_proposal=require_proposal,
         research_problem_registry=registry,
+    )
+    return run_submission_payload(run)
+
+
+def smoke_prepared_run_from_workspace(
+    run_dir: str | Path,
+    *,
+    workspace_root: str | Path = Path("."),
+    backend_name: str = "docker",
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
+    docker_enable_gpu: bool = False,
+    docker_gpu_device: str | None = None,
+    docker_user: str | None = None,
+    docker_rootless_container_root: bool = False,
+    ledger_path: Path | None = None,
+) -> dict[str, object]:
+    """Smoke-test a previously prepared stable Run without creating another Run."""
+
+    from ml_autoresearch.runs import smoke_test_prepared_run
+
+    config = load_candidate_execution_config(workspace_root)
+    effective_ledger = effective_ledger_path(config, override=ledger_path)
+    backend = select_execution_backend(
+        backend_name,
+        docker_image,
+        docker_enable_gpu=docker_enable_gpu,
+        docker_gpu_device=docker_gpu_device,
+        docker_user=docker_user,
+        docker_rootless_container_root=docker_rootless_container_root,
+    )
+    run = smoke_test_prepared_run(
+        run_dir,
+        backend=backend,
+        ledger_path=effective_ledger,
     )
     return run_submission_payload(run)
 

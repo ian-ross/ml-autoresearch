@@ -58,6 +58,50 @@ def test_native_backend_smoke_test_preserves_existing_outputs(tmp_path: Path):
     assert "Smoke test accepted" in (run.run_dir / "outputs" / "logs" / "smoke_test.log").read_text()
 
 
+def test_missing_docker_image_smoke_failure_is_harness_owned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = write_candidate(tmp_path, VALID_MODEL)
+
+    def missing_image(command, check, capture_output, text):
+        if command[:3] == ["docker", "image", "inspect"]:
+            raise subprocess.CalledProcessError(1, command, stderr="missing image")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", missing_image)
+    run = submit_candidate(candidate, tmp_path / "runs", backend=DockerBackend("missing:runner"))
+
+    assert run.status == RunStatus.SMOKE_FAILED
+    assert run.failure_classification == "harness_failure"
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["failure_classification"] == "harness_failure"
+    assert "missing:runner" in metadata["smoke_failure_reason"]
+
+
+def test_docker_smoke_preserves_trusted_container_bootstrap_classification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = write_candidate(tmp_path, VALID_MODEL)
+
+    def trusted_failure(command, check, capture_output, text):
+        if command[:2] == ["docker", "run"]:
+            raise subprocess.CalledProcessError(
+                1,
+                command,
+                stderr="ML_AUTORESEARCH_FAILURE_CLASSIFICATION=harness_failure\nprovider failed",
+            )
+        if command[:2] == ["docker", "info"]:
+            return subprocess.CompletedProcess(command, 0, '["name=seccomp,profile=builtin"]', "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", trusted_failure)
+    run = submit_candidate(candidate, tmp_path / "runs", backend=DockerBackend("trusted:runner"))
+
+    assert run.status == RunStatus.SMOKE_FAILED
+    assert run.failure_classification == "harness_failure"
+    assert json.loads((run.run_dir / "run_metadata.json").read_text())["failure_classification"] == "harness_failure"
+
+
 def test_docker_backend_constructs_structurally_contained_smoke_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     run_dir = tmp_path / "runs" / "run_1"
     (run_dir / "candidate").mkdir(parents=True)

@@ -3,7 +3,15 @@ from pathlib import Path
 
 import pytest
 
-from ml_autoresearch.runs import RunStatus, submit_candidate
+from ml_autoresearch.candidate_execution_config import load_configured_research_problem_registry
+from ml_autoresearch.execution import NativeBackend
+from ml_autoresearch.runs import (
+    RunStatus,
+    prepare_candidate_submission,
+    smoke_test_prepared_run,
+    submit_candidate,
+)
+from research_problem_helpers import write_fake_candidate_execution_config, write_fake_research_problem_package
 
 
 def write_candidate(root: Path, model_py: str, *, auxiliary_targets: str = "") -> Path:
@@ -43,6 +51,35 @@ def build_model(input_spec, output_spec):
     assert output_spec == {"form": "mask_logits", "shape": [1, 128, 128]}
     return Tiny()
 """.strip() + "\n"
+
+
+def test_trusted_provider_bootstrap_failure_during_smoke_is_harness_owned(tmp_path: Path) -> None:
+    candidate = write_candidate(tmp_path, VALID_MODEL)
+    write_fake_research_problem_package(tmp_path)
+    write_fake_candidate_execution_config(tmp_path)
+    registry = load_configured_research_problem_registry(tmp_path)
+    assert registry is not None
+    prepared = prepare_candidate_submission(
+        candidate,
+        tmp_path / "runs",
+        backend=NativeBackend(),
+        research_problem_registry=registry,
+    )
+    manifest_path = prepared.run_dir / "resolved_manifest.yaml"
+    manifest_path.write_text(
+        manifest_path.read_text().replace(
+            "fake_problem.research_problem:build_spec",
+            "missing_trusted_provider.research_problem:build_spec",
+        )
+    )
+
+    run = smoke_test_prepared_run(prepared.run_dir, backend=NativeBackend())
+
+    assert run.status == RunStatus.SMOKE_FAILED
+    assert run.failure_classification == "harness_failure"
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["failure_classification"] == "harness_failure"
+    assert "missing_trusted_provider" in metadata["smoke_failure_reason"]
 
 
 def test_submit_candidate_smoke_tests_model_and_writes_artifacts(tmp_path: Path):
@@ -93,6 +130,7 @@ def test_smoke_failures_are_recorded_in_metadata_and_log(tmp_path: Path, model_p
     run = submit_candidate(candidate, tmp_path / "runs")
 
     assert run.status == RunStatus.SMOKE_FAILED
+    assert run.failure_classification == "candidate_bug"
     assert run.rejection_reason and expected_reason in run.rejection_reason
     metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
     assert metadata["status"] == "smoke_failed"

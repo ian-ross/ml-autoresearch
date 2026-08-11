@@ -32,18 +32,18 @@ def start_run_supervisor(
         metadata = json.loads((path / "run_metadata.json").read_text())
         existing_supervisor = existing.get("supervisor") if isinstance(existing, dict) else None
         existing_pid = existing_supervisor.get("pid") if isinstance(existing_supervisor, dict) else None
-        active_states = {"supervisor_running", "training", "container_starting", "container_running"}
+        active_states = {"supervisor_running", "smoke_testing", "training", "container_starting", "container_running"}
         if (
-            metadata.get("status") in {"accepted", "training"}
+            metadata.get("status") in {"smoke_testing", "accepted", "training"}
             and isinstance(existing, dict)
             and existing.get("state") in active_states
             and isinstance(existing_pid, int)
             and _pid_alive(existing_pid)
         ):
             return {**existing, "already_running": True}
-        if metadata.get("status") != "accepted":
+        if metadata.get("status") not in {"smoke_testing", "accepted"}:
             raise RuntimeError(
-                f"managed Run supervisor requires accepted status; got {metadata.get('status')!r} for {path.name}"
+                f"managed Run supervisor requires smoke_testing or accepted status; got {metadata.get('status')!r} for {path.name}"
             )
         with log.open("ab") as log_file, Path(os.devnull).open("rb") as stdin:
             process = subprocess.Popen(
@@ -57,7 +57,7 @@ def start_run_supervisor(
         record = update_execution_record(
             path,
             state="supervisor_running",
-            operation="train_research_problem",
+            operation="run_candidate",
             backend=backend,
             supervisor={"pid": process.pid},
             log_path=str(log),
@@ -174,7 +174,7 @@ def read_execution_record(run_dir: str | Path) -> dict[str, object] | None:
     pid = supervisor.get("pid") if isinstance(supervisor, dict) else None
     if isinstance(pid, int):
         observed["supervisor_alive"] = _pid_alive(pid)
-        if observed.get("state") in {"supervisor_running", "training"} and not observed["supervisor_alive"]:
+        if observed.get("state") in {"supervisor_running", "smoke_testing", "training"} and not observed["supervisor_alive"]:
             observed["observed_state"] = "supervisor_exited"
     active_container = observed.get("active_container")
     container_name = active_container.get("name") if isinstance(active_container, dict) else None

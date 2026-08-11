@@ -13,6 +13,7 @@ from typing import Mapping, Protocol
 
 import yaml
 
+from ml_autoresearch.errors import HARNESS_FAILURE_MARKER, HarnessBootstrapError
 from ml_autoresearch.operations import OperationRequest, execute_operation_request
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig
 
@@ -220,7 +221,10 @@ class DockerBackend:
         path = Path(run_dir)
         self._prepare_writable_paths(path)
         self._ensure_image_available()
-        provider_package_root = self._research_problem_package_root_from_resolved_manifest(path)
+        try:
+            provider_package_root = self._research_problem_package_root_from_resolved_manifest(path)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HarnessBootstrapError(f"trusted Research Problem provider bootstrap failed: {exc}") from exc
         request = OperationRequest(operation="smoke_test", run_dir=Path("/"))
         command = self._operation_request_command(path, request, provider_package_root=provider_package_root)
         self._run_operation(command, "Docker smoke test failed")
@@ -251,14 +255,17 @@ class DockerBackend:
         prediction_sample_policy: str = "first_n",
     ) -> OperationResult:
         path = Path(run_dir)
-        provider_package_root = self._validate_research_problem_package_root(provider_config.package_root)
-        data_roots = self._research_problem_data_roots(provider_config)
-        data_path = None if data_roots else self._research_problem_data_root(provider_config)
-        container_config = self._container_research_problem_config(
-            provider_config,
-            data_root_mounted=data_path is not None,
-            named_data_roots=tuple(data_roots),
-        )
+        try:
+            provider_package_root = self._validate_research_problem_package_root(provider_config.package_root)
+            data_roots = self._research_problem_data_roots(provider_config)
+            data_path = None if data_roots else self._research_problem_data_root(provider_config)
+            container_config = self._container_research_problem_config(
+                provider_config,
+                data_root_mounted=data_path is not None,
+                named_data_roots=tuple(data_roots),
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HarnessBootstrapError(f"trusted Research Problem data/provider bootstrap failed: {exc}") from exc
         self._prepare_writable_paths(path)
         self._ensure_image_available()
         request = OperationRequest(
@@ -412,6 +419,8 @@ class DockerBackend:
             subprocess.run(command, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as exc:
             detail = exc.stderr or exc.stdout or str(exc)
+            if HARNESS_FAILURE_MARKER in detail:
+                raise HarnessBootstrapError(f"{failure_prefix}: {detail}") from exc
             raise RuntimeError(f"{failure_prefix}: {detail}") from exc
 
     def _run_operation_with_graceful_timeout(
@@ -465,10 +474,12 @@ class DockerBackend:
         try:
             subprocess.run(["docker", "image", "inspect", self.docker_image], check=True, capture_output=True, text=True)
         except FileNotFoundError as exc:
-            raise RuntimeError("Docker executable not found; install Docker and build the local runner image with: "
-                               f"{MANUAL_DOCKER_BUILD_COMMAND}") from exc
+            raise HarnessBootstrapError(
+                "Docker executable not found; install Docker and build the local runner image with: "
+                f"{MANUAL_DOCKER_BUILD_COMMAND}"
+            ) from exc
         except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
+            raise HarnessBootstrapError(
                 f"Docker image '{self.docker_image}' is not available. Build it with: {MANUAL_DOCKER_BUILD_COMMAND}"
             ) from exc
 

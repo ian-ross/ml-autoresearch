@@ -57,12 +57,14 @@ from ml_autoresearch.managed_execution import (
 )
 from ml_autoresearch.package_resources import PackageResourceError, stage_workspace_container_build_recipes
 from ml_autoresearch.research_loop_operations import (
+    effective_candidate_execution_backend_options,
     effective_execution_options,
     effective_ledger_path,
     load_configured_provider,
     resolve_research_problem_data_root,
     prepare_candidate_run_from_workspace,
     run_candidate_from_workspace,
+    smoke_prepared_run_from_workspace,
     train_prepared_run_from_workspace,
     run_experiment_batch_from_workspace,
     run_submission_payload,
@@ -76,7 +78,14 @@ from ml_autoresearch.runtime_images import (
     runtime_image_validation_skip_warning,
     validate_runtime_images,
 )
-from ml_autoresearch.runs import RunStatus, get_best_runs, get_run_summary, list_runs, reconcile_run
+from ml_autoresearch.runs import (
+    RunStatus,
+    fail_run_as_harness_failure,
+    get_best_runs,
+    get_run_summary,
+    list_runs,
+    reconcile_run,
+)
 from ml_autoresearch.batches import get_batch_summary, list_batches
 from ml_autoresearch.setup import (
     SUPPORTED_BINARY_SEGMENTATION,
@@ -690,7 +699,7 @@ def _start_prepared_run_supervisor(
     prediction_sample_policy: str | None,
     ledger_path: Path | None,
 ) -> dict[str, object]:
-    """Start detached training for an accepted stable Run and return its identity."""
+    """Start detached managed smoke/training for a prepared stable Run."""
 
     run_dir = Path(str(prepared["run_dir"]))
     log_path = run_dir / "outputs" / "logs" / "supervisor.log"
@@ -957,39 +966,62 @@ def continue_run_command(
     docker_rootless_container_root: Annotated[bool, typer.Option("--docker-rootless-container-root")] = False,
     ledger_path: Annotated[Path | None, typer.Option("--ledger-path")] = None,
 ) -> None:
-    """Internal detached supervisor entry point for an accepted stable Run."""
+    """Internal detached supervisor entry point for a prepared stable Run."""
 
     try:
         await_supervisor_registration(run_dir, pid=os.getpid())
-        update_execution_record(run_dir, state="training", supervisor={"pid": os.getpid()})
-        payload = train_prepared_run_from_workspace(
-            run_dir,
-            workspace_root=workspace_root,
-            backend_name=backend,
-            docker_image=docker_image,
-            docker_enable_gpu=docker_enable_gpu,
-            docker_gpu_device=docker_gpu_device,
-            docker_user=docker_user,
-            docker_rootless_container_root=docker_rootless_container_root,
-            max_samples=max_samples,
-            max_prediction_samples=max_prediction_samples,
-            prediction_sample_policy=prediction_sample_policy,
-            ledger_path=ledger_path,
-        )
-        config = load_candidate_execution_config(workspace_root)
-        reconciled = reconcile_run(
-            run_dir,
-            ledger_path=effective_ledger_path(config, override=ledger_path),
-        )
-        payload = run_submission_payload(reconciled)
-    except Exception as exc:  # noqa: BLE001 - preserve durable supervisor failure state.
+        metadata = json.loads((run_dir / "run_metadata.json").read_text())
+        if metadata.get("status") == RunStatus.SMOKE_TESTING.value:
+            update_execution_record(run_dir, state="smoke_testing", supervisor={"pid": os.getpid()})
+            payload = smoke_prepared_run_from_workspace(
+                run_dir,
+                workspace_root=workspace_root,
+                backend_name=backend,
+                docker_image=docker_image,
+                docker_enable_gpu=docker_enable_gpu,
+                docker_gpu_device=docker_gpu_device,
+                docker_user=docker_user,
+                docker_rootless_container_root=docker_rootless_container_root,
+                ledger_path=ledger_path,
+            )
+        else:
+            payload = {"status": metadata.get("status")}
+        if payload.get("status") == RunStatus.ACCEPTED.value:
+            update_execution_record(run_dir, state="training", supervisor={"pid": os.getpid()})
+            payload = train_prepared_run_from_workspace(
+                run_dir,
+                workspace_root=workspace_root,
+                backend_name=backend,
+                docker_image=docker_image,
+                docker_enable_gpu=docker_enable_gpu,
+                docker_gpu_device=docker_gpu_device,
+                docker_user=docker_user,
+                docker_rootless_container_root=docker_rootless_container_root,
+                max_samples=max_samples,
+                max_prediction_samples=max_prediction_samples,
+                prediction_sample_policy=prediction_sample_policy,
+                ledger_path=ledger_path,
+            )
+            config = load_candidate_execution_config(workspace_root)
+            reconciled = reconcile_run(
+                run_dir,
+                ledger_path=effective_ledger_path(config, override=ledger_path),
+            )
+            payload = run_submission_payload(reconciled)
+    except Exception as exc:  # noqa: BLE001 - trusted supervisor/bootstrap failures must be durable.
         update_execution_record(
             run_dir,
             state="supervisor_failed",
             error=str(exc),
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
-        raise
+        config = load_candidate_execution_config(workspace_root)
+        failed = fail_run_as_harness_failure(
+            run_dir,
+            f"managed Candidate Run supervisor failed: {exc}",
+            ledger_path=effective_ledger_path(config, override=ledger_path),
+        )
+        payload = run_submission_payload(failed)
     update_execution_record(
         run_dir,
         state="finalized",
@@ -1019,11 +1051,17 @@ def run_candidate_command(
         typer.Option("--prediction-sample-policy", help="Harness-owned qualitative Prediction Sample Policy."),
     ] = None,
     backend: Annotated[Literal["native", "docker"], typer.Option("--backend", help="Candidate Execution Boundary backend.")] = "docker",
-    docker_image: Annotated[str, typer.Option("--docker-image", help="Docker runner image for --backend docker.")] = DEFAULT_DOCKER_IMAGE,
+    docker_image: Annotated[
+        str | None,
+        typer.Option("--docker-image", help="Docker runner image for --backend docker; defaults to Workspace Configuration."),
+    ] = None,
     docker_enable_gpu: Annotated[
-        bool,
-        typer.Option("--docker-enable-gpu", help="Opt in to Docker GPU access."),
-    ] = False,
+        bool | None,
+        typer.Option(
+            "--docker-enable-gpu/--no-docker-enable-gpu",
+            help="Override configured Docker GPU access policy.",
+        ),
+    ] = None,
     docker_gpu_device: Annotated[
         str | None,
         typer.Option("--docker-gpu-device", help="Harness-owned single GPU index/UUID to expose to Docker."),
@@ -1036,12 +1074,12 @@ def run_candidate_command(
         ),
     ] = None,
     docker_rootless_container_root: Annotated[
-        bool,
+        bool | None,
         typer.Option(
-            "--docker-rootless-container-root",
-            help="Force rootless Docker ownership mode: run as container root, which maps to the invoking host user and preserves output ownership.",
+            "--docker-rootless-container-root/--no-docker-rootless-container-root",
+            help="Override configured rootless Docker ownership mode.",
         ),
-    ] = False,
+    ] = None,
     require_proposal: Annotated[
         bool,
         typer.Option(
@@ -1066,38 +1104,48 @@ def run_candidate_command(
         typer.Option("--ledger-path", help="Append-only Research Ledger JSONL path. Overrides ml-autoresearch.toml."),
     ] = None,
 ) -> None:
-    """Validate, smoke-test, and synchronously run a Candidate Experiment."""
+    """Validate and run a Candidate through managed smoke and training."""
 
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
 
     try:
-        if backend == "docker":
-            _enforce_runtime_image_validation("run-candidate", workspace_root, skip=skip_runtime_image_validation)
-        prepared = prepare_candidate_run_from_workspace(
-            candidate,
-            workspace_root=workspace_root,
-            runs_root=runs_root,
-            backend_name=backend,
-            docker_image=docker_image,
-            docker_enable_gpu=docker_enable_gpu,
-            docker_gpu_device=docker_gpu_device,
-            docker_user=docker_user,
-            docker_rootless_container_root=docker_rootless_container_root,
-            ledger_path=ledger_path,
-            require_proposal=require_proposal,
-        )
-        if prepared.get("status") != RunStatus.ACCEPTED.value:
-            _echo_json(prepared)
-            raise typer.Exit(1)
-        running = _start_prepared_run_supervisor(
-            prepared,
-            workspace_root=workspace_root,
+        config = load_candidate_execution_config(workspace_root)
+        options = effective_candidate_execution_backend_options(
+            config,
             backend=backend,
             docker_image=docker_image,
             docker_enable_gpu=docker_enable_gpu,
             docker_gpu_device=docker_gpu_device,
             docker_user=docker_user,
             docker_rootless_container_root=docker_rootless_container_root,
+        )
+        if options.backend == "docker":
+            _enforce_runtime_image_validation("run-candidate", workspace_root, skip=skip_runtime_image_validation)
+        prepared = prepare_candidate_run_from_workspace(
+            candidate,
+            workspace_root=workspace_root,
+            runs_root=runs_root,
+            backend_name=options.backend,
+            docker_image=options.docker_image,
+            docker_enable_gpu=options.docker_enable_gpu,
+            docker_gpu_device=options.docker_gpu_device,
+            docker_user=options.docker_user,
+            docker_rootless_container_root=options.docker_rootless_container_root,
+            ledger_path=ledger_path,
+            require_proposal=require_proposal,
+        )
+        if prepared.get("status") != RunStatus.SMOKE_TESTING.value:
+            _echo_json(prepared)
+            raise typer.Exit(1)
+        running = _start_prepared_run_supervisor(
+            prepared,
+            workspace_root=workspace_root,
+            backend=options.backend,
+            docker_image=options.docker_image,
+            docker_enable_gpu=options.docker_enable_gpu,
+            docker_gpu_device=options.docker_gpu_device,
+            docker_user=options.docker_user,
+            docker_rootless_container_root=options.docker_rootless_container_root,
             max_samples=max_samples,
             max_prediction_samples=max_prediction_samples,
             prediction_sample_policy=prediction_sample_policy,
@@ -1113,7 +1161,14 @@ def run_candidate_command(
             ledger_path=effective_ledger_path(config, override=ledger_path),
         )
         payload = run_submission_payload(finalized)
-    except (RuntimeImageError, CandidateExecutionConfigError, ResearchLedgerError, ResearchProblemProviderLoadError, OSError) as exc:
+    except (
+        RuntimeImageError,
+        CandidateExecutionConfigError,
+        ResearchLedgerError,
+        ResearchProblemProviderLoadError,
+        OSError,
+        ValueError,
+    ) as exc:
         _exit_with_error(exc)
     _echo_json(payload)
     if payload.get("status") != RunStatus.COMPLETED.value:

@@ -15,8 +15,11 @@ def test_run_lifecycle_docs_define_fail_fast_and_recoverable_long_run_semantics(
     assert "run-status" in lifecycle
     assert "reconcile-run" in lifecycle
     assert "execution.json" in lifecycle
+    assert "created before smoke" in lifecycle
+    assert "--no-docker-enable-gpu" in lifecycle
     assert "cannot be disabled" in contract
     assert "stable Run identity" in adr
+    assert "Caller interruption during smoke or training" in adr
     assert "idempotent" in adr
 
 

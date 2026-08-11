@@ -10,7 +10,9 @@ A synchronous caller can disappear while a Docker Candidate Execution continues.
 
 ## Decision
 
-The Harness creates and smoke-tests a stable Run before long training starts. Long training is owned by a detached Harness supervisor recorded in `execution.json`; foreground callers follow that supervisor rather than owning training. Docker training containers remain inspectable until terminalization instead of using `--rm`, and their identities and attempts are recorded durably.
+The Harness validates and copies a Candidate into a stable Run before smoke starts. A detached Harness supervisor recorded in `execution.json` owns both smoke and training; foreground callers follow that supervisor rather than owning either operation. Docker training containers remain inspectable until terminalization instead of using `--rm`, and their identities and attempts are recorded durably.
+
+`execution.json` exposes the pre-training `smoke_testing` phase. If a caller disappears during smoke, observation and reconciliation continue against the same Run ID rather than resubmitting the Candidate. A vanished smoke supervisor with no active container is terminalized as a Harness failure; reconciliation never starts another smoke test or training operation.
 
 `run-status` observes an existing Run without launching work. `reconcile-run` operates only on an existing Run, validates required artifacts and numerical state, and never retrains. Open autonomy actions map a previously submitted Candidate to its existing Run ID and reconcile that Run rather than submitting another one.
 
@@ -18,7 +20,7 @@ Terminal metadata and Research Ledger writes are serialized by per-Run and termi
 
 ## Consequences
 
-- Caller interruption does not stop a managed Run or require duplicate submission.
+- Caller interruption during smoke or training does not stop a managed Run or require duplicate submission.
 - Operators can distinguish supervisor, container, artifact, and terminal Run state.
 - Exited containers may remain briefly until finalization or reconciliation removes them.
 - A missing execution/container record with incomplete artifacts fails as a Harness failure; reconciliation does not guess by retraining.
