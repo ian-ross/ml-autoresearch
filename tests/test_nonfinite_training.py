@@ -385,7 +385,10 @@ def test_nonfinite_aggregate_epoch_value_fails_before_checkpoint(
     write_fake_research_problem_package(tmp_path)
     monkeypatch.setattr(
         "ml_autoresearch.training._evaluate",
-        lambda *args, **kwargs: {"val/dice": 0.5, "val/loss": float("nan")},
+        lambda *args, **kwargs: (
+            {"val/dice": 0.5, "val/loss": float("nan")},
+            {"postprocessing": {"backend": "torch_cpu", "timings_seconds": {"artifact_filter": 0.01}}},
+        ),
     )
 
     run = run_candidate_with_research_problem(
@@ -404,6 +407,7 @@ def test_nonfinite_aggregate_epoch_value_fails_before_checkpoint(
     assert diagnostic["failing_quantity"] == "metric.val/loss"
     assert diagnostic["epoch"] == 1
     assert not (run.run_dir / "outputs" / "models" / "best_epoch_model.pt").exists()
+    assert not (run.run_dir / "outputs" / "validation_postprocessing" / "epoch_001.json").exists()
 
 
 def test_nonfinite_selection_metric_fails_before_checkpoint(
@@ -412,7 +416,7 @@ def test_nonfinite_selection_metric_fails_before_checkpoint(
     write_fake_research_problem_package(tmp_path)
     monkeypatch.setattr(
         "ml_autoresearch.training._evaluate",
-        lambda *args, **kwargs: {"val/dice": float("nan"), "val/loss": 0.25},
+        lambda *args, **kwargs: ({"val/dice": float("nan"), "val/loss": 0.25}, None),
     )
 
     run = run_candidate_with_research_problem(

@@ -21,7 +21,7 @@ from ml_autoresearch.finite import (
     require_finite_tensor,
 )
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig, load_research_problem_provider
-from ml_autoresearch.training_adapters import ResearchProblemTrainingAdapter
+from ml_autoresearch.training_adapters import ResearchProblemTrainingAdapter, ResearchProblemValidationResult
 from ml_autoresearch.problem_support.segmentation import bce_dice_loss, binary_segmentation_validation_metrics
 from ml_autoresearch.smoke import _extract_expected_outputs, _import_candidate_model, input_spec_from_resolved_manifest, output_spec_from_resolved_manifest
 from ml_autoresearch.synthetic import SyntheticContrailDataset
@@ -203,6 +203,14 @@ def _train_manifest_epochs_run(
     best_epoch_model_path = outputs_dir / "models" / "best_epoch_model.pt"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [start_line]
+    log_path.write_text(start_line + "\n")
+
+    def emit_progress(message: str) -> None:
+        lines.append(message)
+        with log_path.open("a") as handle:
+            handle.write(message + "\n")
+            handle.flush()
+
     run_started_at = time.perf_counter()
     device: torch.device | None = None
     hardware_profile: dict[str, object] = {"device_type": "unknown"}
@@ -246,6 +254,7 @@ def _train_manifest_epochs_run(
         timeout_requested = False
         final: dict[str, object] = {}
         validation_records: list[dict[str, object]] = []
+        validation_report_paths: list[str] = []
         best_validation_value: float | None = None
         best_early_stopping_value: float | None = None
         epochs_without_early_stopping_improvement = 0
@@ -351,7 +360,7 @@ def _train_manifest_epochs_run(
             training_wall_seconds += _resource_phase_elapsed(device, training_phase_started)
 
             validation_phase_started = _resource_phase_started(device)
-            final = _evaluate(
+            final, validation_report = _evaluate(
                 model,
                 val_loader,
                 device=device,
@@ -361,6 +370,7 @@ def _train_manifest_epochs_run(
                 auxiliary_targets=auxiliary_targets,
                 primary_loss_name=primary_loss_name,
                 training_adapter=training_adapter,
+                progress_callback=emit_progress,
             )
             validation_wall_seconds += _resource_phase_elapsed(device, validation_phase_started)
             total_validation_samples += val_sample_count
@@ -394,6 +404,15 @@ def _train_manifest_epochs_run(
                 batch=None,
                 failure_classification="harness_failure",
             )
+            if validation_report is not None:
+                validation_report_paths.append(
+                    _write_validation_postprocessing_report(
+                        outputs_dir,
+                        epoch=epoch,
+                        report=validation_report,
+                        report_paths=validation_report_paths,
+                    )
+                )
             validation_record = {"split": "val", **final}
             validation_records.append(dict(validation_record))
             is_better = validation_value > best_validation_value if selection_mode == "max" and best_validation_value is not None else validation_value < best_validation_value if best_validation_value is not None else True
@@ -481,6 +500,8 @@ def _train_manifest_epochs_run(
         artifacts["best_metrics"] = "outputs/best_metrics.json"
         artifacts["best_epoch_model"] = "outputs/models/best_epoch_model.pt"
         artifacts["resource_profile"] = "outputs/resource_profile.json"
+        if validation_report_paths:
+            artifacts["validation_postprocessing"] = "outputs/validation_postprocessing/index.json"
         resource_profile = _write_resource_profile(
             outputs_dir,
             status="completed",
@@ -782,7 +803,19 @@ def _validation_metrics(
     target_mask: torch.Tensor,
     training_adapter: ResearchProblemTrainingAdapter | object | None = None,
     dataset: object | None = None,
-) -> dict[str, float]:
+    *,
+    device: torch.device,
+    progress_callback,
+) -> ResearchProblemValidationResult | dict[str, float]:
+    enhanced = getattr(training_adapter, "compute_validation_result_from_dataset", None)
+    if enhanced is not None and dataset is not None:
+        return enhanced(
+            logits,
+            target_mask,
+            dataset,
+            device=device,
+            progress_callback=progress_callback,
+        )
     if training_adapter is not None and dataset is not None and hasattr(training_adapter, "compute_validation_metrics_from_dataset"):
         return training_adapter.compute_validation_metrics_from_dataset(logits, target_mask, dataset)
     if training_adapter is not None and hasattr(training_adapter, "compute_validation_metrics"):
@@ -810,7 +843,8 @@ def _evaluate(
     auxiliary_targets: list[dict[str, object]] | None = None,
     primary_loss_name: str = "bce_dice",
     training_adapter: ResearchProblemTrainingAdapter | object | None = None,
-) -> dict[str, float]:
+    progress_callback=lambda _message: None,
+) -> tuple[dict[str, float], dict[str, object] | None]:
     model.eval()
     total_mask_loss = 0.0
     total_loss = 0.0
@@ -820,6 +854,11 @@ def _evaluate(
     output_spec = output_spec or {"form": "mask_logits", "shape": [1, 128, 128]}
     auxiliary_targets = auxiliary_targets or []
     primary_output_name = _primary_output_name(output_spec, training_adapter)
+    sample_count = len(val_loader.dataset)
+    inference_started = time.perf_counter()
+    progress_callback(f"validation inference started; epoch={epoch} samples={sample_count} device={device}")
+    last_progress_bucket = 0
+    inference_samples = 0
     with torch.no_grad():
         for batch_index, (inputs, target) in enumerate(val_loader):
             inputs = inputs.to(device, non_blocking=True)
@@ -872,8 +911,39 @@ def _evaluate(
                 auxiliary_loss_totals[name] = auxiliary_loss_totals.get(name, 0.0) + float(auxiliary_loss.item()) * inputs.shape[0]
             prediction_logits.append(logits.detach().cpu())
             targets.append(target.detach().cpu())
-    sample_count = len(val_loader.dataset)
-    result = _validation_metrics(torch.cat(prediction_logits), torch.cat(targets), training_adapter, val_loader.dataset)
+            inference_samples += int(inputs.shape[0])
+            completed = min(sample_count, inference_samples)
+            progress_bucket = completed // 100
+            if progress_bucket > last_progress_bucket or completed == sample_count:
+                progress_callback(
+                    f"validation inference progress; epoch={epoch} completed={completed}/{sample_count}"
+                )
+                last_progress_bucket = progress_bucket
+    inference_elapsed = time.perf_counter() - inference_started
+    progress_callback(
+        f"validation inference complete; epoch={epoch} samples={sample_count} elapsed={inference_elapsed:.3f}s"
+    )
+    validation_result = _validation_metrics(
+        torch.cat(prediction_logits),
+        torch.cat(targets),
+        training_adapter,
+        val_loader.dataset,
+        device=device,
+        progress_callback=progress_callback,
+    )
+    if isinstance(validation_result, ResearchProblemValidationResult):
+        result = validation_result.metrics
+        report = {
+            "inference": {
+                "device": str(device),
+                "sample_count": sample_count,
+                "elapsed_seconds": inference_elapsed,
+            },
+            "postprocessing": validation_result.report,
+        }
+    else:
+        result = validation_result
+        report = None
     for metric_name, metric_value in result.items():
         require_finite_tensor(
             torch.as_tensor(metric_value),
@@ -890,7 +960,48 @@ def _evaluate(
         for name, total in auxiliary_loss_totals.items():
             result[f"val/aux/{name}_loss"] = total / sample_count
         result["val/total_loss"] = total_loss / sample_count
-    return result
+    return result, report
+
+
+def _write_validation_postprocessing_report(
+    outputs_dir: Path,
+    *,
+    epoch: int,
+    report: dict[str, object],
+    report_paths: list[str],
+) -> str:
+    payload = {
+        "schema_version": "validation_postprocessing_epoch.v1",
+        "epoch": epoch,
+        "status": "completed",
+        **report,
+    }
+    require_finite_json_numbers(
+        payload,
+        outputs_dir=outputs_dir,
+        phase="validation",
+        checkpoint="postprocessing_report",
+        quantity_prefix="validation.postprocessing",
+        epoch=epoch,
+        batch=None,
+        failure_classification="harness_failure",
+    )
+    reports_dir = outputs_dir / "validation_postprocessing"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    relative_path = f"outputs/validation_postprocessing/epoch_{epoch:03d}.json"
+    _write_json_atomic(reports_dir / f"epoch_{epoch:03d}.json", payload)
+    index = {
+        "schema_version": "validation_postprocessing_index.v1",
+        "reports": [*report_paths, relative_path],
+    }
+    _write_json_atomic(reports_dir / "index.json", index)
+    return relative_path
+
+
+def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    temporary.replace(path)
 
 
 def _best_validation_metrics(

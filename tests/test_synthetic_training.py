@@ -273,7 +273,13 @@ def test_synthetic_fixture_training_records_scheduler_and_early_stops(tmp_path: 
 
     def fake_evaluate(*args, **kwargs):
         value = next(validation_values)
-        return {"val/dice": value, "val/iou": value / 2, "val/precision": value, "val/recall": value, "val/loss": 1.0 - value}
+        return {
+            "val/dice": value,
+            "val/iou": value / 2,
+            "val/precision": value,
+            "val/recall": value,
+            "val/loss": 1.0 - value,
+        }, None
 
     monkeypatch.setattr("ml_autoresearch.training._evaluate", fake_evaluate)
 

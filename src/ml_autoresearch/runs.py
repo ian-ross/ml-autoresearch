@@ -1789,6 +1789,22 @@ def _validate_training_outputs(run_dir: Path, training_result: object) -> dict[s
         if isinstance(final_metrics, dict) and isinstance(final_metrics.get("artifacts"), dict)
         else None
     )
+    validation_reports_relative = artifacts.get("validation_postprocessing") if isinstance(artifacts, dict) else None
+    if isinstance(validation_reports_relative, str):
+        validation_epochs = [
+            int(record["epoch"])
+            for record in metric_records
+            if isinstance(record, dict)
+            and record.get("split") == "val"
+            and isinstance(record.get("epoch"), int)
+        ]
+        _validate_validation_postprocessing_artifacts(
+            run_dir,
+            outputs_dir,
+            validation_reports_relative,
+            expected_epochs=validation_epochs,
+            require_finite_json_numbers=require_finite_json_numbers,
+        )
     checkpoint_relative = artifacts.get("best_epoch_model") if isinstance(artifacts, dict) else None
     if not isinstance(checkpoint_relative, str) and isinstance(best_metrics, dict):
         checkpoint_relative = best_metrics.get("model_artifact")
@@ -1819,6 +1835,103 @@ def _validate_training_outputs(run_dir: Path, training_result: object) -> dict[s
                 failing_quantity=f"checkpoint.model_state_dict.{tensor_name}",
             )
     return artifacts
+
+
+def _validate_validation_postprocessing_artifacts(
+    run_dir: Path,
+    outputs_dir: Path,
+    index_relative: str,
+    *,
+    expected_epochs: list[int],
+    require_finite_json_numbers,
+) -> None:
+    relative_index = Path(index_relative)
+    if relative_index.is_absolute() or ".." in relative_index.parts:
+        raise TrainingError(f"validation postprocessing artifact path is invalid: {index_relative}")
+    index_path = run_dir / relative_index
+    if not index_path.is_file():
+        raise TrainingError(f"required training artifact is missing: {index_relative}")
+    try:
+        index = json.loads(index_path.read_text())
+    except Exception as exc:  # noqa: BLE001
+        raise TrainingError(f"validation postprocessing artifact is invalid: {index_relative}: {exc}") from exc
+    if not isinstance(index, dict) or index.get("schema_version") != "validation_postprocessing_index.v1":
+        raise TrainingError(f"validation postprocessing artifact is invalid: {index_relative}: unexpected schema")
+    reports = index.get("reports")
+    if not isinstance(reports, list) or not reports or not all(isinstance(item, str) for item in reports):
+        raise TrainingError(f"validation postprocessing artifact is invalid: {index_relative}: reports must be non-empty")
+    if len(reports) != len(set(reports)) or len(reports) != len(expected_epochs):
+        raise TrainingError(
+            f"validation postprocessing artifact is invalid: {index_relative}: "
+            "reports must uniquely match completed validation epochs"
+        )
+    require_finite_json_numbers(
+        index,
+        outputs_dir=outputs_dir,
+        phase="terminal_validation",
+        checkpoint="validation_postprocessing_artifacts",
+        quantity_prefix="validation.postprocessing.index",
+        failure_classification="harness_failure",
+    )
+    observed_epochs: list[int] = []
+    for report_number, report_relative in enumerate(reports):
+        relative_report = Path(report_relative)
+        if relative_report.is_absolute() or ".." in relative_report.parts:
+            raise TrainingError(f"validation postprocessing artifact path is invalid: {report_relative}")
+        report_path = run_dir / relative_report
+        if not report_path.is_file():
+            raise TrainingError(f"required training artifact is missing: {report_relative}")
+        try:
+            report = json.loads(report_path.read_text())
+        except Exception as exc:  # noqa: BLE001
+            raise TrainingError(f"validation postprocessing artifact is invalid: {report_relative}: {exc}") from exc
+        if (
+            not isinstance(report, dict)
+            or report.get("schema_version") != "validation_postprocessing_epoch.v1"
+            or report.get("status") != "completed"
+        ):
+            raise TrainingError(f"validation postprocessing artifact is invalid: {report_relative}: unexpected schema/status")
+        epoch = report.get("epoch")
+        inference = report.get("inference")
+        postprocessing = report.get("postprocessing")
+        if (
+            not isinstance(epoch, int)
+            or not isinstance(inference, dict)
+            or not isinstance(inference.get("device"), str)
+            or not isinstance(inference.get("sample_count"), int)
+            or int(inference["sample_count"]) < 1
+            or not isinstance(inference.get("elapsed_seconds"), (int, float))
+            or not isinstance(postprocessing, dict)
+            or postprocessing.get("backend") not in {"torch_cpu", "torch_cuda"}
+            or not isinstance(postprocessing.get("requested_device"), str)
+            or not isinstance(postprocessing.get("device"), str)
+            or not isinstance(postprocessing.get("batch_size"), int)
+            or int(postprocessing["batch_size"]) < 1
+            or not isinstance(postprocessing.get("max_device_batch_samples"), int)
+            or not 1 <= int(postprocessing["max_device_batch_samples"]) <= int(postprocessing["batch_size"])
+            or postprocessing.get("bounded_device_batches") is not True
+            or postprocessing.get("full_validation_gpu_residency") is not False
+            or not isinstance(postprocessing.get("timings_seconds"), dict)
+            or not postprocessing["timings_seconds"]
+        ):
+            raise TrainingError(
+                f"validation postprocessing artifact is invalid: {report_relative}: "
+                "required postprocessing evidence is missing or invalid"
+            )
+        observed_epochs.append(epoch)
+        require_finite_json_numbers(
+            report,
+            outputs_dir=outputs_dir,
+            phase="terminal_validation",
+            checkpoint="validation_postprocessing_artifacts",
+            quantity_prefix=f"validation.postprocessing.reports[{report_number}]",
+            failure_classification="harness_failure",
+        )
+    if observed_epochs != expected_epochs:
+        raise TrainingError(
+            f"validation postprocessing artifact is invalid: {index_relative}: "
+            "report epochs do not match completed validation epochs"
+        )
 
 
 def _artifacts_from_training_result(training_result: object) -> dict[str, object] | None:

@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Protocol
+
+
+@dataclass(frozen=True)
+class ResearchProblemValidationResult:
+    """Metrics plus trusted structured evidence from enhanced validation."""
+
+    metrics: dict[str, float]
+    report: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -17,6 +26,21 @@ class ResearchProblemDatasets:
     success_line: str
     failure_prefix: str
     data_policy_metadata: dict[str, object]
+
+
+class ResearchProblemDeviceAwareValidationAdapter(Protocol):
+    """Optional enhanced validation capability discovered without making it required."""
+
+    def compute_validation_result_from_dataset(
+        self,
+        logits: torch.Tensor,
+        target_mask: torch.Tensor,
+        dataset: object,
+        *,
+        device: torch.device,
+        progress_callback: Callable[[str], None],
+    ) -> ResearchProblemValidationResult:
+        """Return bounded trusted metrics/evidence on the Harness-selected device."""
 
 
 class ResearchProblemTrainingAdapter(Protocol):

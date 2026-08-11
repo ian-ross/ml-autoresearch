@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from ml_autoresearch.research_problems import ResearchProblemProviderConfig
@@ -150,6 +151,43 @@ def test_trusted_data_bootstrap_failure_is_harness_owned(tmp_path: Path) -> None
     assert "trusted dataset bootstrap failed" in metadata["training_failure_reason"]
 
 
+def test_nonfinite_enhanced_validation_report_fails_closed_before_checkpoint(tmp_path: Path) -> None:
+    _write_fake_problem_package(tmp_path)
+    provider_path = tmp_path / "fake_problem" / "research_problem.py"
+    provider_path.write_text(
+        provider_path.read_text().replace(
+            "    def compute_validation_metrics(self, logits, target_mask):\n",
+            "    def compute_validation_result_from_dataset(self, logits, target_mask, dataset, *, device, progress_callback):\n"
+            "        from ml_autoresearch.training_adapters import ResearchProblemValidationResult\n"
+            "        return ResearchProblemValidationResult(\n"
+            "            metrics={'val/dice': 0.25},\n"
+            "            report={'backend': 'torch_cpu', 'timings_seconds': {'artifact_filter': float('nan')}},\n"
+            "        )\n"
+            "\n"
+            "    def compute_validation_metrics(self, logits, target_mask):\n",
+        )
+    )
+    candidate = _write_fake_candidate(tmp_path)
+    config = ResearchProblemProviderConfig(
+        id="fake_problem",
+        package_root=tmp_path,
+        provider_target="fake_problem.research_problem:build_spec",
+        expected_contract_version="v0",
+        data_config={"fixture": "tiny", "sample_count": 4},
+    )
+
+    run = run_candidate_with_research_problem(candidate, tmp_path / "runs", config, max_samples=4)
+
+    assert run.status == RunStatus.FAILED
+    assert run.failure_classification == "harness_failure"
+    diagnostic = json.loads((run.run_dir / "outputs" / "nonfinite_diagnostic.json").read_text())
+    assert diagnostic["phase"] == "validation"
+    assert diagnostic["checkpoint"] == "postprocessing_report"
+    assert diagnostic["failing_quantity"].endswith("timings_seconds.artifact_filter")
+    assert not (run.run_dir / "outputs" / "models" / "best_epoch_model.pt").exists()
+    assert not (run.run_dir / "outputs" / "validation_postprocessing" / "epoch_001.json").exists()
+
+
 def test_run_candidate_trains_through_generic_research_problem_provider(tmp_path: Path) -> None:
     _write_fake_problem_package(tmp_path)
     candidate = _write_fake_candidate(tmp_path)
@@ -173,6 +211,138 @@ def test_run_candidate_trains_through_generic_research_problem_provider(tmp_path
     assert metadata["data_policy"] == {"adapter": "fake"}
     assert metadata["sample_counts"] == {"train": 4, "validation": 2}
     assert (run.run_dir / "outputs" / "best_metrics.json").is_file()
+
+
+def test_device_aware_validation_hook_emits_live_progress_and_persists_report(tmp_path: Path) -> None:
+    import torch
+
+    from ml_autoresearch.research_problems import ResearchProblemSpec, _BUILTIN_REGISTRY
+    from ml_autoresearch.synthetic import SyntheticContrailConfig, SyntheticContrailDataset
+    from ml_autoresearch.training import train_research_problem
+    from ml_autoresearch.training_adapters import ResearchProblemDatasets, ResearchProblemValidationResult
+
+    candidate = _write_fake_candidate(tmp_path)
+    resolved_manifest = candidate / "manifest.yaml"
+    manifest = yaml.safe_load(resolved_manifest.read_text())
+    manifest["research_problem"] = {"id": "enhanced_validation_problem"}
+    manifest["input_spec"] = {"mode": "fake_rgb", "shape": [3, 8, 8]}
+    manifest["output_spec"] = {"form": "mask_logits", "shape": [1, 8, 8]}
+    manifest["training"]["max_epochs"] = 2
+    resolved_manifest.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    outputs = tmp_path / "outputs"
+
+    class EnhancedValidationAdapter:
+        def build_datasets(self, *, data_config, resolved_manifest_path, max_samples=None):
+            config = SyntheticContrailConfig(image_size=8)
+            return ResearchProblemDatasets(
+                train_dataset=SyntheticContrailDataset(4, seed=11, config=config),
+                validation_dataset=SyntheticContrailDataset(2, seed=22, config=config),
+                start_line="Starting enhanced validation training.",
+                success_line="Enhanced validation training completed.",
+                failure_prefix="Enhanced validation training failed",
+                data_policy_metadata={},
+            )
+
+        def apply_augmentation_policy(self, dataset, augmentation_policy):
+            return dataset
+
+        def primary_output_name(self, output_spec):
+            return "mask_logits"
+
+        def compute_primary_loss(self, loss_name, logits, target_mask):
+            return torch.nn.functional.binary_cross_entropy_with_logits(logits, target_mask)
+
+        def compute_auxiliary_losses(self, outputs, target_mask, auxiliary_targets):
+            return {}
+
+        def compute_validation_result_from_dataset(
+            self, logits, target_mask, dataset, *, device, progress_callback
+        ):
+            assert device == torch.device("cpu")
+            progress_callback("trusted bounded postprocessing started")
+            assert "trusted bounded postprocessing started" in (outputs / "logs" / "training.log").read_text()
+            return ResearchProblemValidationResult(
+                metrics={"val/dice": 0.25},
+                report={
+                    "backend": "torch_cpu",
+                    "requested_device": "cpu",
+                    "device": "cpu",
+                    "batch_size": 2,
+                    "max_device_batch_samples": 2,
+                    "bounded_device_batches": True,
+                    "full_validation_gpu_residency": False,
+                    "timings_seconds": {"artifact_filter": 0.01},
+                },
+            )
+
+        def compute_validation_metrics(self, logits, target_mask):
+            raise AssertionError("legacy validation hook must not run")
+
+        def selection_policy(self):
+            return "val/dice", "max"
+
+    _BUILTIN_REGISTRY.register(
+        ResearchProblemSpec(
+            id="enhanced_validation_problem",
+            version="test-v0",
+            input_modes=("fake_rgb",),
+            input_specs={"fake_rgb": {"mode": "fake_rgb", "shape": [3, 8, 8]}},
+            output_forms=("mask_logits",),
+            output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 8, 8]}},
+            losses=("bce_dice",),
+            optimizers=("adamw",),
+            sampling_policies=("sequential",),
+            augmentation_policies=("none",),
+            primary_metric="val/dice",
+        )
+    )
+
+    final = train_research_problem(
+        candidate_dir=candidate,
+        resolved_manifest_path=resolved_manifest,
+        outputs_dir=outputs,
+        artifact_run_dir=tmp_path,
+        training_adapter=EnhancedValidationAdapter(),
+        data_config={},
+        max_prediction_samples=1,
+    )
+
+    report_index = json.loads((outputs / "validation_postprocessing" / "index.json").read_text())
+    report = json.loads((outputs / "validation_postprocessing" / "epoch_001.json").read_text())
+    assert final["artifacts"]["validation_postprocessing"] == "outputs/validation_postprocessing/index.json"
+    assert report_index == {
+        "schema_version": "validation_postprocessing_index.v1",
+        "reports": [
+            "outputs/validation_postprocessing/epoch_001.json",
+            "outputs/validation_postprocessing/epoch_002.json",
+        ],
+    }
+    assert report["schema_version"] == "validation_postprocessing_epoch.v1"
+    assert report["epoch"] == 1
+    assert report["status"] == "completed"
+    assert report["postprocessing"]["backend"] == "torch_cpu"
+    assert report["inference"]["sample_count"] == 2
+    assert "validation inference complete" in (outputs / "logs" / "training.log").read_text()
+
+    from ml_autoresearch.errors import TrainingError
+    from ml_autoresearch.runs import _validate_training_outputs
+
+    epoch_two_path = outputs / "validation_postprocessing" / "epoch_002.json"
+    epoch_two_path.unlink()
+    with pytest.raises(TrainingError, match="epoch_002.json"):
+        _validate_training_outputs(tmp_path, final)
+
+    epoch_two_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_postprocessing_epoch.v1",
+                "epoch": 2,
+                "status": "completed",
+            }
+        )
+    )
+    with pytest.raises(TrainingError, match="required postprocessing evidence"):
+        _validate_training_outputs(tmp_path, final)
 
 
 def test_run_metadata_records_named_research_problem_data_roots(tmp_path: Path) -> None:
