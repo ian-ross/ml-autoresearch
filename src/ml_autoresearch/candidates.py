@@ -201,6 +201,7 @@ def validate_candidate_directory(
     require_proposal: bool = False,
     require_readme: bool = False,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
+    max_epochs: int | None = None,
 ) -> CandidateManifest:
     """Validate a local Candidate Experiment directory and return its manifest.
 
@@ -214,6 +215,8 @@ def validate_candidate_directory(
             submission documentation.
         research_problem_registry: Trusted registry used to validate
             Research Problem-scoped manifest allowlists. Required for non-synthetic validation.
+        max_epochs: Optional Harness-owned Workspace ceiling for the Candidate's
+            requested training epochs.
     """
 
     path = Path(candidate_dir)
@@ -228,7 +231,12 @@ def validate_candidate_directory(
         _validate_proposal_file(path / "PROPOSAL.md")
     if require_readme:
         _validate_readme_file(path / "README.md")
-    return _load_manifest(path / "manifest.yaml", research_problem_registry=research_problem_registry)
+    manifest = _load_manifest(path / "manifest.yaml", research_problem_registry=research_problem_registry)
+    if max_epochs is not None and manifest.training.max_epochs > max_epochs:
+        raise CandidateValidationError(
+            f"candidate training.max_epochs {manifest.training.max_epochs} exceeds the Harness-owned Workspace ceiling {max_epochs}"
+        )
+    return manifest
 
 
 def _validate_required_files(path: Path) -> None:

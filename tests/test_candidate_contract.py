@@ -123,6 +123,14 @@ def test_valid_candidate_directory_returns_normalized_manifest(tmp_path: Path):
     assert manifest.data.augmentation_policy == "none"
 
 
+def test_candidate_directory_enforces_harness_owned_epoch_ceiling(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+
+    assert validate_candidate_directory(candidate, max_epochs=1).training.max_epochs == 1
+    with pytest.raises(CandidateValidationError, match="exceeds the Harness-owned Workspace ceiling 0"):
+        validate_candidate_directory(candidate, max_epochs=0)
+
+
 def test_candidate_directory_accepts_valid_proposal_in_proposal_required_mode(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     write_valid_proposal(candidate / "PROPOSAL.md")

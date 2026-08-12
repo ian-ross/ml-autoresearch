@@ -39,6 +39,8 @@ class CandidateExecutionConfig:
     ledger_path: Path | None = None
     max_samples: int | None = None
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT
+    max_epochs: int = 100
+    training_wall_clock_timeout_seconds: int | None = None
     max_prediction_samples: int = 2
     max_parallel_runs: int = 1
     prediction_sample_policy: Literal["first_n", "adjacent_and_scattered"] = "first_n"
@@ -89,6 +91,14 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         raise CandidateExecutionConfigError(
             f"candidate_execution.max_parameters must be at most {MAX_CONFIGURABLE_PARAMETER_COUNT}"
         )
+    max_epochs = _int(settings, "max_epochs", 100, minimum=1)
+    if max_epochs > 100:
+        raise CandidateExecutionConfigError("candidate_execution.max_epochs must be at most 100")
+    training_wall_clock_timeout_seconds = _optional_int(
+        settings,
+        "training_wall_clock_timeout_seconds",
+        minimum=1,
+    )
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
     max_parallel_runs = _int(settings, "max_parallel_runs", 1, minimum=1)
     if max_parallel_runs > 4:
@@ -111,6 +121,10 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
             raise CandidateExecutionConfigError(
                 "candidate_execution.docker_rootless_container_root requires backend = \"docker\""
             )
+        if training_wall_clock_timeout_seconds is not None:
+            raise CandidateExecutionConfigError(
+                "candidate_execution.training_wall_clock_timeout_seconds requires backend = \"docker\""
+            )
     if docker_gpu_device is not None and not docker_enable_gpu:
         raise CandidateExecutionConfigError("candidate_execution.docker_gpu_device requires docker_enable_gpu = true")
     if docker_user is not None and docker_rootless_container_root:
@@ -130,6 +144,8 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         ledger_path=ledger_path,
         max_samples=max_samples,
         max_parameters=max_parameters,
+        max_epochs=max_epochs,
+        training_wall_clock_timeout_seconds=training_wall_clock_timeout_seconds,
         max_prediction_samples=max_prediction_samples,
         max_parallel_runs=max_parallel_runs,
         prediction_sample_policy=prediction_sample_policy,  # type: ignore[arg-type]
@@ -165,6 +181,7 @@ def execution_backend_from_config(config: CandidateExecutionConfig) -> Execution
         gpu_device=config.docker_gpu_device,
         container_user=config.docker_user,
         rootless_container_root=config.docker_rootless_container_root,
+        wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
 
 

@@ -100,6 +100,7 @@ def select_execution_backend(
     docker_gpu_device: str | None = None,
     docker_user: str | None = None,
     docker_rootless_container_root: bool = False,
+    training_wall_clock_timeout_seconds: int | None = None,
 ) -> ExecutionBackend:
     """Return a concrete execution adapter from CLI/config choices."""
 
@@ -112,6 +113,8 @@ def select_execution_backend(
             raise ValueError("--docker-user requires --backend docker")
         if docker_rootless_container_root:
             raise ValueError("--docker-rootless-container-root requires --backend docker")
+        if training_wall_clock_timeout_seconds is not None:
+            raise ValueError("training wall-clock timeout requires --backend docker")
         return NativeBackend()
     if name == "docker":
         if docker_gpu_device is not None and not docker_enable_gpu:
@@ -128,6 +131,7 @@ def select_execution_backend(
             gpu_device=docker_gpu_device,
             container_user=docker_user,
             rootless_container_root=docker_rootless_container_root,
+            wall_clock_timeout_seconds=training_wall_clock_timeout_seconds,
         )
     raise ValueError("backend must be native or docker")
 
@@ -184,8 +188,11 @@ def effective_execution_options(
 ) -> tuple[int | None, int, str]:
     """Merge per-command execution options with Workspace Configuration defaults."""
 
+    effective_max_samples = config.max_samples if max_samples is None else max_samples
+    if config.max_samples is not None and effective_max_samples is not None:
+        effective_max_samples = min(config.max_samples, effective_max_samples)
     return (
-        config.max_samples if max_samples is None else max_samples,
+        effective_max_samples,
         config.max_prediction_samples if max_prediction_samples is None else max_prediction_samples,
         config.prediction_sample_policy if prediction_sample_policy is None else prediction_sample_policy,
     )
@@ -243,6 +250,7 @@ def prepare_candidate_run_from_workspace(
         docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
+        training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
     registry = load_configured_research_problem_registry(workspace_root)
     run = prepare_candidate_submission(
@@ -252,6 +260,7 @@ def prepare_candidate_run_from_workspace(
         ledger_path=effective_ledger,
         require_proposal=require_proposal,
         research_problem_registry=registry,
+        max_epochs=config.max_epochs,
     )
     return run_submission_payload(run)
 
@@ -281,6 +290,7 @@ def smoke_prepared_run_from_workspace(
         docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
+        training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
     run = smoke_test_prepared_run(
         run_dir,
@@ -319,6 +329,14 @@ def train_prepared_run_from_workspace(
         docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
+        training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
+    )
+    from ml_autoresearch.candidates import validate_candidate_directory
+
+    validate_candidate_directory(
+        Path(run_dir) / "candidate",
+        research_problem_registry=load_configured_research_problem_registry(workspace_root),
+        max_epochs=config.max_epochs,
     )
     max_samples, max_prediction_samples, prediction_sample_policy = effective_execution_options(
         config,
@@ -425,6 +443,7 @@ def run_candidate_from_workspace(
         docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
+        training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
     max_samples, max_prediction_samples, prediction_sample_policy = effective_execution_options(
         config,
@@ -438,6 +457,7 @@ def run_candidate_from_workspace(
         provider_config,
         max_samples=max_samples,
         max_parameters=config.max_parameters,
+        max_epochs=config.max_epochs,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
@@ -478,6 +498,7 @@ def run_experiment_batch_from_workspace(
         docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
+        training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
     max_samples, max_prediction_samples, prediction_sample_policy = effective_execution_options(
         config,
@@ -491,9 +512,10 @@ def run_experiment_batch_from_workspace(
         runs_root=Path(runs_root),
         provider_config=provider_config,
         backend=backend,
-        max_parallel_runs=max_parallel_runs,
+        max_parallel_runs=min(config.max_parallel_runs, max_parallel_runs),
         max_samples=max_samples,
         max_parameters=config.max_parameters,
+        max_epochs=config.max_epochs,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=effective_ledger,
@@ -587,6 +609,7 @@ def _run_ingested_experiment_batch(root: Path, batch_path: Path) -> dict[str, ob
         max_parallel_runs=config.max_parallel_runs,
         max_samples=config.max_samples,
         max_parameters=config.max_parameters,
+        max_epochs=config.max_epochs,
         max_prediction_samples=config.max_prediction_samples,
         prediction_sample_policy=config.prediction_sample_policy,
         ledger_path=config.ledger_path,
@@ -696,6 +719,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
             require_proposal=True,
             research_problem_registry=research_problem_registry,
             max_parameters=config.max_parameters,
+            max_epochs=config.max_epochs,
         )
         if run.status.value == "accepted":
             if config.backend == "docker":

@@ -25,7 +25,13 @@ class CandidateSubmissionPreparationError(ValueError):
     """Raised when a draft Candidate Experiment cannot be prepared for handoff."""
 
 
-def prepare_experiment_batch_submission(batch_dir: str | Path, submissions_root: str | Path) -> dict[str, object]:
+def prepare_experiment_batch_submission(
+    batch_dir: str | Path,
+    submissions_root: str | Path,
+    *,
+    research_problem_registry: ResearchProblemSpecRegistry | None = None,
+    max_epochs: int | None = None,
+) -> dict[str, object]:
     """Validate and copy a draft Experiment Batch into the submission queue."""
 
     from ml_autoresearch.batches import ExperimentBatchError, validate_experiment_batch_directory
@@ -40,7 +46,11 @@ def prepare_experiment_batch_submission(batch_dir: str | Path, submissions_root:
         raise CandidateSubmissionPreparationError(f"submission directory already exists: {submission_dir}")
 
     try:
-        candidates = validate_experiment_batch_directory(batch_path)
+        candidates = validate_experiment_batch_directory(
+            batch_path,
+            research_problem_registry=research_problem_registry,
+            max_epochs=max_epochs,
+        )
     except ExperimentBatchError as exc:
         raise CandidateSubmissionPreparationError(str(exc)) from exc
 
@@ -73,6 +83,7 @@ def prepare_candidate_submission(
     submissions_root: str | Path,
     *,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
+    max_epochs: int | None = None,
 ) -> dict[str, object]:
     """Validate and copy a draft Candidate Experiment into the submission queue.
 
@@ -96,6 +107,7 @@ def prepare_candidate_submission(
             require_proposal=True,
             require_readme=True,
             research_problem_registry=research_problem_registry,
+            max_epochs=max_epochs,
         )
     except CandidateValidationError as exc:
         raise CandidateSubmissionPreparationError(str(exc)) from exc

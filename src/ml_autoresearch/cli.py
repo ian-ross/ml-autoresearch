@@ -795,7 +795,11 @@ def validate_candidate_command(
 ) -> None:
     """Statically validate a Candidate Experiment contract without importing or executing model code."""
 
-    from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError, load_configured_research_problem_registry
+    from ml_autoresearch.candidate_execution_config import (
+        CandidateExecutionConfigError,
+        load_candidate_execution_config,
+        load_configured_research_problem_registry,
+    )
     from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
     from ml_autoresearch.research_problems import (
         ResearchProblemProviderLoadError,
@@ -804,16 +808,20 @@ def validate_candidate_command(
 
     try:
         try:
+            config = load_candidate_execution_config(workspace_root)
             registry = load_configured_research_problem_registry(workspace_root)
             if registry is None:
                 registry = legacy_smoke_research_problem_registry()
+            max_epochs = config.max_epochs
         except (CandidateExecutionConfigError, ResearchProblemProviderLoadError):
             registry = legacy_smoke_research_problem_registry()
+            max_epochs = None
         manifest = validate_candidate_directory(
             candidate,
             require_proposal=require_proposal,
             require_readme=require_readme,
             research_problem_registry=registry,
+            max_epochs=max_epochs,
         )
     except (CandidateValidationError, OSError) as exc:
         _echo_json({"status": "invalid", "reason": str(exc)})

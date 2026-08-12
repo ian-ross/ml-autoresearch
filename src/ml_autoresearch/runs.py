@@ -150,6 +150,7 @@ def run_candidate_with_synthetic_fixture(
     runs_root: str | Path,
     *,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
+    max_epochs: int | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
@@ -166,6 +167,7 @@ def run_candidate_with_synthetic_fixture(
         runs_root,
         provider_config,
         max_parameters=max_parameters,
+        max_epochs=max_epochs,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
@@ -181,6 +183,7 @@ def run_candidate_with_research_problem(
     *,
     max_samples: int | None = None,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
+    max_epochs: int | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
@@ -222,6 +225,7 @@ def run_candidate_with_research_problem(
         ledger_path=ledger_path,
         require_proposal=require_proposal,
         max_parameters=max_parameters,
+        max_epochs=max_epochs,
     )
 
 
@@ -456,6 +460,7 @@ def _run_candidate_training(
     ledger_path: str | Path | None = None,
     require_proposal: bool = False,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
+    max_epochs: int | None = None,
 ) -> RunSubmission:
     resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
     run = submit_candidate(
@@ -466,6 +471,7 @@ def _run_candidate_training(
         require_proposal=require_proposal,
         research_problem_registry=research_problem_registry,
         max_parameters=max_parameters,
+        max_epochs=max_epochs,
     )
     if run.status != RunStatus.ACCEPTED:
         return run
@@ -1042,6 +1048,7 @@ def prepare_candidate_submission(
     ledger_path: str | Path | None = None,
     require_proposal: bool = False,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
+    max_epochs: int | None = None,
 ) -> RunSubmission:
     """Validate and copy a Candidate into a stable Run before smoke execution."""
 
@@ -1066,6 +1073,7 @@ def prepare_candidate_submission(
             source,
             require_proposal=require_proposal,
             research_problem_registry=research_problem_registry,
+            max_epochs=max_epochs,
         )
     except CandidateValidationError as exc:
         reason = str(exc)
@@ -1227,6 +1235,7 @@ def submit_candidate(
     require_proposal: bool = False,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
+    max_epochs: int | None = None,
 ) -> RunSubmission:
     """Validate and synchronously smoke-test a local Candidate Experiment."""
 
@@ -1237,6 +1246,7 @@ def submit_candidate(
         ledger_path=ledger_path,
         require_proposal=require_proposal,
         research_problem_registry=research_problem_registry,
+        max_epochs=max_epochs,
     )
     if prepared.status != RunStatus.SMOKE_TESTING:
         return prepared

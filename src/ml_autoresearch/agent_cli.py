@@ -295,16 +295,22 @@ def validate_candidate_command(
 ) -> None:
     """Statically validate a Candidate Experiment contract without importing or executing model code."""
 
-    from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError, load_configured_research_problem_registry
+    from ml_autoresearch.candidate_execution_config import (
+        CandidateExecutionConfigError,
+        load_candidate_execution_config,
+        load_configured_research_problem_registry,
+    )
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
 
     try:
+        config = load_candidate_execution_config(workspace_root)
         registry = load_configured_research_problem_registry(workspace_root)
         manifest = validate_candidate_directory(
             candidate,
             require_proposal=require_proposal,
             require_readme=require_readme,
             research_problem_registry=registry,
+            max_epochs=config.max_epochs,
         )
     except (CandidateExecutionConfigError, ResearchProblemProviderLoadError, CandidateValidationError, OSError) as exc:
         _echo_json({"status": "invalid", "reason": str(exc)})
@@ -433,14 +439,36 @@ def create_campaign_report_command(
 def prepare_experiment_batch_submission_command(
     batch: Annotated[Path, typer.Option(help="Path to a draft Experiment Batch directory.")],
     submissions_root: Annotated[Path, typer.Option(help="Root of the immutable Experiment Batch Submission Queue.")],
+    workspace_root: Annotated[
+        Path,
+        typer.Option(help="Research Workspace Root containing ml-autoresearch.toml Research Problem provider config."),
+    ] = Path("."),
 ) -> None:
     """Statically validate and copy a draft Experiment Batch into the submission queue."""
 
+    from ml_autoresearch.candidate_execution_config import (
+        CandidateExecutionConfigError,
+        load_candidate_execution_config,
+        load_configured_research_problem_registry,
+    )
+    from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
     from ml_autoresearch.submissions import CandidateSubmissionPreparationError, prepare_experiment_batch_submission
 
     try:
-        result = prepare_experiment_batch_submission(batch, submissions_root)
-    except (CandidateSubmissionPreparationError, OSError) as exc:
+        config = load_candidate_execution_config(workspace_root)
+        registry = load_configured_research_problem_registry(workspace_root)
+        result = prepare_experiment_batch_submission(
+            batch,
+            submissions_root,
+            research_problem_registry=registry,
+            max_epochs=config.max_epochs,
+        )
+    except (
+        CandidateExecutionConfigError,
+        ResearchProblemProviderLoadError,
+        CandidateSubmissionPreparationError,
+        OSError,
+    ) as exc:
         _echo_json({"status": "rejected", "rejection_reason": str(exc)})
         raise typer.Exit(1) from exc
     _echo_json(result)
@@ -457,13 +485,23 @@ def prepare_candidate_submission_command(
 ) -> None:
     """Statically validate and copy a draft Candidate Experiment into the submission queue."""
 
-    from ml_autoresearch.candidate_execution_config import CandidateExecutionConfigError, load_configured_research_problem_registry
+    from ml_autoresearch.candidate_execution_config import (
+        CandidateExecutionConfigError,
+        load_candidate_execution_config,
+        load_configured_research_problem_registry,
+    )
     from ml_autoresearch.research_problems import ResearchProblemProviderLoadError
     from ml_autoresearch.submissions import CandidateSubmissionPreparationError, prepare_candidate_submission
 
     try:
+        config = load_candidate_execution_config(workspace_root)
         registry = load_configured_research_problem_registry(workspace_root)
-        result = prepare_candidate_submission(candidate, submissions_root, research_problem_registry=registry)
+        result = prepare_candidate_submission(
+            candidate,
+            submissions_root,
+            research_problem_registry=registry,
+            max_epochs=config.max_epochs,
+        )
     except (CandidateExecutionConfigError, ResearchProblemProviderLoadError, CandidateSubmissionPreparationError, OSError) as exc:
         _echo_json({"status": "rejected", "rejection_reason": str(exc)})
         raise typer.Exit(1) from exc

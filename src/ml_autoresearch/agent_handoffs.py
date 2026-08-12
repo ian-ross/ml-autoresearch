@@ -11,7 +11,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ml_autoresearch.campaign_controls import PAUSE_CONDITIONS
-from ml_autoresearch.candidate_execution_config import load_configured_research_problem_registry
+from ml_autoresearch.candidate_execution_config import (
+    load_candidate_execution_config,
+    load_configured_research_problem_registry,
+)
 from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.capability_requests import CapabilityRequestError, validate_capability_request_file
 from ml_autoresearch.evaluation_requests import EvaluationRequestError, validate_evaluation_request_file
@@ -127,11 +130,13 @@ def ingest_candidate_submission(project_root: str | Path = Path(".")) -> dict[st
         raise AgentHandoffIngestionError(f"canonical Candidate Experiment already exists: {canonical_candidate}")
 
     try:
+        execution_config = load_candidate_execution_config(root)
         manifest = validate_candidate_directory(
             source_candidate,
             require_proposal=True,
             require_readme=True,
             research_problem_registry=load_configured_research_problem_registry(root),
+            max_epochs=execution_config.max_epochs,
         )
     except CandidateValidationError as exc:
         raise AgentHandoffIngestionError(str(exc)) from exc
@@ -186,9 +191,11 @@ def ingest_experiment_batch_submission(project_root: str | Path = Path(".")) -> 
         raise AgentHandoffIngestionError(f"canonical Experiment Batch submission already exists: {canonical_batch}")
 
     try:
+        execution_config = load_candidate_execution_config(root)
         candidates = validate_experiment_batch_directory(
             source_batch,
             research_problem_registry=load_configured_research_problem_registry(root),
+            max_epochs=execution_config.max_epochs,
         )
     except ExperimentBatchError as exc:
         raise AgentHandoffIngestionError(str(exc)) from exc
