@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.candidates import CandidateTrainingPolicy, CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import ExecutionBackend
 from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT
 from ml_autoresearch.research_ledger import CANONICAL_RESEARCH_LEDGER, record_research_event
@@ -40,6 +40,7 @@ def run_experiment_batch_with_research_problem(
     max_samples: int | None = None,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     ledger_path: str | Path | None = None,
@@ -56,6 +57,7 @@ def run_experiment_batch_with_research_problem(
         max_parallel_runs=max_parallel_runs,
         max_parameters=max_parameters,
         max_epochs=max_epochs,
+        candidate_training_policy=candidate_training_policy,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=ledger_path,
@@ -82,6 +84,7 @@ def _run_experiment_batch(
     max_parallel_runs: int,
     max_parameters: int,
     max_epochs: int | None,
+    candidate_training_policy: CandidateTrainingPolicy | None,
     max_prediction_samples: int,
     prediction_sample_policy: str,
     ledger_path: str | Path | None,
@@ -101,6 +104,7 @@ def _run_experiment_batch(
         batch_path,
         research_problem_registry=research_problem_registry,
         max_epochs=max_epochs,
+        candidate_training_policy=candidate_training_policy,
     )
     runs_root_path = Path(runs_root)
     batches_root_path = Path(batches_root)
@@ -163,6 +167,7 @@ def _run_experiment_batch(
                 research_problem_registry,
                 max_parameters,
                 max_epochs,
+                candidate_training_policy,
             ): (candidate_path, manifest.name)
             for candidate_path, manifest in candidates
         }
@@ -223,6 +228,7 @@ def validate_experiment_batch_directory(
     *,
     research_problem_registry=None,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
 ) -> list[dict[str, str]]:
     """Statically validate an Experiment Batch source directory without creating Runs."""
 
@@ -232,6 +238,7 @@ def validate_experiment_batch_directory(
             Path(batch_dir),
             research_problem_registry=research_problem_registry,
             max_epochs=max_epochs,
+            candidate_training_policy=candidate_training_policy,
         )
     ]
 
@@ -261,6 +268,7 @@ def _validate_batch_directory(
     *,
     research_problem_registry=None,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
 ) -> list[tuple[Path, Any]]:
     if not batch_path.is_dir():
         raise ExperimentBatchError(f"Experiment Batch directory does not exist: {batch_path}")
@@ -286,6 +294,7 @@ def _validate_batch_directory(
                 require_readme=True,
                 research_problem_registry=research_problem_registry,
                 max_epochs=max_epochs,
+                training_policy=candidate_training_policy,
             )
             if manifest.name != candidate_dir.name:
                 errors.append(f"{candidate_dir.name}: manifest name must match candidate directory (got {manifest.name!r})")
@@ -329,6 +338,7 @@ def _submit_and_train_batch_candidate(
     research_problem_registry=None,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
 ):
     run = submit_candidate(
         candidate_path,
@@ -339,6 +349,7 @@ def _submit_and_train_batch_candidate(
         research_problem_registry=research_problem_registry,
         max_parameters=max_parameters,
         max_epochs=max_epochs,
+        candidate_training_policy=candidate_training_policy,
     )
     _tag_run_with_batch(run.run_dir, batch_id=batch_id, candidate_id=candidate_id)
     if run.status == RunStatus.ACCEPTED:

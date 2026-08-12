@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from ml_autoresearch.candidates import CandidateTrainingPolicy, EarlyStoppingPolicy, SchedulerPolicy
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend
 from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT, MAX_CONFIGURABLE_PARAMETER_COUNT
 from ml_autoresearch.workspace import WORKSPACE_CONFIG_FILENAME, WorkspaceConfigError
@@ -40,11 +41,29 @@ class CandidateExecutionConfig:
     max_samples: int | None = None
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT
     max_epochs: int = 100
+    max_batch_size: int = 32
+    allowed_scheduler_policies: tuple[SchedulerPolicy, ...] = (
+        "constant_lr",
+        "cosine_decay",
+        "reduce_on_plateau",
+    )
+    early_stopping_policy: EarlyStoppingPolicy = "optional"
     training_wall_clock_timeout_seconds: int | None = None
     max_prediction_samples: int = 2
     max_parallel_runs: int = 1
     prediction_sample_policy: Literal["first_n", "adjacent_and_scattered"] = "first_n"
     research_problem_provider: ResearchProblemProviderConfig | None = None
+
+    @property
+    def training_policy(self) -> CandidateTrainingPolicy:
+        """Return manifest constraints without transferring ownership to Candidate code."""
+
+        return CandidateTrainingPolicy(
+            max_epochs=self.max_epochs,
+            max_batch_size=self.max_batch_size,
+            allowed_scheduler_policies=self.allowed_scheduler_policies,
+            early_stopping_policy=self.early_stopping_policy,
+        )
 
 
 def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> CandidateExecutionConfig:
@@ -94,6 +113,21 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
     max_epochs = _int(settings, "max_epochs", 100, minimum=1)
     if max_epochs > 100:
         raise CandidateExecutionConfigError("candidate_execution.max_epochs must be at most 100")
+    max_batch_size = _int(settings, "max_batch_size", 32, minimum=1)
+    if max_batch_size > 32:
+        raise CandidateExecutionConfigError("candidate_execution.max_batch_size must be at most 32")
+    allowed_scheduler_policies = _literal_list(
+        settings,
+        "allowed_scheduler_policies",
+        {"constant_lr", "cosine_decay", "reduce_on_plateau"},
+        ("constant_lr", "cosine_decay", "reduce_on_plateau"),
+    )
+    early_stopping_policy = _literal(
+        settings,
+        "early_stopping_policy",
+        {"disabled", "optional", "required"},
+        "optional",
+    )
     training_wall_clock_timeout_seconds = _optional_int(
         settings,
         "training_wall_clock_timeout_seconds",
@@ -145,6 +179,9 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         max_samples=max_samples,
         max_parameters=max_parameters,
         max_epochs=max_epochs,
+        max_batch_size=max_batch_size,
+        allowed_scheduler_policies=allowed_scheduler_policies,  # type: ignore[arg-type]
+        early_stopping_policy=early_stopping_policy,  # type: ignore[arg-type]
         training_wall_clock_timeout_seconds=training_wall_clock_timeout_seconds,
         max_prediction_samples=max_prediction_samples,
         max_parallel_runs=max_parallel_runs,
@@ -279,6 +316,24 @@ def _literal(settings: dict[str, object], key: str, allowed: set[str], default: 
     if not isinstance(value, str) or value not in allowed:
         raise CandidateExecutionConfigError(f"candidate_execution.{key} must be one of: {', '.join(sorted(allowed))}")
     return value
+
+
+def _literal_list(
+    settings: dict[str, object],
+    key: str,
+    allowed: set[str],
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    value = settings.get(key, list(default))
+    if not isinstance(value, list) or not value:
+        raise CandidateExecutionConfigError(f"candidate_execution.{key} must be a non-empty array")
+    if any(not isinstance(item, str) or item not in allowed for item in value):
+        raise CandidateExecutionConfigError(
+            f"candidate_execution.{key} values must be chosen from: {', '.join(sorted(allowed))}"
+        )
+    if len(value) != len(set(value)):
+        raise CandidateExecutionConfigError(f"candidate_execution.{key} must not contain duplicates")
+    return tuple(value)
 
 
 def _string(settings: dict[str, object], key: str, default: str) -> str:

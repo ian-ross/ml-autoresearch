@@ -311,6 +311,7 @@ def validate_candidate_command(
             require_readme=require_readme,
             research_problem_registry=registry,
             max_epochs=config.max_epochs,
+            training_policy=config.training_policy,
         )
     except (CandidateExecutionConfigError, ResearchProblemProviderLoadError, CandidateValidationError, OSError) as exc:
         _echo_json({"status": "invalid", "reason": str(exc)})
@@ -462,6 +463,7 @@ def prepare_experiment_batch_submission_command(
             submissions_root,
             research_problem_registry=registry,
             max_epochs=config.max_epochs,
+            candidate_training_policy=config.training_policy,
         )
     except (
         CandidateExecutionConfigError,
@@ -501,6 +503,7 @@ def prepare_candidate_submission_command(
             submissions_root,
             research_problem_registry=registry,
             max_epochs=config.max_epochs,
+            candidate_training_policy=config.training_policy,
         )
     except (CandidateExecutionConfigError, ResearchProblemProviderLoadError, CandidateSubmissionPreparationError, OSError) as exc:
         _echo_json({"status": "rejected", "rejection_reason": str(exc)})

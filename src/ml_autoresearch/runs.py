@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.candidates import CandidateTrainingPolicy, CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.errors import HarnessBootstrapError, ResearchProblemDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
 from ml_autoresearch.managed_execution import cleanup_recorded_containers, read_execution_record
@@ -151,6 +151,7 @@ def run_candidate_with_synthetic_fixture(
     *,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
@@ -168,6 +169,7 @@ def run_candidate_with_synthetic_fixture(
         provider_config,
         max_parameters=max_parameters,
         max_epochs=max_epochs,
+        candidate_training_policy=candidate_training_policy,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
@@ -184,6 +186,7 @@ def run_candidate_with_research_problem(
     max_samples: int | None = None,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
@@ -226,6 +229,7 @@ def run_candidate_with_research_problem(
         require_proposal=require_proposal,
         max_parameters=max_parameters,
         max_epochs=max_epochs,
+        candidate_training_policy=candidate_training_policy,
     )
 
 
@@ -461,6 +465,7 @@ def _run_candidate_training(
     require_proposal: bool = False,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
 ) -> RunSubmission:
     resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
     run = submit_candidate(
@@ -472,6 +477,7 @@ def _run_candidate_training(
         research_problem_registry=research_problem_registry,
         max_parameters=max_parameters,
         max_epochs=max_epochs,
+        candidate_training_policy=candidate_training_policy,
     )
     if run.status != RunStatus.ACCEPTED:
         return run
@@ -1049,6 +1055,7 @@ def prepare_candidate_submission(
     require_proposal: bool = False,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
 ) -> RunSubmission:
     """Validate and copy a Candidate into a stable Run before smoke execution."""
 
@@ -1074,6 +1081,7 @@ def prepare_candidate_submission(
             require_proposal=require_proposal,
             research_problem_registry=research_problem_registry,
             max_epochs=max_epochs,
+            training_policy=candidate_training_policy,
         )
     except CandidateValidationError as exc:
         reason = str(exc)
@@ -1236,6 +1244,7 @@ def submit_candidate(
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
 ) -> RunSubmission:
     """Validate and synchronously smoke-test a local Candidate Experiment."""
 
@@ -1247,6 +1256,7 @@ def submit_candidate(
         require_proposal=require_proposal,
         research_problem_registry=research_problem_registry,
         max_epochs=max_epochs,
+        candidate_training_policy=candidate_training_policy,
     )
     if prepared.status != RunStatus.SMOKE_TESTING:
         return prepared

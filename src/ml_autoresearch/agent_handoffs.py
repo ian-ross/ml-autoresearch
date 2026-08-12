@@ -137,6 +137,7 @@ def ingest_candidate_submission(project_root: str | Path = Path(".")) -> dict[st
             require_readme=True,
             research_problem_registry=load_configured_research_problem_registry(root),
             max_epochs=execution_config.max_epochs,
+            training_policy=execution_config.training_policy,
         )
     except CandidateValidationError as exc:
         raise AgentHandoffIngestionError(str(exc)) from exc
@@ -196,6 +197,7 @@ def ingest_experiment_batch_submission(project_root: str | Path = Path(".")) -> 
             source_batch,
             research_problem_registry=load_configured_research_problem_registry(root),
             max_epochs=execution_config.max_epochs,
+            candidate_training_policy=execution_config.training_policy,
         )
     except ExperimentBatchError as exc:
         raise AgentHandoffIngestionError(str(exc)) from exc

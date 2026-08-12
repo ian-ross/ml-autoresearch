@@ -57,6 +57,7 @@ from ml_autoresearch.managed_execution import (
 )
 from ml_autoresearch.package_resources import PackageResourceError, stage_workspace_container_build_recipes
 from ml_autoresearch.research_loop_operations import (
+    ResearchLoopOperationError,
     effective_candidate_execution_backend_options,
     effective_execution_options,
     effective_ledger_path,
@@ -948,6 +949,7 @@ def run_experiment_batch_command(
         ExperimentBatchError,
         ResearchLedgerError,
         ResearchProblemProviderLoadError,
+        ResearchLoopOperationError,
         OSError,
     ) as exc:
         _exit_with_error(exc)
@@ -1118,6 +1120,12 @@ def run_candidate_command(
 
     try:
         config = load_candidate_execution_config(workspace_root)
+        max_samples, max_prediction_samples, prediction_sample_policy = effective_execution_options(
+            config,
+            max_samples=max_samples,
+            max_prediction_samples=max_prediction_samples,
+            prediction_sample_policy=prediction_sample_policy,
+        )
         options = effective_candidate_execution_backend_options(
             config,
             backend=backend,
@@ -1174,6 +1182,7 @@ def run_candidate_command(
         CandidateExecutionConfigError,
         ResearchLedgerError,
         ResearchProblemProviderLoadError,
+        ResearchLoopOperationError,
         OSError,
         ValueError,
     ) as exc:

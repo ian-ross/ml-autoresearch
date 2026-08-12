@@ -297,7 +297,7 @@ def test_run_candidate_cli_defaults_runs_root_from_candidate_execution_config(tm
     assert (runs_root / payload["run_id"] / "outputs" / "final_metrics.json").exists()
 
 
-def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
+def test_run_candidate_cli_clamps_max_prediction_samples_to_workspace_ceiling(tmp_path: Path):
     candidate = write_valid_candidate(tmp_path)
     runs_root = tmp_path / "runs"
     write_fake_execution_config(tmp_path)
@@ -320,8 +320,33 @@ def test_run_candidate_cli_accepts_max_prediction_samples(tmp_path: Path):
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     samples = json.loads((runs_root / payload["run_id"] / "outputs" / "prediction_samples" / "samples.json").read_text())
-    assert samples["max_sample_count"] == 3
-    assert 0 < samples["sample_count"] <= 3
+    assert samples["max_sample_count"] == 2
+    assert 0 < samples["sample_count"] <= 2
+
+
+def test_run_candidate_cli_rejects_prediction_policy_override_before_creating_run(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    runs_root = tmp_path / "runs"
+    write_fake_execution_config(tmp_path)
+
+    completed = run_cli(
+        "run-candidate",
+        "--candidate",
+        str(candidate),
+        "--runs-root",
+        str(runs_root),
+        "--workspace-root",
+        str(tmp_path),
+        "--prediction-sample-policy",
+        "adjacent_and_scattered",
+        "--backend",
+        "native",
+        "--no-require-proposal",
+    )
+
+    assert completed.returncode == 1
+    assert "cannot replace the Harness-owned Workspace policy" in completed.stderr
+    assert not runs_root.exists()
 
 
 def test_run_candidate_cli_can_detach_training_with_stable_run_id(tmp_path: Path):

@@ -11,6 +11,7 @@ from ml_autoresearch.batches import (
     list_batches,
 )
 from research_problem_helpers import run_experiment_batch_with_synthetic_fixture
+from ml_autoresearch.candidates import CandidateTrainingPolicy
 from ml_autoresearch.errors import TrainingError
 from ml_autoresearch.execution import OperationResult
 
@@ -174,6 +175,23 @@ def test_experiment_batch_rejects_oversized_batch_before_creating_runs(tmp_path:
         )
 
     assert not (tmp_path / "runs").exists()
+
+def test_experiment_batch_enforces_training_policy_before_creating_runs(tmp_path: Path):
+    batch_dir = write_batch(tmp_path, ["variant_a", "variant_b"])
+
+    with pytest.raises(ExperimentBatchError, match="batch_size 2.*ceiling 1"):
+        run_experiment_batch_with_synthetic_fixture(
+            batch_dir,
+            batches_root=tmp_path / "batches",
+            runs_root=tmp_path / "runs",
+            backend=FastBackend(),
+            ledger_path=tmp_path / "research-ledger.jsonl",
+            candidate_training_policy=CandidateTrainingPolicy(max_batch_size=1),
+        )
+
+    assert not (tmp_path / "runs").exists()
+    assert not (tmp_path / "batches").exists()
+
 
 def test_experiment_batch_static_validation_is_all_or_nothing(tmp_path: Path):
     batch_dir = write_batch(tmp_path, ["valid", "invalid"])

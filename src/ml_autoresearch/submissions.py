@@ -6,7 +6,7 @@ import json
 import shutil
 from pathlib import Path
 
-from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory
+from ml_autoresearch.candidates import CandidateTrainingPolicy, CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.research_problems import ResearchProblemSpecRegistry
 
 SUBMISSION_SCHEMA_VERSION = "candidate_submission.v1"
@@ -31,6 +31,7 @@ def prepare_experiment_batch_submission(
     *,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
 ) -> dict[str, object]:
     """Validate and copy a draft Experiment Batch into the submission queue."""
 
@@ -50,6 +51,7 @@ def prepare_experiment_batch_submission(
             batch_path,
             research_problem_registry=research_problem_registry,
             max_epochs=max_epochs,
+            candidate_training_policy=candidate_training_policy,
         )
     except ExperimentBatchError as exc:
         raise CandidateSubmissionPreparationError(str(exc)) from exc
@@ -84,6 +86,7 @@ def prepare_candidate_submission(
     *,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
     max_epochs: int | None = None,
+    candidate_training_policy: CandidateTrainingPolicy | None = None,
 ) -> dict[str, object]:
     """Validate and copy a draft Candidate Experiment into the submission queue.
 
@@ -108,6 +111,7 @@ def prepare_candidate_submission(
             require_readme=True,
             research_problem_registry=research_problem_registry,
             max_epochs=max_epochs,
+            training_policy=candidate_training_policy,
         )
     except CandidateValidationError as exc:
         raise CandidateSubmissionPreparationError(str(exc)) from exc

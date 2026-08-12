@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -18,6 +19,24 @@ from ml_autoresearch.research_problems import (
 
 class CandidateValidationError(ValueError):
     """Raised when a Candidate Experiment does not satisfy the v1 contract."""
+
+
+SchedulerPolicy = Literal["constant_lr", "cosine_decay", "reduce_on_plateau"]
+EarlyStoppingPolicy = Literal["disabled", "optional", "required"]
+
+
+@dataclass(frozen=True)
+class CandidateTrainingPolicy:
+    """Harness-owned Workspace ceilings for Candidate training manifests."""
+
+    max_epochs: int | None = None
+    max_batch_size: int = 32
+    allowed_scheduler_policies: tuple[SchedulerPolicy, ...] = (
+        "constant_lr",
+        "cosine_decay",
+        "reduce_on_plateau",
+    )
+    early_stopping_policy: EarlyStoppingPolicy = "optional"
 
 
 class SchedulerManifest(BaseModel):
@@ -202,6 +221,7 @@ def validate_candidate_directory(
     require_readme: bool = False,
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
     max_epochs: int | None = None,
+    training_policy: CandidateTrainingPolicy | None = None,
 ) -> CandidateManifest:
     """Validate a local Candidate Experiment directory and return its manifest.
 
@@ -215,8 +235,9 @@ def validate_candidate_directory(
             submission documentation.
         research_problem_registry: Trusted registry used to validate
             Research Problem-scoped manifest allowlists. Required for non-synthetic validation.
-        max_epochs: Optional Harness-owned Workspace ceiling for the Candidate's
-            requested training epochs.
+        max_epochs: Deprecated-compatible shorthand for an epoch-only policy.
+        training_policy: Optional Harness-owned Workspace ceilings for epochs,
+            batch size, scheduler selection, and early stopping.
     """
 
     path = Path(candidate_dir)
@@ -232,11 +253,33 @@ def validate_candidate_directory(
     if require_readme:
         _validate_readme_file(path / "README.md")
     manifest = _load_manifest(path / "manifest.yaml", research_problem_registry=research_problem_registry)
-    if max_epochs is not None and manifest.training.max_epochs > max_epochs:
-        raise CandidateValidationError(
-            f"candidate training.max_epochs {manifest.training.max_epochs} exceeds the Harness-owned Workspace ceiling {max_epochs}"
-        )
+    policy = training_policy or CandidateTrainingPolicy(max_epochs=max_epochs)
+    if max_epochs is not None and training_policy is not None and max_epochs != training_policy.max_epochs:
+        raise ValueError("max_epochs conflicts with training_policy.max_epochs")
+    _validate_candidate_training_policy(manifest, policy)
     return manifest
+
+
+def _validate_candidate_training_policy(manifest: CandidateManifest, policy: CandidateTrainingPolicy) -> None:
+    training = manifest.training
+    if policy.max_epochs is not None and training.max_epochs > policy.max_epochs:
+        raise CandidateValidationError(
+            f"candidate training.max_epochs {training.max_epochs} exceeds the Harness-owned Workspace ceiling {policy.max_epochs}"
+        )
+    if training.batch_size > policy.max_batch_size:
+        raise CandidateValidationError(
+            f"candidate training.batch_size {training.batch_size} exceeds the Harness-owned Workspace ceiling {policy.max_batch_size}"
+        )
+    if training.scheduler.policy not in policy.allowed_scheduler_policies:
+        allowed = ", ".join(policy.allowed_scheduler_policies)
+        raise CandidateValidationError(
+            f"candidate training.scheduler.policy {training.scheduler.policy!r} is disallowed by "
+            f"Harness-owned Workspace policy; expected one of: {allowed}"
+        )
+    if policy.early_stopping_policy == "disabled" and training.early_stopping.enabled:
+        raise CandidateValidationError("candidate training.early_stopping.enabled must be false under Harness-owned Workspace policy")
+    if policy.early_stopping_policy == "required" and not training.early_stopping.enabled:
+        raise CandidateValidationError("candidate training.early_stopping.enabled must be true under Harness-owned Workspace policy")
 
 
 def _validate_required_files(path: Path) -> None:

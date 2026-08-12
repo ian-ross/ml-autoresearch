@@ -3,7 +3,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ml_autoresearch.candidates import CandidateValidationError, validate_candidate_directory as _validate_candidate_directory
+from ml_autoresearch.candidates import (
+    CandidateTrainingPolicy,
+    CandidateValidationError,
+    validate_candidate_directory as _validate_candidate_directory,
+)
 from ml_autoresearch.research_problems import (
     ResearchProblemSpec,
     ResearchProblemSpecRegistry,
@@ -129,6 +133,42 @@ def test_candidate_directory_enforces_harness_owned_epoch_ceiling(tmp_path: Path
     assert validate_candidate_directory(candidate, max_epochs=1).training.max_epochs == 1
     with pytest.raises(CandidateValidationError, match="exceeds the Harness-owned Workspace ceiling 0"):
         validate_candidate_directory(candidate, max_epochs=0)
+
+
+def test_candidate_directory_enforces_harness_owned_batch_scheduler_and_early_stopping_policy(tmp_path: Path):
+    candidate = write_valid_candidate(tmp_path)
+    manifest_path = candidate / "manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text())
+    manifest["training"]["batch_size"] = 4
+    manifest["training"]["scheduler"] = {"policy": "cosine_decay"}
+    manifest["training"]["early_stopping"] = {"enabled": True, "patience": 1}
+    manifest["training"]["max_epochs"] = 2
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+
+    with pytest.raises(CandidateValidationError, match="batch_size 4.*ceiling 2"):
+        validate_candidate_directory(
+            candidate,
+            training_policy=CandidateTrainingPolicy(max_epochs=2, max_batch_size=2),
+        )
+    with pytest.raises(CandidateValidationError, match="scheduler.policy.*disallowed"):
+        validate_candidate_directory(
+            candidate,
+            training_policy=CandidateTrainingPolicy(
+                max_epochs=2,
+                max_batch_size=4,
+                allowed_scheduler_policies=("constant_lr",),
+            ),
+        )
+    with pytest.raises(CandidateValidationError, match="early_stopping.enabled must be false"):
+        validate_candidate_directory(
+            candidate,
+            training_policy=CandidateTrainingPolicy(
+                max_epochs=2,
+                max_batch_size=4,
+                allowed_scheduler_policies=("cosine_decay",),
+                early_stopping_policy="disabled",
+            ),
+        )
 
 
 def test_candidate_directory_accepts_valid_proposal_in_proposal_required_mode(tmp_path: Path):

@@ -382,6 +382,42 @@ def test_ingest_experiment_batch_submission_copies_to_canonical_batch_and_record
     assert marker["canonical_path"] == "experiment-batches/agent_batch"
 
 
+def test_handoff_ingestion_enforces_workspace_training_policy_before_copy(tmp_path: Path):
+    write_project(tmp_path)
+    config_path = tmp_path / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            "[candidate_execution]\n",
+            '[candidate_execution]\nmax_batch_size = 1\nallowed_scheduler_policies = ["constant_lr"]\nearly_stopping_policy = "disabled"\n',
+        )
+    )
+    candidate_source = write_submission(tmp_path)
+
+    with pytest.raises(AgentHandoffIngestionError, match="batch_size 2.*ceiling 1"):
+        ingest_candidate_submission(tmp_path)
+
+    assert not (tmp_path / "candidates" / "agent_candidate").exists()
+    assert not (candidate_source / "INGESTED.json").exists()
+
+
+def test_batch_handoff_ingestion_enforces_workspace_training_policy_before_copy(tmp_path: Path):
+    write_project(tmp_path)
+    config_path = tmp_path / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            "[candidate_execution]\n",
+            '[candidate_execution]\nmax_batch_size = 1\nallowed_scheduler_policies = ["constant_lr"]\nearly_stopping_policy = "disabled"\n',
+        )
+    )
+    source = write_batch_submission(tmp_path)
+
+    with pytest.raises(AgentHandoffIngestionError, match="batch_size 2.*ceiling 1"):
+        ingest_experiment_batch_submission(tmp_path)
+
+    assert not (tmp_path / "experiment-batches" / "agent_batch").exists()
+    assert not (source / "INGESTED.json").exists()
+
+
 def test_ingest_candidate_submission_cli_reports_next_action_without_running_candidate(tmp_path: Path):
     write_project(tmp_path)
     write_submission(tmp_path)

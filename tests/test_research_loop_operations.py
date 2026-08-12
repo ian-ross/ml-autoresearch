@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -9,12 +10,15 @@ from test_cli_submission import write_valid_candidate_with_proposal
 from test_cli_experiment_batch import write_batch
 
 from ml_autoresearch.candidate_execution_config import CandidateExecutionConfig
+from ml_autoresearch.candidates import CandidateValidationError
 from ml_autoresearch.research_loop_operations import (
+    ResearchLoopOperationError,
     _run_ingested_experiment_batch,
     effective_execution_options,
     run_candidate_from_workspace,
     run_experiment_batch_from_workspace,
     select_execution_backend,
+    start_prepared_run_from_workspace,
 )
 
 
@@ -47,7 +51,15 @@ def test_effective_execution_options_cannot_raise_workspace_sample_ceiling() -> 
         max_samples=1024,
         max_prediction_samples=9,
         prediction_sample_policy=None,
-    ) == (128, 9, "first_n")
+    ) == (128, 2, "first_n")
+
+    with pytest.raises(ResearchLoopOperationError, match="cannot replace"):
+        effective_execution_options(
+            config,
+            max_samples=None,
+            max_prediction_samples=None,
+            prediction_sample_policy="adjacent_and_scattered",
+        )
 
 
 def test_run_candidate_from_workspace_uses_research_workspace_configuration(tmp_path: Path):
@@ -75,6 +87,43 @@ def test_run_candidate_from_workspace_rejects_manifest_above_workspace_epoch_cei
 
     assert result["status"] == "rejected"
     assert "Workspace ceiling 1" in str(result["rejection_reason"])
+
+
+def test_run_candidate_from_workspace_rejects_manifest_above_workspace_batch_ceiling(tmp_path: Path):
+    candidate = write_valid_candidate_with_proposal(tmp_path)
+    write_fake_execution_config(tmp_path)
+    config_path = tmp_path / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            'backend = "native"\n',
+            'backend = "native"\nmax_batch_size = 1\nallowed_scheduler_policies = ["constant_lr"]\nearly_stopping_policy = "disabled"\n',
+        )
+    )
+
+    result = run_candidate_from_workspace(candidate, workspace_root=tmp_path, backend_name="native")
+
+    assert result["status"] == "rejected"
+    assert "batch_size 2" in str(result["rejection_reason"])
+    assert "Workspace ceiling 1" in str(result["rejection_reason"])
+
+
+def test_managed_continuation_revalidates_current_workspace_training_policy(tmp_path: Path):
+    candidate = write_valid_candidate_with_proposal(tmp_path)
+    run_dir = tmp_path / "runs" / "run_existing"
+    shutil.copytree(candidate, run_dir / "candidate")
+    write_fake_execution_config(tmp_path)
+    config_path = tmp_path / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            'backend = "native"\n',
+            'backend = "native"\nmax_batch_size = 1\n',
+        )
+    )
+
+    with pytest.raises(CandidateValidationError, match="batch_size 2.*ceiling 1"):
+        start_prepared_run_from_workspace(run_dir, workspace_root=tmp_path)
+
+    assert not (run_dir / "execution.json").exists()
 
 
 def test_run_experiment_batch_from_workspace_returns_serializable_summary(tmp_path: Path):
@@ -118,3 +167,4 @@ def test_ingested_experiment_batch_uses_configured_parallel_run_cap(tmp_path: Pa
     assert result["status"] == "completed"
     assert captured["max_parallel_runs"] == 2
     assert captured["max_epochs"] == 3
+    assert captured["candidate_training_policy"].max_epochs == 3

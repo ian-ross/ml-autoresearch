@@ -26,6 +26,9 @@ data_root = "{data_root}"
 max_samples = 8
 max_parameters = 25000000
 max_epochs = 3
+max_batch_size = 4
+allowed_scheduler_policies = ["constant_lr"]
+early_stopping_policy = "disabled"
 training_wall_clock_timeout_seconds = 1800
 max_prediction_samples = 4
 max_parallel_runs = 2
@@ -41,6 +44,10 @@ prediction_sample_policy = "adjacent_and_scattered"
     assert config.max_samples == 8
     assert config.max_parameters == 25_000_000
     assert config.max_epochs == 3
+    assert config.max_batch_size == 4
+    assert config.allowed_scheduler_policies == ("constant_lr",)
+    assert config.early_stopping_policy == "disabled"
+    assert config.training_policy.max_batch_size == 4
     assert config.training_wall_clock_timeout_seconds == 1800
     assert config.max_prediction_samples == 4
     assert config.max_parallel_runs == 2
@@ -278,6 +285,22 @@ ledger_path = "{external_ledger}"
         (
             '[candidate_execution]\nmax_epochs = 101\n',
             "max_epochs must be at most 100",
+        ),
+        (
+            '[candidate_execution]\nmax_batch_size = 33\n',
+            "max_batch_size must be at most 32",
+        ),
+        (
+            '[candidate_execution]\nallowed_scheduler_policies = []\n',
+            "allowed_scheduler_policies must be a non-empty array",
+        ),
+        (
+            '[candidate_execution]\nallowed_scheduler_policies = ["constant_lr", "constant_lr"]\n',
+            "allowed_scheduler_policies must not contain duplicates",
+        ),
+        (
+            '[candidate_execution]\nearly_stopping_policy = "sometimes"\n',
+            "early_stopping_policy must be one of",
         ),
         (
             '[candidate_execution]\ntraining_wall_clock_timeout_seconds = 1800\n',

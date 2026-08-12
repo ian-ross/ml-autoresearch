@@ -191,10 +191,20 @@ def effective_execution_options(
     effective_max_samples = config.max_samples if max_samples is None else max_samples
     if config.max_samples is not None and effective_max_samples is not None:
         effective_max_samples = min(config.max_samples, effective_max_samples)
+    effective_max_prediction_samples = (
+        config.max_prediction_samples
+        if max_prediction_samples is None
+        else min(config.max_prediction_samples, max_prediction_samples)
+    )
+    if prediction_sample_policy is not None and prediction_sample_policy != config.prediction_sample_policy:
+        raise ResearchLoopOperationError(
+            "command prediction_sample_policy cannot replace the Harness-owned Workspace policy "
+            f"{config.prediction_sample_policy!r}"
+        )
     return (
         effective_max_samples,
-        config.max_prediction_samples if max_prediction_samples is None else max_prediction_samples,
-        config.prediction_sample_policy if prediction_sample_policy is None else prediction_sample_policy,
+        effective_max_prediction_samples,
+        config.prediction_sample_policy,
     )
 
 
@@ -261,6 +271,7 @@ def prepare_candidate_run_from_workspace(
         require_proposal=require_proposal,
         research_problem_registry=registry,
         max_epochs=config.max_epochs,
+        candidate_training_policy=config.training_policy,
     )
     return run_submission_payload(run)
 
@@ -331,13 +342,7 @@ def train_prepared_run_from_workspace(
         docker_rootless_container_root=docker_rootless_container_root,
         training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
-    from ml_autoresearch.candidates import validate_candidate_directory
-
-    validate_candidate_directory(
-        Path(run_dir) / "candidate",
-        research_problem_registry=load_configured_research_problem_registry(workspace_root),
-        max_epochs=config.max_epochs,
-    )
+    _validate_prepared_candidate_policy(run_dir, workspace_root=workspace_root, config=config)
     max_samples, max_prediction_samples, prediction_sample_policy = effective_execution_options(
         config,
         max_samples=max_samples,
@@ -356,6 +361,23 @@ def train_prepared_run_from_workspace(
     return run_submission_payload(run)
 
 
+def _validate_prepared_candidate_policy(
+    run_dir: str | Path,
+    *,
+    workspace_root: str | Path,
+    config: CandidateExecutionConfig,
+) -> None:
+    """Revalidate stable Candidate source against the current Workspace policy."""
+
+    from ml_autoresearch.candidates import validate_candidate_directory
+
+    validate_candidate_directory(
+        Path(run_dir) / "candidate",
+        research_problem_registry=load_configured_research_problem_registry(workspace_root),
+        training_policy=config.training_policy,
+    )
+
+
 def start_prepared_run_from_workspace(
     run_dir: str | Path,
     *,
@@ -366,6 +388,7 @@ def start_prepared_run_from_workspace(
     from ml_autoresearch.managed_execution import start_run_supervisor
 
     config = load_candidate_execution_config(workspace_root)
+    _validate_prepared_candidate_policy(run_dir, workspace_root=workspace_root, config=config)
     command = [
         sys.executable,
         "-m",
@@ -458,6 +481,7 @@ def run_candidate_from_workspace(
         max_samples=max_samples,
         max_parameters=config.max_parameters,
         max_epochs=config.max_epochs,
+        candidate_training_policy=config.training_policy,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
@@ -516,6 +540,7 @@ def run_experiment_batch_from_workspace(
         max_samples=max_samples,
         max_parameters=config.max_parameters,
         max_epochs=config.max_epochs,
+        candidate_training_policy=config.training_policy,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=effective_ledger,
@@ -610,6 +635,7 @@ def _run_ingested_experiment_batch(root: Path, batch_path: Path) -> dict[str, ob
         max_samples=config.max_samples,
         max_parameters=config.max_parameters,
         max_epochs=config.max_epochs,
+        candidate_training_policy=config.training_policy,
         max_prediction_samples=config.max_prediction_samples,
         prediction_sample_policy=config.prediction_sample_policy,
         ledger_path=config.ledger_path,
@@ -638,6 +664,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
             raise ResearchLoopOperationError("reconcile_run action is missing run_id")
         reconciled = reconcile_run(config.runs_root / run_id, ledger_path=config.ledger_path)
         if reconciled.status == RunStatus.ACCEPTED:
+            _validate_prepared_candidate_policy(reconciled.run_dir, workspace_root=root, config=config)
             if config.backend == "docker":
                 managed = start_prepared_run_from_workspace(reconciled.run_dir, workspace_root=root)
                 return {
@@ -681,6 +708,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
                 previous_metadata = json.loads(previous_metadata_path.read_text())
                 previous_status = previous_metadata.get("status")
                 if previous_status == RunStatus.ACCEPTED.value:
+                    _validate_prepared_candidate_policy(previous_run_path, workspace_root=root, config=config)
                     if config.backend == "docker":
                         managed = start_prepared_run_from_workspace(previous_run_path, workspace_root=root)
                         return {
@@ -720,6 +748,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
             research_problem_registry=research_problem_registry,
             max_parameters=config.max_parameters,
             max_epochs=config.max_epochs,
+            candidate_training_policy=config.training_policy,
         )
         if run.status.value == "accepted":
             if config.backend == "docker":
