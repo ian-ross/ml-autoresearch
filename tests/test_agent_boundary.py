@@ -226,10 +226,14 @@ path = "{data_root}"
     assert "At most 2 prediction artifacts" in instructions
     assert "fixed first_n policy" in instructions
     assert "Unprofiled architecture families must be submitted sequentially" in instructions
-    assert "## Staged architecture-feasibility policy" in instructions
-    assert "one-epoch resource pilot as finite/resource evidence only" in instructions
-    assert "Do not use strict top-k elimination" in instructions
-    assert "Focused full-data training is a separate policy stage" in instructions
+    assert "## Research policy source" in instructions
+    assert "current Experiment Index and active Research Problem Brief" in instructions
+    assert "outer-workspace instructions that are not part of the Agent Control Boundary" in instructions
+    assert "generic Harness guidance does not override stricter current policy" in instructions
+    assert "Do not infer additional approval or authorization gates from historical records" in instructions
+    assert "## Staged architecture-feasibility policy" not in instructions
+    assert "separately authorized extension" not in instructions
+    assert "Focused full-data training is a separate policy stage" not in instructions
     assert "Use `ml-autoresearch-agent`, not `ml-autoresearch`" in instructions
     assert "## Python and uv execution safety" in instructions
     assert "UV_PROJECT_ENVIRONMENT=/tmp/ml-autoresearch-agent-venv uv run" in instructions

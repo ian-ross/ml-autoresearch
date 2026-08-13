@@ -195,8 +195,8 @@ def _campaign_state_prompt(project_root: Path) -> str:
         return ""
     if state["status"] == "resumed":
         return (
-            "Campaign resume state:\n"
-            f"- Human campaign review is complete: {state['reason']}.\n"
+            "Campaign state:\n"
+            f"- The latest operator campaign-control event is a resume: {state['reason']}.\n"
             "- Do not treat earlier scheduled_check_in pauses or resolved capability-request blockers as active blockers.\n"
             "- Continue from the latest Research Ledger, Research Notes, and Campaign Reports unless a new pause condition is met.\n"
             "\n"

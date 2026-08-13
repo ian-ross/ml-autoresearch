@@ -225,7 +225,7 @@ def test_autonomy_step_prompt_does_not_treat_agent_report_pause_recommendation_a
     assert "Latest Campaign Report recommends pause" not in prompt
 
 
-def test_autonomy_step_prompt_tells_agent_when_human_resumed_after_operator_pause(tmp_path: Path):
+def test_autonomy_step_prompt_tells_agent_when_operator_resumed_after_pause(tmp_path: Path):
     from ml_autoresearch.campaign_controls import record_campaign_pause, record_campaign_resume
 
     write_project(tmp_path)
@@ -236,7 +236,7 @@ def test_autonomy_step_prompt_tells_agent_when_human_resumed_after_operator_paus
         tmp_path / "fake_agent.py",
         """
 prompt = Path('prompt.txt').read_text()
-assert 'Human campaign review is complete' in prompt
+assert 'The latest operator campaign-control event is a resume' in prompt
 assert 'Do not treat earlier scheduled_check_in' in prompt
 Path('scratch/resume-prompt.txt').write_text(prompt)
 """,
@@ -245,6 +245,20 @@ Path('scratch/resume-prompt.txt').write_text(prompt)
     result = run_autonomy_step(tmp_path, agent_command=fake_command)
 
     assert result.status == "no_handoff"
+
+
+def test_autonomy_step_prompt_describes_resume_neutrally_without_prior_pause(tmp_path: Path):
+    from ml_autoresearch.campaign_controls import record_campaign_resume
+
+    write_project(tmp_path)
+    ledger = tmp_path / "research-ledger.jsonl"
+    record_campaign_resume("operator_started_campaign", ledger_path=ledger)
+
+    prompt = render_autonomy_step_prompt(tmp_path)
+
+    assert "The latest operator campaign-control event is a resume: operator_started_campaign." in prompt
+    assert "cleared prior pause" not in prompt
+    assert "Human campaign review is complete" not in prompt
 
 
 def test_autonomy_step_removes_stale_loop_result_files_before_agent_invocation(tmp_path: Path):
