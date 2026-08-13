@@ -261,6 +261,7 @@ def test_runtime_command_families_reject_stale_validation_stamp(tmp_path: Path) 
 
     cases = [
         ["prepare-agent-boundary", "--workspace-root", str(tmp_path)],
+        ["autonomy-step", "--workspace-root", str(tmp_path), "--execute-next-action"],
         ["run-candidate", "--candidate", str(tmp_path / "candidate"), "--runs-root", str(runs_root), "--workspace-root", str(tmp_path)],
         ["run-post-run-evaluation", "--request", str(tmp_path / "request.yaml"), "--runs-root", str(runs_root), "--workspace-root", str(tmp_path)],
         ["evaluate-run", "--run", str(run_dir), "--backend", "docker", "--workspace-root", str(tmp_path)],
@@ -280,6 +281,7 @@ def test_runtime_command_families_skip_validation_with_prominent_warning(tmp_pat
 
     cases = [
         ["prepare-agent-boundary", "--workspace-root", str(tmp_path), "--skip-runtime-image-validation"],
+        ["autonomy-step", "--workspace-root", str(tmp_path), "--skip-runtime-image-validation", "--execute-next-action"],
         [
             "run-candidate",
             "--candidate",

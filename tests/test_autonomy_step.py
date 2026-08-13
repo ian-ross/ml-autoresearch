@@ -18,6 +18,7 @@ def run_cli(cwd: Path, *args: str):
 @pytest.fixture(autouse=True)
 def skip_pi_fort_install(monkeypatch):
     monkeypatch.setattr("ml_autoresearch.agent_boundary._install_pi_fort_extension", lambda workspace_dir: None)
+    monkeypatch.setattr("ml_autoresearch.cli.require_runtime_image_validation", lambda workspace_root: None)
 
 
 def write_fake_research_problem_provider(root: Path) -> None:

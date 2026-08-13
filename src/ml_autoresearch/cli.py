@@ -340,6 +340,10 @@ def validate_runtime_images_command(
 @app.command("autonomy-step")
 def autonomy_step_command(
     workspace_root: Annotated[Path, typer.Option(help="Research Workspace Root containing ml-autoresearch.toml.")] = Path("."),
+    skip_runtime_image_validation: Annotated[
+        bool,
+        typer.Option("--skip-runtime-image-validation", help="Bypass the Runtime Image Validation Stamp check with a prominent warning."),
+    ] = False,
     agent_command: Annotated[
         str | None,
         typer.Option(
@@ -358,8 +362,9 @@ def autonomy_step_command(
     """Run one Autonomy Step: prepare boundary, invoke agent once, ingest one handoff, and optionally execute its next action."""
 
     try:
+        _enforce_runtime_image_validation("autonomy-step", workspace_root, skip=skip_runtime_image_validation)
         result = run_autonomy_step(workspace_root, agent_command=agent_command, execute_next_action=execute_next_action)
-    except (AutonomyStepError, AgentBoundaryError, ResearchLedgerError, OSError) as exc:
+    except (RuntimeImageError, AutonomyStepError, AgentBoundaryError, ResearchLedgerError, OSError) as exc:
         _exit_with_error(exc)
     typer.echo(format_autonomy_step_summary(result))
     if result.status in {"agent_failed", "ingestion_failed", "execution_failed"}:
