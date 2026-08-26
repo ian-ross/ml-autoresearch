@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -393,6 +394,9 @@ class FakeNativeBackend:
     name = "fake-native"
     provider_ids: list[str] = []
 
+    def __init__(self, *args, **kwargs):
+        pass
+
     def smoke_test(self, run_dir: str | Path) -> OperationResult:
         Path(run_dir, "outputs", "model_summary.json").write_text('{"ok": true}\n')
         return OperationResult(backend=self.name, operation="smoke_test")
@@ -436,6 +440,40 @@ class FakeNativeBackend:
 
     def evaluate_run(self, run_dir: str | Path, *, data_root: str | Path | None = None, max_artifact_samples: int = 12) -> OperationResult:
         raise AssertionError("candidate submission next-action execution must not evaluate")
+
+
+def write_async_completion_supervisor(path: Path) -> None:
+    path.write_text(
+        "import json\n"
+        "import sys\n"
+        "import time\n"
+        "from pathlib import Path\n"
+        "import torch\n"
+        "run_dir = Path(sys.argv[1])\n"
+        "time.sleep(0.2)\n"
+        "outputs = run_dir / 'outputs'\n"
+        "(outputs / 'logs').mkdir(parents=True, exist_ok=True)\n"
+        "(outputs / 'models').mkdir(parents=True, exist_ok=True)\n"
+        "(outputs / 'logs' / 'training.log').write_text('trained async\\n')\n"
+        "(outputs / 'metrics.jsonl').write_text('{\"val/dice\": 0.75}\\n')\n"
+        "model_artifact = 'outputs/models/best_epoch_model.pt'\n"
+        "(outputs / 'best_metrics.json').write_text(json.dumps({\n"
+        "    'selection_metric': 'val/dice',\n"
+        "    'selection_value': 0.75,\n"
+        "    'metrics': {'val/dice': 0.75},\n"
+        "    'model_artifact': model_artifact,\n"
+        "}) + '\\n')\n"
+        "(outputs / 'final_metrics.json').write_text(json.dumps({\n"
+        "    'val/dice': 0.75,\n"
+        "    'artifacts': {'best_epoch_model': model_artifact},\n"
+        "}) + '\\n')\n"
+        "torch.save({'model_state_dict': {'weight': torch.tensor([1.0])}}, run_dir / model_artifact)\n"
+        "metadata_path = run_dir / 'run_metadata.json'\n"
+        "metadata = json.loads(metadata_path.read_text())\n"
+        "metadata['status'] = 'completed'\n"
+        "metadata['artifacts'] = {'best_epoch_model': model_artifact}\n"
+        "metadata_path.write_text(json.dumps(metadata) + '\\n')\n"
+    )
 
 
 def test_find_open_executable_actions_reports_ingested_candidate_without_submission(tmp_path: Path):
@@ -629,6 +667,56 @@ def test_autonomy_step_execute_candidate_submission_runs_one_run_after_ingestion
         "run_started",
         "run_completed",
     ]
+
+
+def test_autonomy_step_execute_docker_candidate_submission_waits_for_terminal_run(tmp_path: Path, monkeypatch):
+    import ml_autoresearch.managed_execution as managed_execution
+    import ml_autoresearch.research_loop_operations as research_loop_operations
+
+    write_project(tmp_path)
+    config_path = tmp_path / "ml-autoresearch.toml"
+    config_path.write_text(
+        config_path.read_text().replace(
+            "[candidate_execution]\n",
+            "[candidate_execution]\nbackend = \"docker\"\ndocker_image = \"fake-runner\"\n",
+        )
+    )
+    FakeNativeBackend.provider_ids = []
+    monkeypatch.setattr(research_loop_operations, "execution_backend_from_config", lambda config: FakeNativeBackend())
+    supervisor_script = tmp_path / "async_complete_run.py"
+    write_async_completion_supervisor(supervisor_script)
+
+    def fake_start_run_supervisor(run_dir: str | Path, *, command, log_path: str | Path, backend: str):
+        process = subprocess.Popen([sys.executable, str(supervisor_script), str(run_dir)])
+        return managed_execution.update_execution_record(
+            run_dir,
+            state="supervisor_running",
+            operation="run_candidate",
+            backend=backend,
+            supervisor={"pid": process.pid},
+            log_path=str(log_path),
+            command=command,
+            started_at="2026-05-22T00:00:00Z",
+        )
+
+    monkeypatch.setattr(managed_execution, "start_run_supervisor", fake_start_run_supervisor)
+    fake_command = write_fake_agent(tmp_path / "fake_agent.py", _candidate_submission_agent_body())
+
+    result = run_autonomy_step(tmp_path, agent_command=fake_command, execute_next_action=True)
+
+    assert result.status == "ingested"
+    assert result.execution is not None
+    assert result.execution["status"] == "completed"
+    assert result.execution["action"] == "run_candidate"
+    assert result.execution["run_status"] == "completed"
+    assert result.ingestion is not None
+    assert result.ingestion["next_action"] == "run_candidate"
+    assert result.ingestion["next_action_result"]["run_status"] == "completed"
+    assert FakeNativeBackend.provider_ids == []
+    events = [json.loads(line) for line in (tmp_path / "research-ledger.jsonl").read_text().splitlines()]
+    assert events[-1]["event_type"] == "run_completed"
+    run_dir = Path(result.execution["run_dir"])
+    assert json.loads((run_dir / "run_metadata.json").read_text())["status"] == "completed"
 
 
 def test_autonomy_step_execute_candidate_submission_writes_run_to_configured_external_runs_root(

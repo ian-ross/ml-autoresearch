@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from ml_autoresearch.candidate_execution_config import (
     CONFIG_FILENAME,
@@ -20,6 +22,9 @@ from ml_autoresearch.candidate_execution_config import (
 )
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, DockerBackend, ExecutionBackend, NativeBackend
 from ml_autoresearch.runs import RunStatus
+
+if TYPE_CHECKING:
+    from ml_autoresearch.runs import RunSubmission
 
 PredictionSamplePolicy = Literal["first_n", "adjacent_and_scattered"]
 
@@ -426,12 +431,63 @@ def start_prepared_run_from_workspace(
         log_path=path / "outputs" / "logs" / "supervisor.log",
         backend=config.backend,
     )
-    return {
+    payload = {
         "run_id": path.name,
         "run_dir": str(path),
         "run_status": "training",
         "execution_state": record["state"],
         "pid": record["supervisor"]["pid"],
+    }
+    if record.get("already_running") is True:
+        payload["already_running"] = True
+    return payload
+
+
+def _wait_for_managed_run_completion(
+    managed: dict[str, object],
+    *,
+    workspace_root: str | Path,
+    action: str,
+) -> dict[str, object]:
+    """Wait for a managed Candidate Run supervisor and reconcile the stable Run once terminal."""
+
+    from ml_autoresearch.runs import reconcile_run
+
+    run_dir_value = managed.get("run_dir")
+    if not isinstance(run_dir_value, str) or not run_dir_value:
+        raise ResearchLoopOperationError("managed Run execution result is missing run_dir")
+    run_dir = Path(run_dir_value)
+    config = load_candidate_execution_config(workspace_root)
+    pid = managed.get("pid")
+
+    if isinstance(pid, int):
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            # The supervisor may have been started by a previous caller. Poll and reconcile
+            # the same stable Run identity rather than launching replacement work.
+            pass
+
+    terminal_statuses = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.REJECTED, RunStatus.SMOKE_FAILED}
+    while True:
+        reconciled = reconcile_run(run_dir, ledger_path=config.ledger_path)
+        if reconciled.status in terminal_statuses:
+            return _candidate_execution_payload(action, reconciled, status="completed")
+        if reconciled.status == RunStatus.ACCEPTED:
+            return _candidate_execution_payload(action, reconciled, status="running")
+        time.sleep(2.0)
+
+
+def _candidate_execution_payload(action: str, run: "RunSubmission", *, status: str = "completed") -> dict[str, object]:
+    return {
+        "status": status,
+        "executed": True,
+        "action": action,
+        "run_id": run.run_id,
+        "run_dir": str(run.run_dir),
+        "run_status": run.status.value,
+        "rejection_reason": run.rejection_reason,
+        "failure_classification": run.failure_classification.value if run.failure_classification is not None else None,
     }
 
 
@@ -667,14 +723,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
             _validate_prepared_candidate_policy(reconciled.run_dir, workspace_root=root, config=config)
             if config.backend == "docker":
                 managed = start_prepared_run_from_workspace(reconciled.run_dir, workspace_root=root)
-                return {
-                    "status": "running",
-                    "executed": True,
-                    "action": "reconcile_run",
-                    **managed,
-                    "rejection_reason": None,
-                    "failure_classification": None,
-                }
+                return _wait_for_managed_run_completion(managed, workspace_root=root, action="reconcile_run")
             reconciled = train_accepted_run_with_research_problem(
                 reconciled.run_dir,
                 provider_config,
@@ -711,14 +760,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
                     _validate_prepared_candidate_policy(previous_run_path, workspace_root=root, config=config)
                     if config.backend == "docker":
                         managed = start_prepared_run_from_workspace(previous_run_path, workspace_root=root)
-                        return {
-                            "status": "running",
-                            "executed": True,
-                            "action": "run_candidate",
-                            **managed,
-                            "rejection_reason": None,
-                            "failure_classification": None,
-                        }
+                        return _wait_for_managed_run_completion(managed, workspace_root=root, action="run_candidate")
                     run = train_accepted_run_with_research_problem(
                         previous_run_path,
                         provider_config,
@@ -753,14 +795,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
         if run.status.value == "accepted":
             if config.backend == "docker":
                 managed = start_prepared_run_from_workspace(run.run_dir, workspace_root=root)
-                return {
-                    "status": "running",
-                    "executed": True,
-                    "action": "run_candidate",
-                    **managed,
-                    "rejection_reason": None,
-                    "failure_classification": None,
-                }
+                return _wait_for_managed_run_completion(managed, workspace_root=root, action="run_candidate")
             run = train_accepted_run_with_research_problem(
                 run.run_dir,
                 provider_config,
@@ -770,13 +805,4 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
                 backend=backend,
                 ledger_path=config.ledger_path,
             )
-    return {
-        "status": "completed",
-        "executed": True,
-        "action": "run_candidate",
-        "run_id": run.run_id,
-        "run_dir": str(run.run_dir),
-        "run_status": run.status.value,
-        "rejection_reason": run.rejection_reason,
-        "failure_classification": run.failure_classification.value if run.failure_classification is not None else None,
-    }
+    return _candidate_execution_payload("run_candidate", run)

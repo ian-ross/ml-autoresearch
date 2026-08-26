@@ -26,7 +26,7 @@ Authoritative execution happens through Harness-owned commands outside the VM. H
 - `autonomy-step` prepares a prompt, runs or supports a bounded agent step, ingests exactly one handoff when present, and can execute one next Harness-owned action with `--execute-next-action`.
 - `run-autonomous-iteration` wraps bounded repeated operation around the same handoff and execution rules.
 
-Each step records recovery state: prompt, result JSON, handoff markers such as `.INGESTED.json`, and ledger events. Candidate next actions also create a stable Run before long Docker training and return its Run ID. Until that Run has one terminal event, `execute-open-actions` maps the Candidate handoff to `reconcile_run` for the same Run rather than submitting another Candidate. Active execution is observed; exited execution is reconciled; retraining is never a reconciliation action.
+Each step records recovery state: prompt, result JSON, handoff markers such as `.INGESTED.json`, and ledger events. Candidate next actions also create a stable Run before long Docker training. Foreground autonomy commands that execute a next action wait for the managed Run supervisor and reconcile the stable Run to a terminal result before starting another autonomy step. If the foreground caller is interrupted, the Run identity remains durable; until that Run has one terminal event, `execute-open-actions` maps the Candidate handoff to `reconcile_run` for the same Run rather than submitting another Candidate. Active execution is observed; exited execution is reconciled; retraining is never a reconciliation action.
 
 ## Reports, pauses, and resumes
 

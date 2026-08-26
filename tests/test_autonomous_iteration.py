@@ -166,6 +166,56 @@ Path(f'research-notes/2026-05-22-note-{count}.md').write_text(f'# Note {count}\\
     assert len(payload["step_summaries"]) == 2
 
 
+def test_autonomous_iteration_continues_after_completed_candidate_next_action(tmp_path: Path, monkeypatch) -> None:
+    import ml_autoresearch.autonomous_iteration as autonomous_iteration
+
+    write_project(tmp_path)
+    write_notification_config(tmp_path)
+    calls: list[bool] = []
+
+    def fake_step(root: Path, *, agent_command: str | None = None, execute_next_action: bool = False) -> AutonomyStepResult:
+        calls.append(execute_next_action)
+        if len(calls) == 1:
+            return AutonomyStepResult(
+                status="ingested",
+                workspace_root=str(root),
+                agent_workspace=str(root / "agent-work"),
+                prompt_path=str(root / "agent-work" / "prompt.txt"),
+                agent_command=["fake-agent"],
+                agent_returncode=0,
+                ingestion={
+                    "handoff_type": "candidate_submission",
+                    "next_action": "run_candidate",
+                    "executed_next_action": True,
+                    "next_action_result": {"status": "completed", "executed": True, "action": "run_candidate"},
+                },
+                execution={"status": "completed", "executed": True, "action": "run_candidate"},
+            )
+        return AutonomyStepResult(
+            status="ingested",
+            workspace_root=str(root),
+            agent_workspace=str(root / "agent-work"),
+            prompt_path=str(root / "agent-work" / "prompt.txt"),
+            agent_command=["fake-agent"],
+            agent_returncode=0,
+            ingestion={"handoff_type": "capability_request", "next_action": "stop_for_human"},
+        )
+
+    monkeypatch.setattr(autonomous_iteration, "run_autonomy_step", fake_step)
+
+    result = run_autonomous_iteration(
+        tmp_path,
+        agent_command="fake-agent",
+        max_steps=5,
+        notify_email="user@example.com",
+        send_mailjet=lambda message: None,
+    )
+
+    assert result.stop_reason == "capability_request"
+    assert result.steps_completed == 2
+    assert calls == [True, True]
+
+
 def test_autonomous_iteration_stops_for_capability_request_before_step_limit(tmp_path: Path) -> None:
     write_project(tmp_path)
     write_notification_config(tmp_path)
