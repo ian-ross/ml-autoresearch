@@ -21,14 +21,15 @@ experiment_batch/
     ├── variant_a/
     │   ├── manifest.yaml
     │   ├── model.py
-    │   └── README.md
+    │   ├── README.md
+    │   └── budget_request.yaml  # optional
     └── variant_b/
         ├── manifest.yaml
         ├── model.py
         └── README.md
 ```
 
-`BATCH_PROPOSAL.md` records the shared hypothesis, comparison target, per-candidate rationale, decision criteria, success criteria, and requested budget/concurrency subject to Harness caps. The Harness validates these declarations before any Run is created.
+`BATCH_PROPOSAL.md` records the shared hypothesis, comparison target, per-candidate rationale, decision criteria, success criteria, and requested budget/concurrency subject to Harness caps. A member Candidate may include its own optional `budget_request.yaml`; each request is approved or denied per Run by Harness-owned policy, with denial falling back to the exploratory budget. The Harness validates these declarations before any Run is created.
 
 Agents can package a batch as one primary handoff with `prepare-experiment-batch-submission`; the Harness ingests it with `ingest-experiment-batch-submission` or as part of an Autonomy Step. Ingested source batches are copied to `experiment-batches/<batch_submission_id>/`; execution artifacts are still created under `batches/<batch_id>/`.
 

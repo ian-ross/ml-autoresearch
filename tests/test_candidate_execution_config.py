@@ -26,10 +26,12 @@ data_root = "{data_root}"
 max_samples = 8
 max_parameters = 25000000
 max_epochs = 3
+late_improving_max_epochs = 9
 max_batch_size = 4
 allowed_scheduler_policies = ["constant_lr"]
 early_stopping_policy = "disabled"
 training_wall_clock_timeout_seconds = 1800
+late_improving_training_wall_clock_timeout_seconds = 5400
 max_prediction_samples = 4
 max_parallel_runs = 2
 prediction_sample_policy = "adjacent_and_scattered"
@@ -44,11 +46,15 @@ prediction_sample_policy = "adjacent_and_scattered"
     assert config.max_samples == 8
     assert config.max_parameters == 25_000_000
     assert config.max_epochs == 3
+    assert config.late_improving_max_epochs == 9
     assert config.max_batch_size == 4
     assert config.allowed_scheduler_policies == ("constant_lr",)
     assert config.early_stopping_policy == "disabled"
     assert config.training_policy.max_batch_size == 4
     assert config.training_wall_clock_timeout_seconds == 1800
+    assert config.late_improving_training_wall_clock_timeout_seconds == 5400
+    assert config.budget_policy.exploratory_max_epochs == 3
+    assert config.budget_policy.late_improving_max_epochs == 9
     assert config.max_prediction_samples == 4
     assert config.max_parallel_runs == 2
     assert config.prediction_sample_policy == "adjacent_and_scattered"
@@ -285,6 +291,16 @@ ledger_path = "{external_ledger}"
         (
             '[candidate_execution]\nmax_epochs = 101\n',
             "max_epochs must be at most 100",
+        ),
+        (
+            '[candidate_execution]\nbackend = "docker"\nmax_epochs = 12\nlate_improving_max_epochs = 36\n',
+            "late_improving_max_epochs.*configured together",
+        ),
+        (
+            '[candidate_execution]\nbackend = "docker"\nmax_epochs = 12\nlate_improving_max_epochs = 36\n'
+            'training_wall_clock_timeout_seconds = 3600\n'
+            'late_improving_training_wall_clock_timeout_seconds = 1800\n',
+            "late_improving_training_wall_clock_timeout_seconds",
         ),
         (
             '[candidate_execution]\nmax_batch_size = 33\n',

@@ -17,6 +17,10 @@ from pathlib import Path
 
 import yaml
 
+from ml_autoresearch.budget_requests import (
+    CandidateBudgetDecision,
+    apply_budget_decision_to_resolved_manifest,
+)
 from ml_autoresearch.candidates import CandidateTrainingPolicy, CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.errors import HarnessBootstrapError, ResearchProblemDataError, SmokeTestError, TrainingError
 from ml_autoresearch.execution import DockerOperationTimeoutError, ExecutionBackend, NativeBackend, backend_metadata
@@ -152,6 +156,7 @@ def run_candidate_with_synthetic_fixture(
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
+    candidate_budget_decision: CandidateBudgetDecision | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
@@ -170,6 +175,7 @@ def run_candidate_with_synthetic_fixture(
         max_parameters=max_parameters,
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
+        candidate_budget_decision=candidate_budget_decision,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
@@ -187,6 +193,7 @@ def run_candidate_with_research_problem(
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
+    candidate_budget_decision: CandidateBudgetDecision | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     backend: ExecutionBackend | None = None,
@@ -230,6 +237,7 @@ def run_candidate_with_research_problem(
         max_parameters=max_parameters,
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
+        candidate_budget_decision=candidate_budget_decision,
     )
 
 
@@ -466,6 +474,7 @@ def _run_candidate_training(
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
+    candidate_budget_decision: CandidateBudgetDecision | None = None,
 ) -> RunSubmission:
     resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
     run = submit_candidate(
@@ -478,6 +487,7 @@ def _run_candidate_training(
         max_parameters=max_parameters,
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
+        candidate_budget_decision=candidate_budget_decision,
     )
     if run.status != RunStatus.ACCEPTED:
         return run
@@ -897,6 +907,9 @@ def _read_run_summary_dir(run_dir: Path) -> dict[str, object]:
         summary["artifacts"] = metadata["artifacts"]
     if isinstance(metadata.get("training_policy"), dict):
         summary["training_policy"] = metadata["training_policy"]
+    for budget_field in _BUDGET_METADATA_FIELDS:
+        if budget_field in metadata:
+            summary[budget_field] = metadata[budget_field]
 
     outputs_dir = _outputs_dir(run_dir)
     best_metrics_path = outputs_dir / "best_metrics.json"
@@ -1056,6 +1069,7 @@ def prepare_candidate_submission(
     research_problem_registry: ResearchProblemSpecRegistry | None = None,
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
+    candidate_budget_decision: CandidateBudgetDecision | None = None,
 ) -> RunSubmission:
     """Validate and copy a Candidate into a stable Run before smoke execution."""
 
@@ -1098,6 +1112,7 @@ def prepare_candidate_submission(
             training_failure_reason=None,
             failure_classification=RunFailureClassification.CONTRACT_VIOLATION,
             execution_backend=execution_backend_metadata,
+            budget_decision=candidate_budget_decision.metadata() if candidate_budget_decision is not None else None,
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason, RunFailureClassification.CONTRACT_VIOLATION)
 
@@ -1122,6 +1137,7 @@ def prepare_candidate_submission(
             failure_classification=RunFailureClassification.CONTRACT_VIOLATION,
             execution_backend=execution_backend_metadata,
             repair_lineage=repair_lineage,
+            budget_decision=candidate_budget_decision.metadata() if candidate_budget_decision is not None else None,
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, repair_policy_reason, RunFailureClassification.CONTRACT_VIOLATION)
 
@@ -1131,8 +1147,13 @@ def prepare_candidate_submission(
     if proposal_path.is_file():
         _record_proposal_created_event(proposal_path, manifest.name, resolved_ledger_path=resolved_ledger_path)
     _record_candidate_created_event(source, manifest.name, proposal_id=manifest.name if proposal_path.is_file() else None, repair_lineage=repair_lineage, resolved_ledger_path=resolved_ledger_path)
+    if candidate_budget_decision is not None:
+        candidate_budget_decision = candidate_budget_decision.with_source_manifest_max_epochs(manifest.training.max_epochs)
     shutil.copytree(source, run_dir / "candidate")
-    _write_yaml(run_dir / "resolved_manifest.yaml", _resolved_manifest_payload(manifest, research_problem_registry))
+    resolved_manifest = _resolved_manifest_payload(manifest, research_problem_registry)
+    if candidate_budget_decision is not None:
+        resolved_manifest = apply_budget_decision_to_resolved_manifest(resolved_manifest, candidate_budget_decision)
+    _write_yaml(run_dir / "resolved_manifest.yaml", resolved_manifest)
     _write_metadata(
         run_dir,
         run_id=run_id,
@@ -1146,6 +1167,7 @@ def prepare_candidate_submission(
         execution_backend=execution_backend_metadata,
         repair_lineage=repair_lineage,
         research_problem=research_problem,
+        budget_decision=candidate_budget_decision.metadata() if candidate_budget_decision is not None else None,
     )
 
     return RunSubmission(run_id, run_dir, RunStatus.SMOKE_TESTING)
@@ -1245,6 +1267,7 @@ def submit_candidate(
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
+    candidate_budget_decision: CandidateBudgetDecision | None = None,
 ) -> RunSubmission:
     """Validate and synchronously smoke-test a local Candidate Experiment."""
 
@@ -1257,6 +1280,7 @@ def submit_candidate(
         research_problem_registry=research_problem_registry,
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
+        candidate_budget_decision=candidate_budget_decision,
     )
     if prepared.status != RunStatus.SMOKE_TESTING:
         return prepared
@@ -1652,6 +1676,7 @@ def _write_metadata(
     data_policy: dict[str, object] | None = None,
     sample_counts: dict[str, object] | None = None,
     training_policy: dict[str, object] | None = None,
+    budget_decision: dict[str, object] | None = None,
 ) -> None:
     existing_metadata = None
     metadata_path = run_dir / "run_metadata.json"
@@ -1702,6 +1727,7 @@ def _write_metadata(
         metadata["training_policy"] = existing_metadata["training_policy"]
     if training_lifecycle is not None:
         metadata["training_lifecycle"] = training_lifecycle
+    _apply_budget_metadata(metadata, existing_metadata, budget_decision)
     if repair_lineage is not None:
         metadata["repair_lineage"] = repair_lineage
     if isinstance(existing_metadata, dict):
@@ -1711,6 +1737,35 @@ def _write_metadata(
     temporary = run_dir / f".run_metadata.{os.getpid()}.tmp"
     temporary.write_text(json.dumps(metadata, indent=2, sort_keys=True, allow_nan=False) + "\n")
     os.replace(temporary, metadata_path)
+
+
+_BUDGET_METADATA_FIELDS = (
+    "budget_class_requested",
+    "budget_class_effective",
+    "effective_max_epochs",
+    "effective_training_wall_clock_timeout_seconds",
+    "budget_request_status",
+    "budget_request_parent_run_ids",
+    "budget_request_requested_max_epochs",
+    "budget_request_reason",
+    "budget_request_denial_reason",
+)
+
+
+def _apply_budget_metadata(
+    metadata: dict[str, object],
+    existing_metadata: object,
+    budget_decision: dict[str, object] | None,
+) -> None:
+    if budget_decision is not None:
+        for key, value in budget_decision.items():
+            metadata[key] = value
+        return
+    if not isinstance(existing_metadata, dict):
+        return
+    for key in _BUDGET_METADATA_FIELDS:
+        if key in existing_metadata:
+            metadata[key] = existing_metadata[key]
 
 
 def _read_metadata(run_dir: Path) -> dict[str, object]:

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from ml_autoresearch.budget_requests import CandidateBudgetDecision, decide_candidate_budget
 from ml_autoresearch.candidate_execution_config import (
     CONFIG_FILENAME,
     CandidateExecutionConfig,
@@ -141,6 +142,89 @@ def select_execution_backend(
     raise ValueError("backend must be native or docker")
 
 
+def _candidate_budget_decision(candidate: str | Path, config: CandidateExecutionConfig) -> CandidateBudgetDecision:
+    return decide_candidate_budget(candidate, config.budget_policy, runs_root=config.runs_root)
+
+
+def _select_backend_for_budget_decision(
+    config: CandidateExecutionConfig,
+    decision: CandidateBudgetDecision,
+    *,
+    backend_name: str,
+    docker_image: str,
+    docker_enable_gpu: bool,
+    docker_gpu_device: str | None,
+    docker_user: str | None,
+    docker_rootless_container_root: bool,
+) -> ExecutionBackend:
+    config_backend_options = (
+        backend_name == config.backend
+        and docker_image == config.docker_image
+        and docker_enable_gpu == config.docker_enable_gpu
+        and docker_gpu_device == config.docker_gpu_device
+        and docker_user == config.docker_user
+        and docker_rootless_container_root == config.docker_rootless_container_root
+    )
+    if config_backend_options and (
+        backend_name == "native"
+        or decision.effective_training_wall_clock_timeout_seconds == config.training_wall_clock_timeout_seconds
+    ):
+        return execution_backend_from_config(config)
+    return select_execution_backend(
+        backend_name,
+        docker_image,
+        docker_enable_gpu=docker_enable_gpu,
+        docker_gpu_device=docker_gpu_device,
+        docker_user=docker_user,
+        docker_rootless_container_root=docker_rootless_container_root,
+        training_wall_clock_timeout_seconds=decision.effective_training_wall_clock_timeout_seconds,
+    )
+
+
+def _prepared_run_training_timeout(run_dir: str | Path, config: CandidateExecutionConfig) -> int | None:
+    try:
+        metadata = json.loads((Path(run_dir) / "run_metadata.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return config.training_wall_clock_timeout_seconds
+    value = metadata.get("effective_training_wall_clock_timeout_seconds")
+    if value is None:
+        return config.training_wall_clock_timeout_seconds
+    return int(value)
+
+
+def _select_backend_for_prepared_run(
+    run_dir: str | Path,
+    config: CandidateExecutionConfig,
+    *,
+    backend_name: str,
+    docker_image: str,
+    docker_enable_gpu: bool,
+    docker_gpu_device: str | None,
+    docker_user: str | None,
+    docker_rootless_container_root: bool,
+) -> ExecutionBackend:
+    effective_timeout = _prepared_run_training_timeout(run_dir, config)
+    config_backend_options = (
+        backend_name == config.backend
+        and docker_image == config.docker_image
+        and docker_enable_gpu == config.docker_enable_gpu
+        and docker_gpu_device == config.docker_gpu_device
+        and docker_user == config.docker_user
+        and docker_rootless_container_root == config.docker_rootless_container_root
+    )
+    if config_backend_options and effective_timeout == config.training_wall_clock_timeout_seconds:
+        return execution_backend_from_config(config)
+    return select_execution_backend(
+        backend_name,
+        docker_image,
+        docker_enable_gpu=docker_enable_gpu,
+        docker_gpu_device=docker_gpu_device,
+        docker_user=docker_user,
+        docker_rootless_container_root=docker_rootless_container_root,
+        training_wall_clock_timeout_seconds=effective_timeout,
+    )
+
+
 def load_configured_provider(workspace_root: str | Path, *, label: str = "run"):
     """Load configured Research Problem provider for a Research Workspace Root."""
 
@@ -258,14 +342,16 @@ def prepare_candidate_run_from_workspace(
     config, _provider_config = load_configured_provider(workspace_root, label="run-candidate")
     effective_runs_root = config.runs_root if runs_root is None else Path(runs_root)
     effective_ledger = effective_ledger_path(config, override=ledger_path)
-    backend = select_execution_backend(
-        backend_name,
-        docker_image,
+    budget_decision = _candidate_budget_decision(candidate, config)
+    backend = _select_backend_for_budget_decision(
+        config,
+        budget_decision,
+        backend_name=backend_name,
+        docker_image=docker_image,
         docker_enable_gpu=docker_enable_gpu,
         docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
-        training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
     registry = load_configured_research_problem_registry(workspace_root)
     run = prepare_candidate_submission(
@@ -277,6 +363,7 @@ def prepare_candidate_run_from_workspace(
         research_problem_registry=registry,
         max_epochs=config.max_epochs,
         candidate_training_policy=config.training_policy,
+        candidate_budget_decision=budget_decision,
     )
     return run_submission_payload(run)
 
@@ -338,14 +425,15 @@ def train_prepared_run_from_workspace(
 
     config, provider_config = load_configured_provider(workspace_root, label="continue-run")
     effective_ledger = effective_ledger_path(config, override=ledger_path)
-    backend = select_execution_backend(
-        backend_name,
-        docker_image,
+    backend = _select_backend_for_prepared_run(
+        run_dir,
+        config,
+        backend_name=backend_name,
+        docker_image=docker_image,
         docker_enable_gpu=docker_enable_gpu,
         docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
-        training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
     _validate_prepared_candidate_policy(run_dir, workspace_root=workspace_root, config=config)
     max_samples, max_prediction_samples, prediction_sample_policy = effective_execution_options(
@@ -515,14 +603,16 @@ def run_candidate_from_workspace(
     config, provider_config = load_configured_provider(workspace_root, label="run-candidate")
     effective_runs_root = config.runs_root if runs_root is None else Path(runs_root)
     effective_ledger = effective_ledger_path(config, override=ledger_path)
-    backend = select_execution_backend(
-        backend_name,
-        docker_image,
+    budget_decision = _candidate_budget_decision(candidate, config)
+    backend = _select_backend_for_budget_decision(
+        config,
+        budget_decision,
+        backend_name=backend_name,
+        docker_image=docker_image,
         docker_enable_gpu=docker_enable_gpu,
         docker_gpu_device=docker_gpu_device,
         docker_user=docker_user,
         docker_rootless_container_root=docker_rootless_container_root,
-        training_wall_clock_timeout_seconds=config.training_wall_clock_timeout_seconds,
     )
     max_samples, max_prediction_samples, prediction_sample_policy = effective_execution_options(
         config,
@@ -538,6 +628,7 @@ def run_candidate_from_workspace(
         max_parameters=config.max_parameters,
         max_epochs=config.max_epochs,
         candidate_training_policy=config.training_policy,
+        candidate_budget_decision=budget_decision,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         backend=backend,
@@ -597,6 +688,17 @@ def run_experiment_batch_from_workspace(
         max_parameters=config.max_parameters,
         max_epochs=config.max_epochs,
         candidate_training_policy=config.training_policy,
+        candidate_budget_policy=config.budget_policy,
+        budget_backend_factory=lambda decision: _select_backend_for_budget_decision(
+            config,
+            decision,
+            backend_name=backend_name,
+            docker_image=docker_image,
+            docker_enable_gpu=docker_enable_gpu,
+            docker_gpu_device=docker_gpu_device,
+            docker_user=docker_user,
+            docker_rootless_container_root=docker_rootless_container_root,
+        ),
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=effective_ledger,
@@ -692,6 +794,17 @@ def _run_ingested_experiment_batch(root: Path, batch_path: Path) -> dict[str, ob
         max_parameters=config.max_parameters,
         max_epochs=config.max_epochs,
         candidate_training_policy=config.training_policy,
+        candidate_budget_policy=config.budget_policy,
+        budget_backend_factory=lambda decision: _select_backend_for_budget_decision(
+            config,
+            decision,
+            backend_name=config.backend,
+            docker_image=config.docker_image,
+            docker_enable_gpu=config.docker_enable_gpu,
+            docker_gpu_device=config.docker_gpu_device,
+            docker_user=config.docker_user,
+            docker_rootless_container_root=config.docker_rootless_container_root,
+        ),
         max_prediction_samples=config.max_prediction_samples,
         prediction_sample_policy=config.prediction_sample_policy,
         ledger_path=config.ledger_path,
@@ -713,7 +826,6 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
         raise ResearchLoopOperationError("configure [research_problem] before executing candidate next actions")
     if config.ledger_path is None:
         raise ResearchLoopOperationError("configure candidate_execution.ledger_path before executing candidate next actions")
-    backend = execution_backend_from_config(config)
     if ingestion.get("next_action") == "reconcile_run":
         run_id = ingestion.get("run_id")
         if not isinstance(run_id, str) or not run_id:
@@ -730,7 +842,16 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
                 max_samples=config.max_samples,
                 max_prediction_samples=config.max_prediction_samples,
                 prediction_sample_policy=config.prediction_sample_policy,
-                backend=backend,
+                backend=_select_backend_for_prepared_run(
+                    reconciled.run_dir,
+                    config,
+                    backend_name=config.backend,
+                    docker_image=config.docker_image,
+                    docker_enable_gpu=config.docker_enable_gpu,
+                    docker_gpu_device=config.docker_gpu_device,
+                    docker_user=config.docker_user,
+                    docker_rootless_container_root=config.docker_rootless_container_root,
+                ),
                 ledger_path=config.ledger_path,
             )
         return {
@@ -767,7 +888,16 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
                         max_samples=config.max_samples,
                         max_prediction_samples=config.max_prediction_samples,
                         prediction_sample_policy=config.prediction_sample_policy,
-                        backend=backend,
+                        backend=_select_backend_for_prepared_run(
+                            previous_run_path,
+                            config,
+                            backend_name=config.backend,
+                            docker_image=config.docker_image,
+                            docker_enable_gpu=config.docker_enable_gpu,
+                            docker_gpu_device=config.docker_gpu_device,
+                            docker_user=config.docker_user,
+                            docker_rootless_container_root=config.docker_rootless_container_root,
+                        ),
                         ledger_path=config.ledger_path,
                     )
                 elif previous_status in {status.value for status in RunStatus}:
@@ -781,6 +911,17 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
                         f"recorded Run has unknown status {previous_status!r}: {previous_run_path}"
                     )
     if run is None:
+        budget_decision = _candidate_budget_decision(candidate_path, config)
+        backend = _select_backend_for_budget_decision(
+            config,
+            budget_decision,
+            backend_name=config.backend,
+            docker_image=config.docker_image,
+            docker_enable_gpu=config.docker_enable_gpu,
+            docker_gpu_device=config.docker_gpu_device,
+            docker_user=config.docker_user,
+            docker_rootless_container_root=config.docker_rootless_container_root,
+        )
         run = submit_candidate(
             candidate_path,
             config.runs_root,
@@ -791,6 +932,7 @@ def _execute_ingested_candidate_next_action(root: Path, ingestion: dict[str, obj
             max_parameters=config.max_parameters,
             max_epochs=config.max_epochs,
             candidate_training_policy=config.training_policy,
+            candidate_budget_decision=budget_decision,
         )
         if run.status.value == "accepted":
             if config.backend == "docker":

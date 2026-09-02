@@ -164,7 +164,7 @@ class CandidateManifest(BaseModel):
     repair: RepairLineage | None = None
 
 
-_ALLOWED_FILENAMES = {"manifest.yaml", "model.py", "README.md", "PROPOSAL.md"}
+_ALLOWED_FILENAMES = {"manifest.yaml", "model.py", "README.md", "PROPOSAL.md", "budget_request.yaml"}
 _ALLOWED_SUFFIXES = {".py"}
 _IGNORED_DIRECTORY_NAMES = {"__pycache__"}
 _FORBIDDEN_SUFFIXES = {

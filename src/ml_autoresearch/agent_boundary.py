@@ -407,6 +407,11 @@ def _write_agent_candidate_execution_config(workspace_dir: Path, config: AgentBo
         f'backend = "{candidate_execution.backend}"',
         f"max_parameters = {candidate_execution.max_parameters}",
         f"max_epochs = {candidate_execution.max_epochs}",
+        *(
+            [f"late_improving_max_epochs = {candidate_execution.late_improving_max_epochs}"]
+            if candidate_execution.late_improving_max_epochs is not None
+            else []
+        ),
         f"max_batch_size = {candidate_execution.max_batch_size}",
         "allowed_scheduler_policies = ["
         + ", ".join(f'"{policy}"' for policy in candidate_execution.allowed_scheduler_policies)
@@ -422,6 +427,11 @@ def _write_agent_candidate_execution_config(workspace_dir: Path, config: AgentBo
         lines.append(
             "training_wall_clock_timeout_seconds = "
             f"{candidate_execution.training_wall_clock_timeout_seconds}"
+        )
+    if candidate_execution.late_improving_training_wall_clock_timeout_seconds is not None:
+        lines.append(
+            "late_improving_training_wall_clock_timeout_seconds = "
+            f"{candidate_execution.late_improving_training_wall_clock_timeout_seconds}"
         )
     lines.extend([
         "",
@@ -482,6 +492,13 @@ def _write_agent_workspace_instructions(
         if candidate_execution.training_wall_clock_timeout_seconds is not None
         else "not configured"
     )
+    late_budget = (
+        f"{candidate_execution.late_improving_max_epochs} epochs and "
+        f"{candidate_execution.late_improving_training_wall_clock_timeout_seconds} seconds"
+        if candidate_execution.late_improving_max_epochs is not None
+        and candidate_execution.late_improving_training_wall_clock_timeout_seconds is not None
+        else "not configured"
+    )
     (workspace_dir / "AGENTS.md").write_text(
         "# Agent Control Boundary path map\n"
         "\n"
@@ -521,13 +538,18 @@ def _write_agent_workspace_instructions(
         "- At most 4 related Candidate Experiments may be submitted in one batch.\n"
         f"- The configured parallel Run cap is {candidate_execution.max_parallel_runs}; the Harness, not Candidate code or the agent, owns and enforces this cap.\n"
         f"- The configured sample ceiling is {candidate_execution.max_samples} per Dataset Source; command-line requests cannot raise it.\n"
-        f"- The configured training ceiling is {candidate_execution.max_epochs} epochs; Candidate manifests cannot raise it.\n"
+        f"- The configured training ceiling is {candidate_execution.max_epochs} epochs for the exploratory/default budget; Candidate manifests cannot raise it.\n"
+        f"- The configured late-improving Candidate budget is {late_budget}; request it only with a Harness-validated `budget_request.yaml`.\n"
         f"- The configured Candidate batch-size ceiling is {candidate_execution.max_batch_size}; Candidate manifests cannot raise it.\n"
         f"- The configured scheduler allowlist is {', '.join(candidate_execution.allowed_scheduler_policies)}; Candidate manifests may select only from this Harness-owned policy.\n"
         f"- The configured early-stopping policy is {candidate_execution.early_stopping_policy}; the Harness validates Candidate manifests against it.\n"
         f"- The configured Candidate training wall-clock budget is {timeout_budget}; when configured, the trusted Docker backend enforces it.\n"
         f"- The configured Candidate smoke budget is {candidate_execution.max_parameters} parameters; Candidate source and manifests cannot select or raise it.\n"
         f"- At most {candidate_execution.max_prediction_samples} prediction artifacts may be retained per Run using the fixed {candidate_execution.prediction_sample_policy} policy; command options cannot raise or replace this policy.\n"
+        "- The default Candidate budget is exploratory. Use it for new architecture scouts, broad search, risky resource behavior, and first attempts at materially different families.\n"
+        "- Request the `late_improving` budget only for a repeated or close-continuation Candidate when prior completed Run evidence suggests the exploratory epoch ceiling may be truncating learning: e.g. a best checkpoint near the final exploratory epoch, finite non-collapsed predictions, source-informative metrics, and a late trajectory that is still improving or ambiguous rather than clearly plateaued/divergent.\n"
+        "- To request the longer budget, include candidate-local `budget_request.yaml` with `schema_version: candidate_budget_request.v1`, `budget_class: late_improving`, `requested_max_epochs`, `parent_run_ids`, `justification`, and `fallback_if_denied: run_exploratory_budget`. Do not modify Candidate code to implement longer training, custom loops, data loading, losses, metrics, Artifact Filters, sampling, augmentation, or coordinate features.\n"
+        "- If the Harness denies the request, treat the resulting exploratory-budget Run as the valid bounded result and continue; do not stop for human approval merely because the longer budget was denied. Extended-budget results remain capped representative feasibility evidence unless separately evaluated under a trusted full-data/diagnostic path.\n"
         "- Use an Experiment Batch only for a small, shared-hypothesis comparison whose candidates differ by controlled factors and have comparable, trusted resource profiles.\n"
         "- Unprofiled architecture families must be submitted sequentially. Do not infer safe concurrency from parameter count alone.\n"
         "- If requested concurrency or GPU placement is not available in the trusted policy, submit sequentially or create a Capability Request; never implement Candidate-owned scheduling.\n"

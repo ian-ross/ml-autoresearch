@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from ml_autoresearch.budget_requests import CandidateBudgetPolicy
 from ml_autoresearch.candidates import CandidateTrainingPolicy, EarlyStoppingPolicy, SchedulerPolicy
 from ml_autoresearch.execution import DEFAULT_DOCKER_IMAGE, ExecutionBackend
 from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT, MAX_CONFIGURABLE_PARAMETER_COUNT
@@ -49,6 +50,8 @@ class CandidateExecutionConfig:
     )
     early_stopping_policy: EarlyStoppingPolicy = "optional"
     training_wall_clock_timeout_seconds: int | None = None
+    late_improving_max_epochs: int | None = None
+    late_improving_training_wall_clock_timeout_seconds: int | None = None
     max_prediction_samples: int = 2
     max_parallel_runs: int = 1
     prediction_sample_policy: Literal["first_n", "adjacent_and_scattered"] = "first_n"
@@ -63,6 +66,17 @@ class CandidateExecutionConfig:
             max_batch_size=self.max_batch_size,
             allowed_scheduler_policies=self.allowed_scheduler_policies,
             early_stopping_policy=self.early_stopping_policy,
+        )
+
+    @property
+    def budget_policy(self) -> CandidateBudgetPolicy:
+        """Return the Harness-owned two-tier Candidate budget policy."""
+
+        return CandidateBudgetPolicy(
+            exploratory_max_epochs=self.max_epochs,
+            exploratory_training_wall_clock_timeout_seconds=self.training_wall_clock_timeout_seconds,
+            late_improving_max_epochs=self.late_improving_max_epochs,
+            late_improving_training_wall_clock_timeout_seconds=self.late_improving_training_wall_clock_timeout_seconds,
         )
 
 
@@ -133,6 +147,32 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         "training_wall_clock_timeout_seconds",
         minimum=1,
     )
+    late_improving_max_epochs = _optional_int(settings, "late_improving_max_epochs", minimum=1)
+    if late_improving_max_epochs is not None and late_improving_max_epochs > 100:
+        raise CandidateExecutionConfigError("candidate_execution.late_improving_max_epochs must be at most 100")
+    if late_improving_max_epochs is not None and late_improving_max_epochs < max_epochs:
+        raise CandidateExecutionConfigError(
+            "candidate_execution.late_improving_max_epochs must be greater than or equal to max_epochs"
+        )
+    late_improving_training_wall_clock_timeout_seconds = _optional_int(
+        settings,
+        "late_improving_training_wall_clock_timeout_seconds",
+        minimum=1,
+    )
+    if (late_improving_max_epochs is None) != (late_improving_training_wall_clock_timeout_seconds is None):
+        raise CandidateExecutionConfigError(
+            "candidate_execution.late_improving_max_epochs and "
+            "late_improving_training_wall_clock_timeout_seconds must be configured together"
+        )
+    if (
+        training_wall_clock_timeout_seconds is not None
+        and late_improving_training_wall_clock_timeout_seconds is not None
+        and late_improving_training_wall_clock_timeout_seconds < training_wall_clock_timeout_seconds
+    ):
+        raise CandidateExecutionConfigError(
+            "candidate_execution.late_improving_training_wall_clock_timeout_seconds must be greater than or equal to "
+            "training_wall_clock_timeout_seconds"
+        )
     max_prediction_samples = _int(settings, "max_prediction_samples", 2, minimum=0)
     max_parallel_runs = _int(settings, "max_parallel_runs", 1, minimum=1)
     if max_parallel_runs > 4:
@@ -159,6 +199,10 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
             raise CandidateExecutionConfigError(
                 "candidate_execution.training_wall_clock_timeout_seconds requires backend = \"docker\""
             )
+        if late_improving_training_wall_clock_timeout_seconds is not None:
+            raise CandidateExecutionConfigError(
+                "candidate_execution.late_improving_training_wall_clock_timeout_seconds requires backend = \"docker\""
+            )
     if docker_gpu_device is not None and not docker_enable_gpu:
         raise CandidateExecutionConfigError("candidate_execution.docker_gpu_device requires docker_enable_gpu = true")
     if docker_user is not None and docker_rootless_container_root:
@@ -183,6 +227,8 @@ def load_candidate_execution_config(workspace_root: str | Path = Path(".")) -> C
         allowed_scheduler_policies=allowed_scheduler_policies,  # type: ignore[arg-type]
         early_stopping_policy=early_stopping_policy,  # type: ignore[arg-type]
         training_wall_clock_timeout_seconds=training_wall_clock_timeout_seconds,
+        late_improving_max_epochs=late_improving_max_epochs,
+        late_improving_training_wall_clock_timeout_seconds=late_improving_training_wall_clock_timeout_seconds,
         max_prediction_samples=max_prediction_samples,
         max_parallel_runs=max_parallel_runs,
         prediction_sample_policy=prediction_sample_policy,  # type: ignore[arg-type]

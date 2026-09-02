@@ -53,6 +53,7 @@ Allowed:
 - additional `.py` helper files
 - `README.md`
 - `PROPOSAL.md` (required in autonomous execution mode)
+- `budget_request.yaml` (optional Harness-validated request for a non-default budget class)
 
 Rejected:
 
@@ -63,7 +64,7 @@ Rejected:
 - shell scripts
 - notebooks
 - dataset files
-- arbitrary config blobs
+- arbitrary config blobs other than the optional `budget_request.yaml`
 
 ## Manifest authority
 
@@ -83,6 +84,26 @@ Implemented generic manifest surfaces include:
 - `training.early_stopping`
 - provider-declared `auxiliary_targets`
 - optional `repair` lineage
+
+Candidate manifests cannot select budget profiles or raise Workspace ceilings. If the Workspace Configuration defines a late-improving budget, a Candidate may include a separate `budget_request.yaml`; the Harness validates that request and either applies a larger effective epoch/wall-clock limit in `resolved_manifest.yaml` and `run_metadata.json` or falls back to the exploratory budget without treating denial as a contract violation.
+
+## Budget requests
+
+The default Candidate budget is exploratory. Use the optional late-improving budget only for repeated or close-continuation Candidates whose prior completed Runs suggest the exploratory epoch ceiling may be truncating learning.
+
+```yaml
+schema_version: candidate_budget_request.v1
+budget_class: late_improving
+requested_max_epochs: 36
+parent_run_ids:
+  - run_20260902_...
+justification: >
+  Parent run selected its best checkpoint near the exploratory epoch ceiling
+  and showed finite, non-collapsed late improvement.
+fallback_if_denied: run_exploratory_budget
+```
+
+The Harness owns approval/denial and records the requested/effective budget class, effective epoch count, effective Docker wall-clock timeout, request status, parent Run IDs, and reason in Run metadata.
 
 ## Auxiliary targets
 

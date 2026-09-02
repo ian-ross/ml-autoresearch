@@ -7,8 +7,9 @@ import secrets
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from ml_autoresearch.budget_requests import CandidateBudgetDecision, CandidateBudgetPolicy, decide_candidate_budget
 from ml_autoresearch.candidates import CandidateTrainingPolicy, CandidateValidationError, validate_candidate_directory
 from ml_autoresearch.execution import ExecutionBackend
 from ml_autoresearch.parameter_budget import DEFAULT_MAX_PARAMETER_COUNT
@@ -41,6 +42,8 @@ def run_experiment_batch_with_research_problem(
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
+    candidate_budget_policy: CandidateBudgetPolicy | None = None,
+    budget_backend_factory: Callable[[CandidateBudgetDecision], ExecutionBackend | None] | None = None,
     max_prediction_samples: int = 2,
     prediction_sample_policy: str = "first_n",
     ledger_path: str | Path | None = None,
@@ -58,6 +61,8 @@ def run_experiment_batch_with_research_problem(
         max_parameters=max_parameters,
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
+        candidate_budget_policy=candidate_budget_policy,
+        budget_backend_factory=budget_backend_factory,
         max_prediction_samples=max_prediction_samples,
         prediction_sample_policy=prediction_sample_policy,
         ledger_path=ledger_path,
@@ -85,6 +90,8 @@ def _run_experiment_batch(
     max_parameters: int,
     max_epochs: int | None,
     candidate_training_policy: CandidateTrainingPolicy | None,
+    candidate_budget_policy: CandidateBudgetPolicy | None,
+    budget_backend_factory: Callable[[CandidateBudgetDecision], ExecutionBackend | None] | None,
     max_prediction_samples: int,
     prediction_sample_policy: str,
     ledger_path: str | Path | None,
@@ -168,6 +175,8 @@ def _run_experiment_batch(
                 max_parameters,
                 max_epochs,
                 candidate_training_policy,
+                candidate_budget_policy,
+                budget_backend_factory,
             ): (candidate_path, manifest.name)
             for candidate_path, manifest in candidates
         }
@@ -339,17 +348,26 @@ def _submit_and_train_batch_candidate(
     max_parameters: int = DEFAULT_MAX_PARAMETER_COUNT,
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
+    candidate_budget_policy: CandidateBudgetPolicy | None = None,
+    budget_backend_factory: Callable[[CandidateBudgetDecision], ExecutionBackend | None] | None = None,
 ):
+    budget_decision = (
+        decide_candidate_budget(candidate_path, candidate_budget_policy, runs_root=runs_root)
+        if candidate_budget_policy
+        else None
+    )
+    selected_backend = budget_backend_factory(budget_decision) if budget_decision is not None and budget_backend_factory else backend
     run = submit_candidate(
         candidate_path,
         runs_root,
-        backend=backend,
+        backend=selected_backend,
         ledger_path=ledger_path,
         require_proposal=False,
         research_problem_registry=research_problem_registry,
         max_parameters=max_parameters,
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
+        candidate_budget_decision=budget_decision,
     )
     _tag_run_with_batch(run.run_dir, batch_id=batch_id, candidate_id=candidate_id)
     if run.status == RunStatus.ACCEPTED:
@@ -358,7 +376,7 @@ def _submit_and_train_batch_candidate(
             {"batch_id": batch_id, "candidate_id": candidate_id, "run_id": run.run_id},
             ledger_path=ledger_path,
         )
-        run = train_accepted(run.run_dir, backend, ledger_path)
+        run = train_accepted(run.run_dir, selected_backend, ledger_path)
         _tag_run_with_batch(run.run_dir, batch_id=batch_id, candidate_id=candidate_id)
     return run
 
