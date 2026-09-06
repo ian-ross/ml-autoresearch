@@ -1005,10 +1005,13 @@ def _resolved_manifest_payload(
     registry: ResearchProblemSpecRegistry | None = None,
 ) -> dict[str, object]:
     payload = manifest.model_dump(mode="json")
+    spec = registry.get(str(getattr(manifest, "research_problem"))) if registry is not None else None
     payload["research_problem"] = _research_problem_identity(manifest, registry)
     data_policy = payload.setdefault("data", {})
     if data_policy.get("temporal_offsets_seconds") is None:
         data_policy.pop("temporal_offsets_seconds", None)
+    if data_policy.get("temporal_frame_offsets") is None:
+        data_policy.pop("temporal_frame_offsets", None)
     selected = data_policy.get("augmentation_policy", "none")
     data_policy["augmentation_policy"] = selected
     data_policy["augmentation_policy_effective"] = selected
@@ -1019,6 +1022,15 @@ def _resolved_manifest_payload(
         temporal_offsets = data_policy.get("temporal_offsets_seconds", [-30, 0, 30])
         data_policy["temporal_offsets_seconds"] = temporal_offsets
         data_policy["temporal_offsets_seconds_effective"] = temporal_offsets
+    if spec is not None:
+        input_spec = spec.input_specs.get(str(payload.get("input_mode")), {})
+        temporal_field = str(input_spec.get("temporal_offset_field", "")) if isinstance(input_spec, dict) else ""
+        if temporal_field == "temporal_frame_offsets":
+            default_offsets = input_spec.get("default_temporal_frame_offsets", input_spec.get("temporal_frame_offsets"))
+            temporal_offsets = data_policy.get("temporal_frame_offsets", default_offsets)
+            if temporal_offsets is not None:
+                data_policy["temporal_frame_offsets"] = temporal_offsets
+                data_policy["temporal_frame_offsets_effective"] = temporal_offsets
     return payload
 
 

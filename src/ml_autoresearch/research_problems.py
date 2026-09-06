@@ -234,10 +234,11 @@ class ResearchProblemSpec(BaseModel):
             raise ResearchProblemSpecError(
                 f"Research Problem {self.id!r} has no smoke input spec for input_mode {input_mode!r}"
             ) from exc
+        data_policy = resolved_manifest.get("data", {}) or {}
+        if not isinstance(data_policy, Mapping):
+            raise ResearchProblemSpecError("resolved manifest data field must be a mapping")
+        temporal_field = str(input_spec.get("temporal_offset_field", ""))
         if input_mode == "centered_temporal_rgb_clip":
-            data_policy = resolved_manifest.get("data", {}) or {}
-            if not isinstance(data_policy, Mapping):
-                raise ResearchProblemSpecError("resolved manifest data field must be a mapping")
             raw_offsets = data_policy.get("temporal_offsets_seconds_effective", data_policy.get("temporal_offsets_seconds", [-30, 0, 30]))
             offsets = _validated_temporal_offsets_for_input_spec(raw_offsets)
             base_shape = input_spec.get("shape", [9, 128, 128])
@@ -248,6 +249,24 @@ class ResearchProblemSpec(BaseModel):
             input_spec["temporal_offsets_seconds"] = offsets
             input_spec["target_frame_index"] = offsets.index(0)
             input_spec["target_channel_start"] = 3 * offsets.index(0)
+        elif temporal_field == "temporal_frame_offsets":
+            default_offsets = input_spec.get("default_temporal_frame_offsets", input_spec.get("temporal_frame_offsets", [-1, 0, 1]))
+            raw_offsets = data_policy.get("temporal_frame_offsets_effective", data_policy.get("temporal_frame_offsets", default_offsets))
+            offsets = _validated_temporal_frame_offsets_for_input_spec(
+                raw_offsets,
+                allowed_windows=input_spec.get("allowed_temporal_frame_offsets"),
+            )
+            base_shape = input_spec.get("shape", [0, 256, 256])
+            if not isinstance(base_shape, list) or len(base_shape) != 3:
+                raise ResearchProblemSpecError(f"{input_mode} input spec shape must be [channels, height, width]")
+            channels_per_frame = input_spec.get("base_channels_per_frame")
+            if isinstance(channels_per_frame, bool) or not isinstance(channels_per_frame, int) or channels_per_frame < 1:
+                raise ResearchProblemSpecError(f"{input_mode} input spec requires positive integer base_channels_per_frame")
+            input_spec["shape"] = [channels_per_frame * len(offsets), base_shape[1], base_shape[2]]
+            input_spec["frame_count"] = len(offsets)
+            input_spec["temporal_frame_offsets"] = offsets
+            input_spec["target_frame_index"] = offsets.index(0)
+            input_spec["target_channel_start"] = channels_per_frame * offsets.index(0)
         return input_spec
 
     def build_output_spec(self, resolved_manifest: Mapping[str, object]) -> dict[str, object]:
@@ -300,6 +319,33 @@ def _validated_temporal_offsets_for_input_spec(raw_offsets: object) -> list[int]
             "data.temporal_offsets_seconds must place 0 at the canonical target position after sorting; "
             "use symmetric odd-length clips or past-heavy even-length clips such as [-60, -30, 0, 30]"
         )
+    return offsets
+
+
+def _validated_temporal_frame_offsets_for_input_spec(
+    raw_offsets: object,
+    *,
+    allowed_windows: object = None,
+) -> list[int]:
+    if not isinstance(raw_offsets, list) or not raw_offsets:
+        raise ResearchProblemSpecError("data.temporal_frame_offsets must be a non-empty list of integer frame offsets")
+    if any(isinstance(offset, bool) or not isinstance(offset, int) for offset in raw_offsets):
+        raise ResearchProblemSpecError("data.temporal_frame_offsets must contain only integer frame offsets")
+    offsets = sorted(raw_offsets)
+    if len(offsets) != len(set(offsets)):
+        raise ResearchProblemSpecError("data.temporal_frame_offsets must not contain duplicate offsets")
+    if len(offsets) > 5:
+        raise ResearchProblemSpecError("data.temporal_frame_offsets supports at most 5 frames")
+    if 0 not in offsets:
+        raise ResearchProblemSpecError("data.temporal_frame_offsets must include 0 for the target frame")
+    if allowed_windows is not None:
+        if not isinstance(allowed_windows, list):
+            raise ResearchProblemSpecError("input spec allowed_temporal_frame_offsets must be a list of windows")
+        allowed = [sorted(window) for window in allowed_windows if isinstance(window, list)]
+        if offsets not in allowed:
+            raise ResearchProblemSpecError(
+                f"data.temporal_frame_offsets must be one of the provider-allowed windows {allowed!r}; got {offsets!r}"
+            )
     return offsets
 
 

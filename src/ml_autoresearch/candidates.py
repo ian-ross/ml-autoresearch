@@ -84,34 +84,56 @@ class DataManifest(BaseModel):
     frame_selection_policy: str | None = Field(default=None, min_length=1)
     augmentation_policy: str = Field(default="none", min_length=1)
     temporal_offsets_seconds: list[int] | None = None
+    temporal_frame_offsets: list[int] | None = None
 
     @model_validator(mode="after")
     def _validate_temporal_offsets(self) -> "DataManifest":
-        if self.temporal_offsets_seconds is None:
-            return self
-        offsets = self.temporal_offsets_seconds
-        if not offsets:
-            raise ValueError("temporal_offsets_seconds must contain at least one offset")
-        if any(isinstance(offset, bool) or not isinstance(offset, int) for offset in offsets):
-            raise ValueError("temporal_offsets_seconds must contain only integer second offsets")
-        normalized = sorted(offsets)
-        if len(normalized) != len(set(normalized)):
-            raise ValueError("temporal_offsets_seconds must not contain duplicate offsets")
-        if len(normalized) > 5:
-            raise ValueError("temporal_offsets_seconds supports at most 5 frames")
-        if 0 not in normalized:
-            raise ValueError("temporal_offsets_seconds must include 0 for the target frame")
-        if any(abs(offset) > 120 for offset in normalized):
-            raise ValueError("temporal_offsets_seconds offsets must be within +/-120 seconds")
-        if any(offset % 30 != 0 for offset in normalized):
-            raise ValueError("temporal_offsets_seconds offsets must be multiples of 30 seconds")
-        if normalized.index(0) != len(normalized) // 2:
-            raise ValueError(
-                "temporal_offsets_seconds must place 0 at the canonical target position after sorting; "
-                "use symmetric odd-length clips or past-heavy even-length clips such as [-60, -30, 0, 30]"
-            )
-        self.temporal_offsets_seconds = normalized
+        if self.temporal_offsets_seconds is not None and self.temporal_frame_offsets is not None:
+            raise ValueError("declare only one temporal offset field")
+        if self.temporal_offsets_seconds is not None:
+            self.temporal_offsets_seconds = _normalize_temporal_offsets_seconds(self.temporal_offsets_seconds)
+        if self.temporal_frame_offsets is not None:
+            self.temporal_frame_offsets = _normalize_temporal_frame_offsets(self.temporal_frame_offsets)
         return self
+
+
+def _normalize_temporal_offsets_seconds(offsets: list[int]) -> list[int]:
+    if not offsets:
+        raise ValueError("temporal_offsets_seconds must contain at least one offset")
+    if any(isinstance(offset, bool) or not isinstance(offset, int) for offset in offsets):
+        raise ValueError("temporal_offsets_seconds must contain only integer second offsets")
+    normalized = sorted(offsets)
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("temporal_offsets_seconds must not contain duplicate offsets")
+    if len(normalized) > 5:
+        raise ValueError("temporal_offsets_seconds supports at most 5 frames")
+    if 0 not in normalized:
+        raise ValueError("temporal_offsets_seconds must include 0 for the target frame")
+    if any(abs(offset) > 120 for offset in normalized):
+        raise ValueError("temporal_offsets_seconds offsets must be within +/-120 seconds")
+    if any(offset % 30 != 0 for offset in normalized):
+        raise ValueError("temporal_offsets_seconds offsets must be multiples of 30 seconds")
+    if normalized.index(0) != len(normalized) // 2:
+        raise ValueError(
+            "temporal_offsets_seconds must place 0 at the canonical target position after sorting; "
+            "use symmetric odd-length clips or past-heavy even-length clips such as [-60, -30, 0, 30]"
+        )
+    return normalized
+
+
+def _normalize_temporal_frame_offsets(offsets: list[int]) -> list[int]:
+    if not offsets:
+        raise ValueError("temporal_frame_offsets must contain at least one offset")
+    if any(isinstance(offset, bool) or not isinstance(offset, int) for offset in offsets):
+        raise ValueError("temporal_frame_offsets must contain only integer frame offsets")
+    normalized = sorted(offsets)
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("temporal_frame_offsets must not contain duplicate offsets")
+    if len(normalized) > 5:
+        raise ValueError("temporal_frame_offsets supports at most 5 frames")
+    if 0 not in normalized:
+        raise ValueError("temporal_frame_offsets must include 0 for the target frame")
+    return normalized
 
 
 class AuxiliaryTargetManifest(BaseModel):
@@ -399,6 +421,12 @@ def _load_manifest(
 def _apply_data_policy_defaults(manifest: CandidateManifest, spec: ResearchProblemSpec) -> None:
     if manifest.data.frame_selection_policy is None:
         manifest.data.frame_selection_policy = spec.input_mode_frame_selection_defaults.get(manifest.input_mode, "all_target_frames")
+    input_spec = spec.input_specs.get(manifest.input_mode, {})
+    temporal_field = str(input_spec.get("temporal_offset_field", "")) if isinstance(input_spec, dict) else ""
+    if temporal_field == "temporal_frame_offsets" and manifest.data.temporal_frame_offsets is None:
+        default_offsets = input_spec.get("default_temporal_frame_offsets", input_spec.get("temporal_frame_offsets"))
+        if isinstance(default_offsets, list):
+            manifest.data.temporal_frame_offsets = _normalize_temporal_frame_offsets(list(default_offsets))
     if manifest.input_mode == "centered_temporal_rgb_clip" and manifest.data.temporal_offsets_seconds is None:
         manifest.data.temporal_offsets_seconds = [-30, 0, 30]
 
@@ -452,16 +480,31 @@ def _manifest_allowlist_errors(manifest: CandidateManifest, spec: ResearchProble
     _append_allowlist_error(errors, "data.sampling_policy", manifest.data.sampling_policy, spec.sampling_policies, context)
     _append_allowlist_error(errors, "data.frame_selection_policy", manifest.data.frame_selection_policy or "", spec.frame_selection_policies, context)
     expected_frame_policy = spec.input_mode_frame_selection_defaults.get(manifest.input_mode)
-    if manifest.input_mode == "centered_temporal_rgb_clip" and manifest.data.frame_selection_policy != expected_frame_policy:
+    input_spec = spec.input_specs.get(manifest.input_mode, {})
+    temporal_field = str(input_spec.get("temporal_offset_field", "")) if isinstance(input_spec, dict) else ""
+    if (manifest.input_mode == "centered_temporal_rgb_clip" or temporal_field) and manifest.data.frame_selection_policy != expected_frame_policy:
         errors.append(
-            "data.frame_selection_policy: centered_temporal_rgb_clip requires "
+            f"data.frame_selection_policy: {manifest.input_mode} requires "
             f"{expected_frame_policy!r} {context} (got {manifest.data.frame_selection_policy!r})"
         )
-    if manifest.data.temporal_offsets_seconds is not None and manifest.input_mode != "centered_temporal_rgb_clip":
+    if manifest.data.temporal_offsets_seconds is not None and manifest.input_mode != "centered_temporal_rgb_clip" and temporal_field != "temporal_offsets_seconds":
         errors.append(
-            "data.temporal_offsets_seconds: temporal offsets are only supported with "
-            f"input_mode 'centered_temporal_rgb_clip' {context} (got {manifest.input_mode!r})"
+            "data.temporal_offsets_seconds: temporal offsets are not supported with "
+            f"input_mode {manifest.input_mode!r} {context}"
         )
+    if manifest.data.temporal_frame_offsets is not None and temporal_field != "temporal_frame_offsets":
+        errors.append(
+            "data.temporal_frame_offsets: temporal frame offsets are not supported with "
+            f"input_mode {manifest.input_mode!r} {context}"
+        )
+    allowed_frame_offsets = input_spec.get("allowed_temporal_frame_offsets") if isinstance(input_spec, dict) else None
+    if manifest.data.temporal_frame_offsets is not None and isinstance(allowed_frame_offsets, list):
+        allowed = [list(item) for item in allowed_frame_offsets if isinstance(item, list)]
+        if manifest.data.temporal_frame_offsets not in allowed:
+            errors.append(
+                "data.temporal_frame_offsets: unsupported value "
+                f"{context}; allowed windows are {allowed!r} (got {manifest.data.temporal_frame_offsets!r})"
+            )
     _append_allowlist_error(
         errors,
         "data.augmentation_policy",

@@ -82,3 +82,106 @@ def test_temporal_offsets_update_smoke_input_spec_shape():
     assert input_spec["clip_length"] == 5
     assert input_spec["target_frame_index"] == 2
     assert input_spec["target_channel_start"] == 6
+
+
+def _abi_frame_offset_spec() -> ResearchProblemSpec:
+    return ResearchProblemSpec(
+        id="goes_abi_contrail_segmentation",
+        version="v0",
+        input_modes=("abi_16ch_plus_sza", "abi_16ch_plus_sza_temporal"),
+        input_specs={
+            "abi_16ch_plus_sza": {"mode": "abi_16ch_plus_sza", "shape": [17, 256, 256]},
+            "abi_16ch_plus_sza_temporal": {
+                "mode": "abi_16ch_plus_sza_temporal",
+                "shape": [51, 256, 256],
+                "layout": "channel_stacked_temporal_frames",
+                "temporal_offset_field": "temporal_frame_offsets",
+                "default_temporal_frame_offsets": [-1, 0, 1],
+                "allowed_temporal_frame_offsets": [[0], [-1, 0, 1], [-2, -1, 0, 1, 2]],
+                "base_channels_per_frame": 17,
+                "target_frame_offset": 0,
+            },
+        },
+        output_forms=("mask_logits",),
+        output_specs={"mask_logits": {"form": "mask_logits", "shape": [1, 256, 256]}},
+        losses=("bce_dice",),
+        optimizers=("adamw",),
+        sampling_policies=("sequential",),
+        frame_selection_policies=("all_target_frames", "temporal_eligible_center"),
+        input_mode_frame_selection_defaults={
+            "abi_16ch_plus_sza": "all_target_frames",
+            "abi_16ch_plus_sza_temporal": "temporal_eligible_center",
+        },
+        augmentation_policies=("none",),
+        primary_metric="val/dice",
+    )
+
+
+def test_provider_declared_frame_offsets_are_validated_and_defaulted(tmp_path: Path):
+    candidate = tmp_path / "candidate"
+    _write_candidate(
+        candidate,
+        """
+name: abi_temporal
+research_problem: goes_abi_contrail_segmentation
+input_mode: abi_16ch_plus_sza_temporal
+output_form: mask_logits
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 1
+  max_epochs: 1
+""".strip(),
+    )
+
+    manifest = validate_candidate_directory(candidate, research_problem_registry=ResearchProblemSpecRegistry([_abi_frame_offset_spec()]))
+
+    assert manifest.data.frame_selection_policy == "temporal_eligible_center"
+    assert manifest.data.temporal_frame_offsets == [-1, 0, 1]
+
+
+def test_provider_declared_frame_offsets_reject_non_allowlisted_windows(tmp_path: Path):
+    candidate = tmp_path / "candidate"
+    _write_candidate(
+        candidate,
+        """
+name: abi_temporal_bad_window
+research_problem: goes_abi_contrail_segmentation
+input_mode: abi_16ch_plus_sza_temporal
+output_form: mask_logits
+data:
+  temporal_frame_offsets: [0, 1]
+training:
+  loss: bce_dice
+  optimizer: adamw
+  learning_rate: 0.001
+  batch_size: 1
+  max_epochs: 1
+""".strip(),
+    )
+
+    try:
+        validate_candidate_directory(candidate, research_problem_registry=ResearchProblemSpecRegistry([_abi_frame_offset_spec()]))
+    except ValueError as exc:
+        assert "data.temporal_frame_offsets" in str(exc)
+        assert "allowed" in str(exc)
+    else:  # pragma: no cover - documents intended failure
+        raise AssertionError("non-allowlisted temporal_frame_offsets were accepted")
+
+
+def test_provider_declared_frame_offsets_update_smoke_input_spec_shape():
+    spec = _abi_frame_offset_spec()
+
+    input_spec = spec.build_input_spec(
+        {
+            "input_mode": "abi_16ch_plus_sza_temporal",
+            "data": {"temporal_frame_offsets_effective": [-2, -1, 0, 1, 2]},
+        }
+    )
+
+    assert input_spec["shape"] == [85, 256, 256]
+    assert input_spec["frame_count"] == 5
+    assert input_spec["temporal_frame_offsets"] == [-2, -1, 0, 1, 2]
+    assert input_spec["target_frame_index"] == 2
+    assert input_spec["target_channel_start"] == 34

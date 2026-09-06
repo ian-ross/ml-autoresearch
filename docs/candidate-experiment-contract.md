@@ -204,7 +204,7 @@ data:
   augmentation_policy: light_combined
 ```
 
-Allowed values come from the configured Research Problem Spec. If omitted, `data.sampling_policy` resolves to `sequential` and `data.augmentation_policy` resolves to `none` when those defaults are supported. Frame-selection policies are provider-dependent; temporal modes such as `centered_temporal_rgb_clip` are implemented only by providers that advertise them.
+Allowed values come from the configured Research Problem Spec. If omitted, `data.sampling_policy` resolves to `sequential` and `data.augmentation_policy` resolves to `none` when those defaults are supported. Frame-selection policies are provider-dependent; temporal modes such as `centered_temporal_rgb_clip` are implemented only by providers that advertise them. Temporal providers may also advertise their offset semantics in the input spec, for example `data.temporal_offsets_seconds` for second offsets or `data.temporal_frame_offsets` for ordered frame offsets; candidates may use only provider-allowed windows.
 
 ## Dataset and mount authority
 
