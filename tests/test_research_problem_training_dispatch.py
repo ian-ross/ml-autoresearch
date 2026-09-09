@@ -151,6 +151,43 @@ def test_trusted_data_bootstrap_failure_is_harness_owned(tmp_path: Path) -> None
     assert "trusted dataset bootstrap failed" in metadata["training_failure_reason"]
 
 
+def test_provider_data_preflight_rejects_before_run_submission(tmp_path: Path) -> None:
+    _write_fake_problem_package(tmp_path)
+    provider_path = tmp_path / "fake_problem" / "research_problem.py"
+    provider_path.write_text(
+        provider_path.read_text().replace(
+            "    def dataset_metadata(self, data_config):\n"
+            "        return {'id': 'fake_dataset', 'fixture': data_config.get('fixture', 'tiny')}\n",
+            "    def dataset_metadata(self, data_config):\n"
+            "        return {'id': 'fake_dataset', 'fixture': data_config.get('fixture', 'tiny')}\n"
+            "\n"
+            "    def validate_candidate_data_availability(self, data_config, manifest, *, max_samples=None):\n"
+            "        from ml_autoresearch.errors import ResearchProblemDataError\n"
+            "        assert max_samples == 4\n"
+            "        raise ResearchProblemDataError('trusted temporal eligibility preflight found zero samples')\n",
+        )
+    )
+    candidate = _write_fake_candidate(tmp_path)
+    config = ResearchProblemProviderConfig(
+        id="fake_problem",
+        package_root=tmp_path,
+        provider_target="fake_problem.research_problem:build_spec",
+        expected_contract_version="v0",
+        data_config={"fixture": "tiny", "sample_count": 4},
+    )
+
+    run = run_candidate_with_research_problem(candidate, tmp_path / "runs", config, max_samples=4)
+
+    assert run.status == RunStatus.REJECTED
+    assert run.failure_classification == "harness_failure"
+    metadata = json.loads((run.run_dir / "run_metadata.json").read_text())
+    assert metadata["status"] == "rejected"
+    assert metadata["failure_classification"] == "harness_failure"
+    assert "zero samples" in metadata["rejection_reason"]
+    assert not (run.run_dir / "resolved_manifest.yaml").exists()
+    assert not (run.run_dir / "candidate").exists()
+
+
 def test_nonfinite_enhanced_validation_report_fails_closed_before_checkpoint(tmp_path: Path) -> None:
     _write_fake_problem_package(tmp_path)
     provider_path = tmp_path / "fake_problem" / "research_problem.py"

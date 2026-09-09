@@ -238,6 +238,11 @@ def run_candidate_with_research_problem(
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
         candidate_budget_decision=candidate_budget_decision,
+        pre_submission_validator=_research_problem_pre_submission_validator(
+            loaded.spec.training_adapter,
+            effective_data_config,
+            max_samples=max_samples,
+        ),
     )
 
 
@@ -282,6 +287,24 @@ def train_accepted_run_with_research_problem(
         research_problem=_research_problem_run_metadata(loaded.run_metadata(), provider_config),
         ledger_path=_resolve_ledger_path(path.parent, ledger_path),
     )
+
+
+def _research_problem_pre_submission_validator(
+    training_adapter: object | None,
+    data_config: dict[str, object],
+    *,
+    max_samples: int | None,
+) -> Callable[[object], None] | None:
+    """Return a provider-owned manifest/data preflight hook when available."""
+
+    validator = getattr(training_adapter, "validate_candidate_data_availability", None)
+    if not callable(validator):
+        return None
+
+    def _validate(manifest: object) -> None:
+        validator(data_config, manifest, max_samples=max_samples)
+
+    return _validate
 
 
 def _research_problem_run_metadata(
@@ -475,6 +498,7 @@ def _run_candidate_training(
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
     candidate_budget_decision: CandidateBudgetDecision | None = None,
+    pre_submission_validator: Callable[[object], None] | None = None,
 ) -> RunSubmission:
     resolved_ledger_path = _resolve_ledger_path(runs_root, ledger_path)
     run = submit_candidate(
@@ -488,6 +512,7 @@ def _run_candidate_training(
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
         candidate_budget_decision=candidate_budget_decision,
+        pre_submission_validator=pre_submission_validator,
     )
     if run.status != RunStatus.ACCEPTED:
         return run
@@ -1082,6 +1107,7 @@ def prepare_candidate_submission(
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
     candidate_budget_decision: CandidateBudgetDecision | None = None,
+    pre_submission_validator: Callable[[object], None] | None = None,
 ) -> RunSubmission:
     """Validate and copy a Candidate into a stable Run before smoke execution."""
 
@@ -1152,6 +1178,29 @@ def prepare_candidate_submission(
             budget_decision=candidate_budget_decision.metadata() if candidate_budget_decision is not None else None,
         )
         return RunSubmission(run_id, run_dir, RunStatus.REJECTED, repair_policy_reason, RunFailureClassification.CONTRACT_VIOLATION)
+
+    if pre_submission_validator is not None:
+        try:
+            pre_submission_validator(manifest)
+        except (ResearchProblemDataError, TrainingError) as exc:
+            reason = str(exc)
+            validation_log.write_text(f"Research Problem data preflight failed: {reason}\n")
+            _write_metadata(
+                run_dir,
+                run_id=run_id,
+                status=RunStatus.REJECTED,
+                created_at=created_at,
+                updated_at=_now_iso(),
+                candidate_source=source,
+                rejection_reason=reason,
+                smoke_failure_reason=None,
+                training_failure_reason=None,
+                failure_classification=RunFailureClassification.HARNESS_FAILURE,
+                execution_backend=execution_backend_metadata,
+                repair_lineage=repair_lineage,
+                budget_decision=candidate_budget_decision.metadata() if candidate_budget_decision is not None else None,
+            )
+            return RunSubmission(run_id, run_dir, RunStatus.REJECTED, reason, RunFailureClassification.HARNESS_FAILURE)
 
     research_problem = _research_problem_identity(manifest, research_problem_registry)
     validation_log.write_text("Candidate validation accepted.\n")
@@ -1280,6 +1329,7 @@ def submit_candidate(
     max_epochs: int | None = None,
     candidate_training_policy: CandidateTrainingPolicy | None = None,
     candidate_budget_decision: CandidateBudgetDecision | None = None,
+    pre_submission_validator: Callable[[object], None] | None = None,
 ) -> RunSubmission:
     """Validate and synchronously smoke-test a local Candidate Experiment."""
 
@@ -1293,6 +1343,7 @@ def submit_candidate(
         max_epochs=max_epochs,
         candidate_training_policy=candidate_training_policy,
         candidate_budget_decision=candidate_budget_decision,
+        pre_submission_validator=pre_submission_validator,
     )
     if prepared.status != RunStatus.SMOKE_TESTING:
         return prepared
